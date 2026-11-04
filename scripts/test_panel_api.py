@@ -94,7 +94,7 @@ def run_tests():
         # TEST 1: Left +X 10 cm (0.10 m)
         print("\n--- TEST 1: Left Arm Jog +X 10 cm ---")
         post_cmd({"name": "jog_l", "axis": 0, "step": 0.10})
-        time.sleep(0.8)
+        time.sleep(1.0)
         st = get_status()
         actual_disp_l = np.array(st["ee_l"]) - home_l
         err_pct_x = abs(actual_disp_l[0] - 0.10) / 0.10 * 100.0
@@ -171,6 +171,97 @@ def run_tests():
 
         # Clear E-STOP to leave server clean
         post_cmd({"name": "clear_estop"})
+
+        # TEST 7: 3D Gizmo Endpoint - Right Wrist Translation (+10 cm Z)
+        print("\n--- TEST 7: 3D Gizmo Endpoint - Right Wrist Translate (+10 cm Z) ---")
+        post_cmd({"name": "preset", "pose": "reset"})
+        time.sleep(0.8)
+        st_reset = get_status()
+        cur_l = np.array(st_reset["ee_l"])
+        cur_r = np.array(st_reset["ee_r"])
+
+        # Send target marker displacement to right wrist via set_wrist_target
+        target_pos_r = [float(cur_r[0]), float(cur_r[1]), float(cur_r[2] + 0.10)]
+        post_cmd({
+            "cmd": "set_wrist_target",
+            "side": "right",
+            "arm": "right",
+            "pos": target_pos_r
+        })
+        time.sleep(1.0)
+        st_r_moved = get_status()
+        disp_r = np.array(st_r_moved["ee_r"]) - cur_r
+        disp_l_iso = np.array(st_r_moved["ee_l"]) - cur_l
+        err_pct_z_gizmo = abs(disp_r[2] - 0.10) / 0.10 * 100.0
+        isolation_l_mm = float(np.linalg.norm(disp_l_iso)) * 1000.0
+        t7_pass = (err_pct_z_gizmo <= 15.0) and (isolation_l_mm < 2.0)
+        print(f"Result: Right disp Z={disp_r[2]*1000.0:+.1f} mm (Err: {err_pct_z_gizmo:.1f}%) | "
+              f"Left unchanged: {isolation_l_mm:.2f} mm (< 2.0 mm) | Pass: {t7_pass}")
+        if not t7_pass: passed_all = False
+
+        # TEST 8: 3D Gizmo Endpoint - Left & Right Wrist Rotation (+30 deg Yaw)
+        print("\n--- TEST 8: 3D Gizmo Endpoint - Left/Right Wrist Rotation (+30 deg Yaw) ---")
+        from scipy.spatial.transform import Rotation as R
+        yaw30 = R.from_euler("z", 30, degrees=True)
+
+        # 8a: Left Wrist +30 deg Yaw
+        post_cmd({"name": "preset", "pose": "reset"})
+        time.sleep(0.8)
+        st_pre = get_status()
+        rot_l_orig = np.array(st_pre["rot_l"])
+        rot_r_orig = np.array(st_pre["rot_r"])
+        rot_l_target = (yaw30 * R.from_matrix(rot_l_orig)).as_matrix()
+        ql_scipy = R.from_matrix(rot_l_target).as_quat() # [x, y, z, w]
+        ql_param = [float(ql_scipy[3]), float(ql_scipy[0]), float(ql_scipy[1]), float(ql_scipy[2])] # [w, x, y, z]
+
+        post_cmd({
+            "cmd": "set_wrist_target",
+            "side": "left",
+            "arm": "left",
+            "pos": st_pre["ee_l"],
+            "rot_quat": ql_param
+        })
+        time.sleep(1.0)
+        st_rot_l = get_status()
+        rot_l_achieved = np.array(st_rot_l["rot_l"])
+        rot_l_diff = yaw30.inv() * (R.from_matrix(rot_l_achieved) * R.from_matrix(rot_l_orig).inv())
+        angle_l_err_deg = abs(float(np.rad2deg(rot_l_diff.magnitude())))
+        right_rot_diff = R.from_matrix(st_rot_l["rot_r"]) * R.from_matrix(rot_r_orig).inv()
+        right_rot_iso_deg = float(np.rad2deg(right_rot_diff.magnitude()))
+        t8a_pass = (angle_l_err_deg <= 3.0) and (right_rot_iso_deg <= 1.0)
+        print(f"Result (Left Yaw): err={angle_l_err_deg:.2f}° (<= 3.0°) | Right unchanged: {right_rot_iso_deg:.2f}° | Pass: {t8a_pass}")
+        if not t8a_pass: passed_all = False
+
+        # 8b: Right Wrist +30 deg Yaw
+        post_cmd({"name": "preset", "pose": "reset"})
+        time.sleep(0.8)
+        st_pre_r = get_status()
+        rot_l_orig2 = np.array(st_pre_r["rot_l"])
+        rot_r_orig2 = np.array(st_pre_r["rot_r"])
+        rot_r_target = (yaw30 * R.from_matrix(rot_r_orig2)).as_matrix()
+        qr_scipy = R.from_matrix(rot_r_target).as_quat() # [x, y, z, w]
+        qr_param = [float(qr_scipy[3]), float(qr_scipy[0]), float(qr_scipy[1]), float(qr_scipy[2])]
+
+        post_cmd({
+            "cmd": "set_wrist_target",
+            "side": "right",
+            "arm": "right",
+            "pos": st_pre_r["ee_r"],
+            "rot_quat": qr_param
+        })
+        time.sleep(1.0)
+        st_rot_r = get_status()
+        rot_r_achieved = np.array(st_rot_r["rot_r"])
+        rot_r_diff = yaw30.inv() * (R.from_matrix(rot_r_achieved) * R.from_matrix(rot_r_orig2).inv())
+        angle_r_err_deg = abs(float(np.rad2deg(rot_r_diff.magnitude())))
+        left_rot_diff = R.from_matrix(st_rot_r["rot_l"]) * R.from_matrix(rot_l_orig2).inv()
+        left_rot_iso_deg = float(np.rad2deg(left_rot_diff.magnitude()))
+        t8b_pass = (angle_r_err_deg <= 3.0) and (left_rot_iso_deg <= 1.0)
+        print(f"Result (Right Yaw): err={angle_r_err_deg:.2f}° (<= 3.0°) | Left unchanged: {left_rot_iso_deg:.2f}° | Pass: {t8b_pass}")
+        if not t8b_pass: passed_all = False
+
+        # Final reset to home
+        post_cmd({"name": "preset", "pose": "reset"})
 
         print("=" * 80)
         if passed_all:

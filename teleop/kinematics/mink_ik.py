@@ -20,22 +20,22 @@ except ImportError:
     mink = None
 
 
-# AimDK real robot joint limits profile (rad)
+# AimDK & hardware joint limits profile (rad) from physical manual Sec 3.4
 REAL_ROBOT_LIMITS = {
     "idx13_left_arm_joint1": (-2.91, 2.91),
     "idx14_left_arm_joint2": (-0.46, 1.60),
     "idx15_left_arm_joint3": (-2.91, 2.91),
     "idx16_left_arm_joint4": (-2.00, -0.03),
     "idx17_left_arm_joint5": (-2.88, 2.88),
-    "idx18_left_arm_joint6": (-0.45, 0.45), # Real firmware wrist pitch limit
-    "idx19_left_arm_joint7": (-0.35, 0.35), # Real firmware wrist yaw limit
+    "idx18_left_arm_joint6": (-0.785, 0.785), # Wrist pitch: ±45 deg (physical limit)
+    "idx19_left_arm_joint7": (-0.523, 0.523), # Wrist yaw: ±30 deg (physical limit)
     "idx20_right_arm_joint1": (-2.91, 2.91),
     "idx21_right_arm_joint2": (-1.60, 0.46),
     "idx22_right_arm_joint3": (-2.91, 2.91),
     "idx23_right_arm_joint4": (0.03, 2.00),
     "idx24_right_arm_joint5": (-2.88, 2.88),
-    "idx25_right_arm_joint6": (-0.45, 0.45),
-    "idx26_right_arm_joint7": (-0.35, 0.35),
+    "idx25_right_arm_joint6": (-0.785, 0.785), # Wrist pitch: ±45 deg (physical limit)
+    "idx26_right_arm_joint7": (-0.523, 0.523), # Wrist yaw: ±30 deg (physical limit)
 }
 
 
@@ -107,11 +107,11 @@ class AgibotMinkIK:
                 frame_type="site",
                 position_cost=30.0,
                 orientation_cost=3.0,
-                lm_damping=0.05
+                lm_damping=0.10
             )
 
             # Posture task for elbow redundancy and natural posture
-            self.posture_task = mink.PostureTask(self.model, cost=0.05)
+            self.posture_task = mink.PostureTask(self.model, cost=0.10)
             self._set_posture_target(self.nominal_qpos)
 
             # Hardware limits as hard constraints
@@ -129,10 +129,23 @@ class AgibotMinkIK:
             self.limits_list = [self.config_limit, self.vel_limit]
             if self.use_collision_avoidance and hasattr(mink, "CollisionAvoidanceLimit"):
                 try:
-                    self.collision_limit = mink.CollisionAvoidanceLimit(self.model, min_distance=0.03)
+                    from teleop.utils.collision_checker import CollisionChecker
+                    checker = CollisionChecker(self.model)
+                    arm_geoms = (checker.left_arm_geoms + checker.left_hand_geoms) if self.arm == "left" else (checker.right_arm_geoms + checker.right_hand_geoms)
+                    geom_pairs = []
+                    if checker.torso_geoms:
+                        geom_pairs.append((checker.torso_geoms, arm_geoms))
+                    if checker.head_geoms:
+                        geom_pairs.append((checker.head_geoms, arm_geoms))
+                    self.collision_limit = mink.CollisionAvoidanceLimit(
+                        self.model,
+                        geom_pairs=geom_pairs,
+                        minimum_distance_from_collisions=0.005,
+                        collision_detection_distance=0.025
+                    )
                     self.limits_list.append(self.collision_limit)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[WARN] Failed to initialize mink CollisionAvoidanceLimit: {e}")
         else:
             self.conf = None
 

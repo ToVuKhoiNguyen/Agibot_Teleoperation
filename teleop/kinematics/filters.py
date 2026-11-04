@@ -131,12 +131,14 @@ class InputFilterPipeline:
 
         self.last_valid_pos = None
         self.last_valid_rot = None
+        self.spike_count = 0
 
     def reset(self):
         self.pos_filter.reset()
         self.rot_filter.reset()
         self.last_valid_pos = None
         self.last_valid_rot = None
+        self.spike_count = 0
 
     def filter(self, pos: np.ndarray, rot: np.ndarray, timestamp: float = None) -> tuple[np.ndarray, np.ndarray]:
         pos = np.asarray(pos, dtype=np.float64)
@@ -146,8 +148,14 @@ class InputFilterPipeline:
             # 1. Spike rejection check
             jump = float(np.linalg.norm(pos - self.last_valid_pos))
             if jump > self.pos_jump_threshold:
-                # Reject spike, hold previous valid position
-                pos = np.copy(self.last_valid_pos)
+                self.spike_count += 1
+                if self.spike_count < 3:
+                    # Reject spike, hold previous valid position
+                    pos = np.copy(self.last_valid_pos)
+                else:
+                    self.spike_count = 0
+            else:
+                self.spike_count = 0
 
             # 2. Dead zone check
             if jump < self.pos_deadzone:
@@ -234,22 +242,103 @@ class JointTrajectoryFilter:
             return np.copy(target_q)
 
         if self.use_ruckig:
-            self.inp.target_position = list(target_q)
-            res = self.otg.update(self.inp, self.out)
-            self.out.pass_to_input(self.inp)
-            self.cur_q = np.array(self.out.new_position)
-            self.cur_v = np.array(self.out.new_velocity)
-            self.cur_a = np.array(self.out.new_acceleration)
-            return self.cur_q
+            try:
+                self.inp.target_position = list(target_q)
+                res = self.otg.update(self.inp, self.out)
+                self.out.pass_to_input(self.inp)
+                self.cur_q = np.array(self.out.new_position)
+                self.cur_v = np.array(self.out.new_velocity)
+                self.cur_a = np.array(self.out.new_acceleration)
+                return self.cur_q
+            except Exception:
+                # Fallback to critically damped filter if ruckig has numerical issue
+                pass
+
+        # 2nd-order critically damped filter: d2q/dt2 = omega^2*(q_tgt - q) - 2*omega*dq
+        omega = 25.0
+        error = target_q - self.cur_q
+        acc = (omega ** 2) * error - 2.0 * omega * self.cur_v
+        # Clamp acceleration and velocity
+        acc = np.clip(acc, -self.max_acc, self.max_acc)
+        self.cur_v += acc * self.dt
+        self.cur_v = np.clip(self.cur_v, -self.max_vel, self.max_vel)
+        self.cur_q += self.cur_v * self.dt
+        return self.cur_q
+
+
+class CriticallyDampedFollower:
+    """
+    Light critically damped second-order follower for gizmo input.
+    Bandwidth ~15-20 Hz, zero overshoot, lag < 35 ms.
+    """
+    def __init__(self, natural_freq_hz: float = 15.0, dt: float = 0.01):
+        self.omega = 2.0 * math.pi * float(natural_freq_hz)
+        self.dt = float(dt)
+        self.x = None
+        self.v = None
+
+    def reset(self, x_init: np.ndarray = None):
+        self.x = np.copy(x_init) if x_init is not None else None
+        self.v = np.zeros_like(self.x) if self.x is not None else None
+
+    def update(self, target: np.ndarray, dt: float = None) -> np.ndarray:
+        target = np.asarray(target, dtype=np.float64)
+        if self.x is None:
+            self.reset(target)
+            return np.copy(target)
+
+        h = dt if dt is not None else self.dt
+        if h <= 1e-6:
+            h = 0.01
+
+        # Analytical critically damped step: zero overshoot (zeta=1.0)
+        exp_wt = math.exp(-self.omega * h)
+        diff = self.x - target
+        c1 = diff
+        c2 = self.v + self.omega * diff
+        new_x = target + (c1 + c2 * h) * exp_wt
+        new_v = (self.v - (c1 * self.omega * self.omega + c2 * self.omega * h) * h) * exp_wt
+        self.x = new_x
+        self.v = new_v
+        return self.x
+
+
+class QuaternionSlerpFollower:
+    """
+    Continuous SLERP follower for gizmo quaternion orientation.
+    Filters rotation every control step with ~15 Hz bandwidth.
+    """
+    def __init__(self, bandwidth_hz: float = 15.0, dt: float = 0.01):
+        self.bandwidth_hz = float(bandwidth_hz)
+        self.dt = float(dt)
+        # alpha = 1 - exp(-2*pi*f*dt)
+        self.alpha = float(np.clip(1.0 - math.exp(-2.0 * math.pi * self.bandwidth_hz * self.dt), 0.01, 1.0))
+        self.current_rot = None
+
+    def reset(self, rot_mat_or_r = None):
+        if rot_mat_or_r is None:
+            self.current_rot = None
+        elif isinstance(rot_mat_or_r, R):
+            self.current_rot = rot_mat_or_r
         else:
-            # 2nd-order critically damped filter: d2q/dt2 = omega^2*(q_tgt - q) - 2*omega*dq
-            omega = 25.0
-            error = target_q - self.cur_q
-            acc = (omega ** 2) * error - 2.0 * omega * self.cur_v
-            # Clamp acceleration and velocity
-            acc = np.clip(acc, -self.max_acc, self.max_acc)
-            self.cur_v += acc * self.dt
-            self.cur_v = np.clip(self.cur_v, -self.max_vel, self.max_vel)
-            self.cur_q += self.cur_v * self.dt
-            return self.cur_q
+            self.current_rot = R.from_matrix(rot_mat_or_r)
+
+    def update(self, target_rot_mat: np.ndarray, dt: float = None) -> np.ndarray:
+        target_r = R.from_matrix(target_rot_mat)
+        if self.current_rot is None:
+            self.current_rot = target_r
+            return target_rot_mat.copy()
+
+        h = dt if dt is not None else self.dt
+        alpha = float(np.clip(1.0 - math.exp(-2.0 * math.pi * self.bandwidth_hz * h), 0.01, 1.0))
+
+        q_cur = self.current_rot.as_quat()
+        q_tgt = target_r.as_quat()
+        if np.dot(q_cur, q_tgt) < 0.0:
+            target_r = R.from_quat(-q_tgt)
+
+        slerp = Slerp([0.0, 1.0], R.from_quat([self.current_rot.as_quat(), target_r.as_quat()]))
+        interp_r = slerp([alpha])[0]
+        self.current_rot = interp_r
+        return interp_r.as_matrix()
 

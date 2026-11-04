@@ -1,0 +1,24 @@
+# Self-Collision & Safety Configuration for AGIBOT A2 Ultra
+
+self_collision:
+  enabled: true
+  safety_margin: 0.005          # 0.5 cm default safety clearance for sim
+  real_robot_margin: 0.015      # 1.5 cm for real robot execution
+  interpolation_substeps: 5    # Anti-tunneling path check substeps
+  dist_max: 0.50               # Max detection radius (meters)
+
+# Per-pair safety margins (override default safety_margin if specified)
+pair_margins:
+  torso_arm: 0.005              # 5 mm
+  torso_hand: 0.005             # 5 mm
+  head_hand: 0.010              # 10 mm
+  head_arm: 0.010               # 10 mm
+  hand_hand: 0.005              # 5 mm
+  arm_arm: 0.008                # 8 mm
+
+# Workspace safety bounds (Cartesian box limits in robot frame, meters)
+workspace:
+  x: [0.10, 0.75]
+  y_left: [0.10, 0.70]
+  y_right: [-0.70, -0.10]
+  z: [0.80, 1.60]

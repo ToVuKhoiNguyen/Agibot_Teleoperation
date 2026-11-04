@@ -68,6 +68,10 @@ class AgibotSimEnv:
 
         self.visual_body_ids = [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, b) for b in self.visual_body_names]
 
+        # Optimization: configure physics options for held standing base
+        self.model.opt.iterations = 25
+        self.model.opt.disableflags |= mujoco.mjtDisableBit.mjDSBL_SENSOR
+
         # Nominal rest postures (arms bent forward in front of chest, hands open, legs standing)
         self.default_arm_qpos_left = np.array([0.35, 0.35, 0.0, -1.20, 0.0, 0.15, 0.0], dtype=np.float64)
         self.default_arm_qpos_right = np.array([0.35, -0.35, 0.0, 1.20, 0.0, 0.15, 0.0], dtype=np.float64)

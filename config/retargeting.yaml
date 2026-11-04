@@ -43,3 +43,10 @@ finger_filter:
   beta: 0.01
   d_cutoff: 1.0
 
+gizmo:
+  gizmo_follow_bandwidth: 18.0    # 15-20 Hz bandwidth for 1:1 critically damped follower
+  control_loop_hz: 100.0          # Control loop rate >= 100 Hz
+  max_velocity_rad_s: 3.00        # Safety profile velocity limit
+  max_acceleration_rad_s2: 12.00  # Elevated acceleration for crisp 1:1 tracking
+
+

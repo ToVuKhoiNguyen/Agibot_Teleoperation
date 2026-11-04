@@ -1,16 +1,31 @@
 """
 teleop/utils/ssl_certs.py
-Automatic self-signed SSL certificate generation for HTTPS / WSS WebXR server.
+Automatic self-signed SSL certificate generation with SAN for HTTPS / WSS WebXR server.
+Includes Subject Alternative Names (SAN) for localhost, 127.0.0.1, ::1, and LAN IP.
 """
 
 import os
+import socket
 import subprocess
+import tempfile
 from pathlib import Path
+
+
+def get_local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
 
 def ensure_ssl_certs(certs_dir: str = None) -> tuple[str, str]:
     """
-    Ensures that cert.pem and key.pem exist in the given directory.
-    If missing, automatically generates a self-signed certificate using openssl.
+    Ensures that cert.pem and key.pem exist in the given directory with proper SAN.
+    Keeps the same cert across runs so Quest Browser only needs to accept once.
     Returns (cert_path, key_path).
     """
     if certs_dir is None:
@@ -24,18 +39,49 @@ def ensure_ssl_certs(certs_dir: str = None) -> tuple[str, str]:
     key_path = certs_dir / "key.pem"
 
     if not cert_path.exists() or not key_path.exists():
-        print(f"[INFO] Generating self-signed SSL certificates in {certs_dir}...")
-        cmd = [
-            "openssl", "req", "-x509", "-newkey", "rsa:2048",
-            "-keyout", str(key_path),
-            "-out", str(cert_path),
-            "-days", "365", "-nodes",
-            "-subj", "/CN=localhost"
-        ]
+        print(f"[INFO] Generating self-signed SSL certificates with SAN in {certs_dir}...")
+        lan_ip = get_local_ip()
+
+        # Build OpenSSL configuration with SAN
+        san_config = f"""
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+CN = localhost
+
+[v3_req]
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
+IP.2 = ::1
+IP.3 = {lan_ip}
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write(san_config)
+            conf_file = f.name
+
         try:
+            cmd = [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-keyout", str(key_path),
+                "-out", str(cert_path),
+                "-days", "3650", "-nodes",
+                "-config", conf_file
+            ]
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("[INFO] Self-signed SSL certificate generated successfully.")
+            print("[INFO] Self-signed SSL certificate with SAN generated successfully.")
+            print("[NOTE] Quest Browser requires accepting certificate once (Advanced -> Proceed to localhost).")
         except Exception as e:
             print(f"[WARN] Failed to generate SSL certificate via openssl: {e}")
+        finally:
+            if os.path.exists(conf_file):
+                os.remove(conf_file)
 
     return str(cert_path), str(key_path)

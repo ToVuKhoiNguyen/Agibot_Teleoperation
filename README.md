@@ -78,24 +78,32 @@ Truy cập `https://localhost:8012/` (tự động chuyển hướng đến `/pa
 
 ---
 
-## 6. Kết nối Quest 3S qua USB & WebXR
+## 6. Kết nối Quest 3S qua USB & WebXR (Tự động hóa hoàn toàn)
 
-1. **Kết nối USB-C**: Cắm kính Meta Quest 3S vào máy tính bằng cáp USB 3.0 và bật tính năng USB Debugging.
-2. **Chuyển tiếp cổng qua ADB**:
-   ```bash
-   adb reverse tcp:8012 tcp:8012
-   ```
-3. **Mở trình duyệt Quest Browser**:
-   ```bash
-   adb shell am start -a android.intent.action.VIEW -d "https://localhost:8012/?ws=wss://localhost:8012"
-   ```
-4. **Bắt đầu Teleop**:
-   - Chấp nhận cảnh báo chứng chỉ SSL tự ký (chọn *Advanced -> Proceed to localhost*).
-   - Nhấn nút **Enter VR** trên trình duyệt kính để bắt đầu phiên WebXR.
-   - **Chế độ Hand Tracking**: Di chuyển hai bàn tay tự nhiên trước kính; cổ tay và các khớp ngón tay OmniHand sẽ bám theo chuyển động thực.
-   - **Chế độ Controller (`--controller`)**: 
-     - Giữ nút **Grip** (bên hông) để kích hoạt clutch điều khiển vị trí và góc quay của cổ tay robot; nhả nút Grip để thả tự do tay người điều khiển mà robot vẫn giữ nguyên tư thế.
-     - Bóp phím **Trigger** để đóng mở bàn tay khéo léo.
+Chỉ cần **cắm cáp USB-C hỗ trợ truyền dữ liệu (data cable)**, bấm **Allow USB debugging** trong kính và chạy `python main.py`. Hệ thống sẽ tự động cấu hình ADB reverse và mở trang WebXR trên kính.
+
+1. **Quy trình kết nối nhanh**:
+   - **Bước 1**: Cắm cáp USB-C kết nối kính Meta Quest 3S vào máy tính (lưu ý dùng cáp hỗ trợ truyền dữ liệu, không chỉ sạc).
+   - **Bước 2**: Đeo kính và bấm **Allow** (Cho phép gỡ lỗi USB).
+   - **Bước 3**: Trên máy tính, khởi động hệ thống:
+     ```bash
+     python main.py
+     ```
+     `main.py` sẽ tự động phát hiện kính qua ADB, thiết lập `adb reverse tcp:8012 tcp:8012` và tự động mở trình duyệt Quest Browser tới trang **`https://localhost:8012/vr`**.
+   - **Bước 4**: Trong kính, chấp nhận chứng chỉ SSL tự ký lần đầu tiên (**Advanced** -> **Proceed to localhost**), sau đó bấm nút to **ENTER VR** (hoặc bóp cò trigger).
+2. **Kiểm tra chẩn đoán kết nối**:
+   - Chạy công cụ kiểm tra tự động:
+     ```bash
+     python scripts/quest_doctor.py
+     ```
+3. **Thao tác tay cầm Quest trong không gian VR**:
+   - **Smart Clutch (Grip)**: Nhấn giữ nút **Grip** (cò hông) của tay cầm trái/phải để kích hoạt bám chuyển động cho tay tương ứng. Vị trí và hướng xoay (6D) được đồng bộ tức thì sang marker cổ tay robot. Thả Grip để giữ nguyên tư thế (không bị nhảy bước khi bóp lại).
+   - **Bàn tay OmniHand (Trigger)**: Bóp cò trước **Trigger** (analog 0.0 - 1.0) để co duỗi 5 ngón tay mượt mà.
+   - **Nút điều khiển**:
+     - Phím **X** (tay trái) / **A** (tay phải): Reset vị trí marker về vị trí cổ tay robot hiện tại.
+     - Phím **Y** (tay trái) / **B** (tay phải): Bật/tắt chế độ giữ tư thế (Hold).
+     - **Tổ hợp E-STOP khẩn cấp**: Giữ đồng thời hai nút **B + Y > 0.5s** để ngắt khẩn cấp mô phỏng vật lý ngay trong kính.
+   - **An toàn watchdog**: Nếu mất tín hiệu kính quá 350 ms, hệ thống tự động nhả clutch và khóa tư thế tay robot.
 
 ---
 
@@ -185,11 +193,3 @@ Dự án thiết lập quy trình tự động hóa thuận tiện thông qua tr
 - **`push [ghi chú]`**: Tự động kiểm tra an toàn tệp nhạy cảm/kích thước lớn, chạy kiểm thử chấp nhận (`test_web_sync.py` & `test_panel_api.py`), tạo commit theo chuẩn conventional và đẩy lên nhánh `main`. Dùng `push nhanh` nếu cần bỏ qua bước kiểm thử.
 - **`tag vX.Y.Z [thông điệp]`**: Tự động gắn tag phiên bản có chú thích và đẩy lên GitHub. Nếu có từ khóa `release`, hệ thống sẽ đồng thời tạo GitHub Release tự động bằng GitHub CLI (`gh release create`).
 - Chi tiết quy tắc kiểm duyệt an toàn xem tại [`AGENTS.md`](file:///home/nguyen/a2_ws/agibot_xr_teleoperate/AGENTS.md).
-
----
-
-## 13. Giấy phép và ghi công (License & Credits)
-
-- Mã nguồn dự án phát hành theo giấy phép **Apache License 2.0**.
-- Kế thừa và phát triển từ kiến trúc của dự án mã nguồn mở `unitreerobotics/xr_teleoperate`.
-- Mô hình robot AGIBOT A2 Ultra, tệp mô tả động học MJCF/URDF và các tệp lưới 3D (meshes) thuộc bản quyền của nhà sản xuất **AGIBOT (Agilex Robotics / Zhiyuan Robotics)**; chỉ được sử dụng cho mục đích nghiên cứu, học tập và phát triển tương thích.

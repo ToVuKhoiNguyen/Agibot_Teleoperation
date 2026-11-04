@@ -22,6 +22,7 @@ import asyncio
 import threading
 import numpy as np
 from aiohttp import web
+from .vr_page import HTML_VR
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATIC_JS_DIR = os.path.join(PROJECT_ROOT, "assets", "static", "js")
@@ -85,14 +86,24 @@ HTML_PANEL = """<!DOCTYPE html>
     bottom: 14px;
     left: 14px;
     z-index: 10;
-    background: rgba(18, 22, 32, 0.85);
+    background: rgba(18, 22, 32, 0.90);
     backdrop-filter: blur(8px);
     border: 1px solid #2a354a;
     border-radius: 8px;
     padding: 8px 12px;
     display: flex;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 8px;
     align-items: center;
+    max-width: calc(100% - 28px);
+  }
+  .hud-badge {
+    font-size: 0.72rem;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: #1e2638;
+    color: #90caf9;
+    border: 1px solid #32415d;
   }
   .viewport-controls-hud button {
     background: #252e42;
@@ -201,13 +212,26 @@ HTML_PANEL = """<!DOCTYPE html>
       <div class="viewport-sub">MuJoCo Source of Truth • 25 Hz Stream • Drag Markers or Click Hands</div>
     </div>
     
-    <div class="viewport-controls-hud">
+    <div class="viewport-controls-hud" id="viewport-hud">
       <span style="font-size:0.75rem; color:#8fa0be; font-weight:bold;">Gizmo:</span>
-      <button id="gizmo-mode-trans" class="active" onclick="setGizmoMode('translate')">Translate</button>
-      <button id="gizmo-mode-rot" onclick="setGizmoMode('rotate')">Rotate</button>
-      <button id="btn-toggle-gizmo-l" class="active" onclick="toggleActiveGizmo('left')">Left Wrist</button>
-      <button id="btn-toggle-gizmo-r" onclick="toggleActiveGizmo('right')">Right Wrist</button>
+      <button id="gizmo-mode-both" class="active" onclick="setGizmoMode('both')" title="Shortcut: R">Both (R)</button>
+      <button id="gizmo-mode-trans" onclick="setGizmoMode('translate')" title="Shortcut: W">Translate (W)</button>
+      <button id="gizmo-mode-rot" onclick="setGizmoMode('rotate')" title="Shortcut: E">Rotate (E)</button>
+      <button id="gizmo-space-btn" onclick="toggleGizmoSpace()" title="Shortcut: Q">Space: World (Q)</button>
+      <span style="color:#3c4b69;">|</span>
+      <button id="btn-toggle-gizmo-l" class="active" onclick="toggleActiveGizmo('left')">Left Marker</button>
+      <button id="btn-toggle-gizmo-r" class="active" onclick="toggleActiveGizmo('right')">Right Marker</button>
+      <button onclick="resetMarkerToWrist('left')" title="Snap left marker to actual wrist">Reset L</button>
+      <button onclick="resetMarkerToWrist('right')" title="Snap right marker to actual wrist">Reset R</button>
+      <label style="font-size:0.75rem; color:#8fa0be; display:flex; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" id="chk-follow-wrist" onchange="toggleFollowWrist(this.checked)"> Follow actual
+      </label>
+      <label style="font-size:0.75rem; color:#8fa0be; display:flex; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" id="chk-xr-rot" checked onchange="toggleXRRotation(this.checked)"> XR 6D Rot
+      </label>
       <button onclick="resetCameraView()">Reset Cam</button>
+      <button id="btn-enter-vr" style="background:#00c853; color:#fff; font-weight:bold; border-color:#00e676;" onclick="toggleXRSession()">Enter VR (Quest)</button>
+      <div id="gizmo-feedback" class="hud-badge" style="display:none; color:#ffb74d;"></div>
     </div>
     
     <canvas id="canvas3d"></canvas>
@@ -218,6 +242,7 @@ HTML_PANEL = """<!DOCTYPE html>
     <div class="panel-header">
       <span style="font-weight: bold; font-size: 0.95rem; color: #00d2ff;">Control Interface</span>
       <div style="display:flex; gap:4px; align-items:center;">
+        <span id="input-src-tag" class="tag tag-ok">INPUT: MOUSE</span>
         <span id="sim-tag" class="tag tag-ok">SIM: OK</span>
         <span id="xr-tag" class="tag tag-warn">XR: IDLE</span>
         <span id="estop-tag" class="tag tag-ok">ESTOP: OFF</span>
@@ -346,7 +371,12 @@ HTML_PANEL = """<!DOCTYPE html>
 // ==========================================
 // 1. THREE.JS 3D DIGITAL TWIN & GIZMOS
 // ==========================================
-let scene, camera, renderer, orbitControls, transformControls;
+let scene, camera, renderer, orbitControls;
+let transformControlsL_trans, transformControlsL_rot;
+let transformControlsR_trans, transformControlsR_rot;
+let transformControlsL, transformControlsR; // Backwards-compatible aliases
+let showGizmoL = true;
+let showGizmoR = true;
 let robotGroup;
 let geomObjectMap = {}; // geom_id -> THREE.Mesh
 let bodyObjectMap = {}; // bname -> THREE.Group
@@ -355,9 +385,13 @@ let stlLoader = new THREE.STLLoader();
 
 // Wrist markers & targets
 let targetSphereL, targetSphereR;
+let labelSpriteL, labelSpriteR;
 let actualSphereL, actualSphereR;
 let activeGizmoArm = 'left';
-let gizmoMode = 'translate';
+let gizmoMode = 'both'; // 'both' | 'translate' | 'rotate' (DEFAULT = both)
+let gizmoSpace = 'world';
+let followActualWrist = false;
+let xrRotationEnabled = true;
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
 
@@ -365,6 +399,79 @@ let latestStreamPoses = null;
 let lastLeftClosure = 0.0;
 let lastRightClosure = 0.0;
 let isDraggingGizmo = false;
+let latestStatusData = null;
+
+// WebXR Session State
+let xrSession = null;
+let xrRefSpace = null;
+let xrWorldGroup = null;
+let xrControllers = []; // [controller0, controller1]
+let xrGripSpaces = [];  // [grip0, grip1]
+let inXRSession = false;
+
+// Latest-wins streaming with requestAnimationFrame (60 Hz)
+let pendingTargetL = null;
+let pendingTargetR = null;
+let rafScheduled = false;
+
+function queueTargetUpdate(side, pos, quat) {
+  const data = {
+    cmd: 'set_wrist_target',
+    side: side,
+    arm: side,
+    source: 'gizmo',
+    pos: [pos.x, pos.y, pos.z],
+    rot_quat: [quat.w, quat.x, quat.y, quat.z]
+  };
+  if (side === 'left') {
+    pendingTargetL = data;
+  } else {
+    pendingTargetR = data;
+  }
+  if (!rafScheduled) {
+    rafScheduled = true;
+    requestAnimationFrame(flushTargetUpdates);
+  }
+}
+
+function flushTargetUpdates() {
+  rafScheduled = false;
+  if (pendingTargetL) {
+    sendCmd(pendingTargetL);
+    pendingTargetL = null;
+  }
+  if (pendingTargetR) {
+    sendCmd(pendingTargetR);
+    pendingTargetR = null;
+  }
+}
+
+function createTextSprite(text, bgColor) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = bgColor;
+  ctx.beginPath();
+  ctx.arc(64, 64, 56, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 64px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 64, 66);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.scale.set(0.06, 0.06, 0.06);
+  sprite.renderOrder = 999;
+  return sprite;
+}
 
 function init3D() {
   const container = document.getElementById('viewport-container');
@@ -378,10 +485,16 @@ function init3D() {
   camera.position.set(1.8, -1.8, 1.4); // MuJoCo world coords
   camera.up.set(0, 0, 1);
 
-  renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false, powerPreference: "high-performance" });
   renderer.setSize(container.clientWidth, container.clientHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.shadowMap.enabled = false;
+  if (renderer.xr) {
+    renderer.xr.enabled = true;
+  }
+
+  // Check WebXR support
+  checkXRSupport();
 
   // Lights
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
@@ -419,51 +532,34 @@ function init3D() {
   orbitControls.dampingFactor = 0.05;
   orbitControls.update();
 
-  // Transform Controls (Draggable 3D Wrist Gizmo)
-  transformControls = new THREE.TransformControls(camera, renderer.domElement);
-  transformControls.size = 0.65;
-  transformControls.space = 'world';
-  transformControls.addEventListener('dragging-changed', function (event) {
-    orbitControls.enabled = !event.value;
-    isDraggingGizmo = event.value;
-  });
-  transformControls.addEventListener('objectChange', function () {
-    if (activeGizmoArm === 'left' && targetSphereL) {
-      const p = targetSphereL.position;
-      const q = targetSphereL.quaternion;
-      sendCmd({
-        cmd: 'set_wrist_target',
-        arm: 'left',
-        pos: [p.x, p.y, p.z],
-        rot_quat: [q.w, q.x, q.y, q.z]
-      });
-    } else if (activeGizmoArm === 'right' && targetSphereR) {
-      const p = targetSphereR.position;
-      const q = targetSphereR.quaternion;
-      sendCmd({
-        cmd: 'set_wrist_target',
-        arm: 'right',
-        pos: [p.x, p.y, p.z],
-        rot_quat: [q.w, q.x, q.y, q.z]
-      });
-    }
-  });
-  scene.add(transformControls);
-
   // Target Markers (Spheres)
-  const sphereGeo = new THREE.SphereGeometry(0.022, 16, 16);
+  const sphereGeo = new THREE.SphereGeometry(0.012, 16, 16);
   const sphereMatL = new THREE.MeshStandardMaterial({ color: 0x00e676, emissive: 0x00a844, roughness: 0.3 });
   targetSphereL = new THREE.Mesh(sphereGeo, sphereMatL);
   targetSphereL.position.set(0.235, 0.504, 1.25);
+  targetSphereL.quaternion.set(-0.24176, 0.81643, 0.51972, -0.06989);
+  targetSphereL.userData = { isMarker: true, side: 'left' };
+  targetSphereL.renderOrder = 900;
   scene.add(targetSphereL);
+
+  labelSpriteL = createTextSprite('L', '#00c853');
+  labelSpriteL.position.set(0, 0, 0.025);
+  targetSphereL.add(labelSpriteL);
 
   const sphereMatR = new THREE.MeshStandardMaterial({ color: 0x2979ff, emissive: 0x1565c0, roughness: 0.3 });
   targetSphereR = new THREE.Mesh(sphereGeo, sphereMatR);
   targetSphereR.position.set(0.235, -0.504, 1.25);
+  targetSphereR.quaternion.set(0.81771, -0.16138, 0.05290, 0.55001);
+  targetSphereR.userData = { isMarker: true, side: 'right' };
+  targetSphereR.renderOrder = 900;
   scene.add(targetSphereR);
 
+  labelSpriteR = createTextSprite('R', '#1565c0');
+  labelSpriteR.position.set(0, 0, 0.025);
+  targetSphereR.add(labelSpriteR);
+
   // Actual EE feedback spheres (small translucent)
-  const actualGeo = new THREE.SphereGeometry(0.015, 12, 12);
+  const actualGeo = new THREE.SphereGeometry(0.008, 12, 12);
   const actualMatL = new THREE.MeshBasicMaterial({ color: 0x69f0ae, wireframe: true });
   actualSphereL = new THREE.Mesh(actualGeo, actualMatL);
   scene.add(actualSphereL);
@@ -472,14 +568,118 @@ function init3D() {
   actualSphereR = new THREE.Mesh(actualGeo, actualMatR);
   scene.add(actualSphereR);
 
-  // Attach initial gizmo to Left Target Marker
-  transformControls.attach(targetSphereL);
+  // Setup Combined TransformControls (Two per marker: one Translate, one Rotate)
+  // Left Marker Controls
+  transformControlsL_trans = new THREE.TransformControls(camera, renderer.domElement);
+  transformControlsL_trans.size = 0.30;
+  transformControlsL_trans.space = gizmoSpace;
+  transformControlsL_trans.setMode('translate');
+  transformControlsL_trans.attach(targetSphereL);
 
-  // Hand click raycaster
+  transformControlsL_rot = new THREE.TransformControls(camera, renderer.domElement);
+  transformControlsL_rot.size = 0.42; // Slightly larger so rotation rings surround translate arrows
+  transformControlsL_rot.space = gizmoSpace;
+  transformControlsL_rot.setMode('rotate');
+  transformControlsL_rot.attach(targetSphereL);
+
+  setupGizmoPair(transformControlsL_trans, transformControlsL_rot, targetSphereL, 'left');
+  addGizmoToScene(transformControlsL_trans);
+  addGizmoToScene(transformControlsL_rot);
+
+  // Right Marker Controls
+  transformControlsR_trans = new THREE.TransformControls(camera, renderer.domElement);
+  transformControlsR_trans.size = 0.30;
+  transformControlsR_trans.space = gizmoSpace;
+  transformControlsR_trans.setMode('translate');
+  transformControlsR_trans.attach(targetSphereR);
+
+  transformControlsR_rot = new THREE.TransformControls(camera, renderer.domElement);
+  transformControlsR_rot.size = 0.42;
+  transformControlsR_rot.space = gizmoSpace;
+  transformControlsR_rot.setMode('rotate');
+  transformControlsR_rot.attach(targetSphereR);
+
+  setupGizmoPair(transformControlsR_trans, transformControlsR_rot, targetSphereR, 'right');
+  addGizmoToScene(transformControlsR_trans);
+  addGizmoToScene(transformControlsR_rot);
+
+  // Backwards-compatible aliases
+  transformControlsL = transformControlsL_trans;
+  transformControlsR = transformControlsR_trans;
+
+  // Initial visibility update according to default mode ('both')
+  updateGizmoVisibility();
+
+  // Hand click & marker selection raycaster
   renderer.domElement.addEventListener('pointerdown', onCanvasPointerDown);
+
+  // Keyboard shortcuts: W = translate, E = rotate, R = both (default), Q = toggle local/world
+  window.addEventListener('keydown', onKeyDown);
 
   window.addEventListener('resize', onWindowResize);
   animate();
+}
+
+function setupGizmoPair(transCtrl, rotCtrl, targetObj, arm) {
+  configureGizmo(transCtrl);
+  configureGizmo(rotCtrl);
+
+  transCtrl.addEventListener('dragging-changed', function(e) {
+    orbitControls.enabled = !e.value;
+    rotCtrl.enabled = !e.value;
+    isDraggingGizmo = e.value;
+    if (e.value) activeGizmoArm = arm;
+    if (!e.value) flushTargetUpdates();
+  });
+
+  rotCtrl.addEventListener('dragging-changed', function(e) {
+    orbitControls.enabled = !e.value;
+    transCtrl.enabled = !e.value;
+    isDraggingGizmo = e.value;
+    if (e.value) activeGizmoArm = arm;
+    if (!e.value) flushTargetUpdates();
+  });
+
+  transCtrl.addEventListener('objectChange', function() {
+    queueTargetUpdate(arm, targetObj.position, targetObj.quaternion);
+  });
+
+  rotCtrl.addEventListener('objectChange', function() {
+    queueTargetUpdate(arm, targetObj.position, targetObj.quaternion);
+  });
+}
+
+function configureGizmo(ctrl) {
+  ctrl.renderOrder = 950;
+  ctrl.traverse(function(child) {
+    if (child.material) {
+      child.material.depthTest = false;
+      child.material.depthWrite = false;
+      child.material.transparent = true;
+      child.renderOrder = 950;
+    }
+  });
+}
+
+function addGizmoToScene(ctrl) {
+  if (typeof ctrl.getHelper === 'function') {
+    scene.add(ctrl.getHelper());
+  }
+  scene.add(ctrl);
+}
+
+function onKeyDown(event) {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+  const key = event.key.toUpperCase();
+  if (key === 'W') {
+    setGizmoMode('translate');
+  } else if (key === 'E') {
+    setGizmoMode('rotate');
+  } else if (key === 'R') {
+    setGizmoMode('both');
+  } else if (key === 'Q') {
+    toggleGizmoSpace();
+  }
 }
 
 function resetCameraView() {
@@ -489,23 +689,116 @@ function resetCameraView() {
 }
 
 function setGizmoMode(mode) {
-  gizmoMode = mode;
-  transformControls.setMode(mode);
-  document.getElementById('gizmo-mode-trans').classList.toggle('active', mode === 'translate');
-  document.getElementById('gizmo-mode-rot').classList.toggle('active', mode === 'rotate');
+  gizmoMode = mode; // 'both' | 'translate' | 'rotate'
+  updateGizmoVisibility();
+  const bBoth = document.getElementById('gizmo-mode-both');
+  const bTrans = document.getElementById('gizmo-mode-trans');
+  const bRot = document.getElementById('gizmo-mode-rot');
+  if (bBoth) bBoth.classList.toggle('active', mode === 'both');
+  if (bTrans) bTrans.classList.toggle('active', mode === 'translate');
+  if (bRot) bRot.classList.toggle('active', mode === 'rotate');
+}
+
+function updateGizmoVisibility() {
+  const showTrans = (gizmoMode === 'both' || gizmoMode === 'translate');
+  const showRot = (gizmoMode === 'both' || gizmoMode === 'rotate');
+
+  const visL = (showGizmoL !== false);
+  const visR = (showGizmoR !== false);
+
+  if (transformControlsL_trans) {
+    transformControlsL_trans.visible = showTrans && visL;
+    transformControlsL_trans.enabled = showTrans && visL;
+  }
+  if (transformControlsL_rot) {
+    transformControlsL_rot.visible = showRot && visL;
+    transformControlsL_rot.enabled = showRot && visL;
+  }
+  if (transformControlsR_trans) {
+    transformControlsR_trans.visible = showTrans && visR;
+    transformControlsR_trans.enabled = showTrans && visR;
+  }
+  if (transformControlsR_rot) {
+    transformControlsR_rot.visible = showRot && visR;
+    transformControlsR_rot.enabled = showRot && visR;
+  }
+}
+
+function toggleGizmoSpace() {
+  gizmoSpace = (gizmoSpace === 'world') ? 'local' : 'world';
+  if (transformControlsL_trans) transformControlsL_trans.setSpace(gizmoSpace);
+  if (transformControlsL_rot) transformControlsL_rot.setSpace(gizmoSpace);
+  if (transformControlsR_trans) transformControlsR_trans.setSpace(gizmoSpace);
+  if (transformControlsR_rot) transformControlsR_rot.setSpace(gizmoSpace);
+  const btn = document.getElementById('gizmo-space-btn');
+  if (btn) {
+    btn.innerText = `Space: ${gizmoSpace.charAt(0).toUpperCase() + gizmoSpace.slice(1)} (Q)`;
+    btn.classList.toggle('active', gizmoSpace === 'local');
+  }
+}
+
+function toggleFollowWrist(checked) {
+  followActualWrist = Boolean(checked);
+}
+
+function resetMarkerToWrist(side) {
+  if (!latestStatusData) return;
+  if (side === 'left' && targetSphereL && latestStatusData.ee_l) {
+    targetSphereL.position.set(latestStatusData.ee_l[0], latestStatusData.ee_l[1], latestStatusData.ee_l[2]);
+    sendCmd({
+      cmd: 'set_wrist_target',
+      side: 'left',
+      arm: 'left',
+      pos: latestStatusData.ee_l
+    });
+  } else if (side === 'right' && targetSphereR && latestStatusData.ee_r) {
+    targetSphereR.position.set(latestStatusData.ee_r[0], latestStatusData.ee_r[1], latestStatusData.ee_r[2]);
+    sendCmd({
+      cmd: 'set_wrist_target',
+      side: 'right',
+      arm: 'right',
+      pos: latestStatusData.ee_r
+    });
+  }
+}
+
+function updateMarkerHighlights() {
+  if (targetSphereL && targetSphereL.material) {
+    if (activeGizmoArm === 'left') {
+      targetSphereL.material.emissive.setHex(0x00ff73);
+      targetSphereL.scale.set(1.25, 1.25, 1.25);
+    } else {
+      targetSphereL.material.emissive.setHex(0x005522);
+      targetSphereL.scale.set(1.0, 1.0, 1.0);
+    }
+  }
+  if (targetSphereR && targetSphereR.material) {
+    if (activeGizmoArm === 'right') {
+      targetSphereR.material.emissive.setHex(0x4499ff);
+      targetSphereR.scale.set(1.25, 1.25, 1.25);
+    } else {
+      targetSphereR.material.emissive.setHex(0x103060);
+      targetSphereR.scale.set(1.0, 1.0, 1.0);
+    }
+  }
 }
 
 function toggleActiveGizmo(arm) {
-  activeGizmoArm = arm;
   if (arm === 'left') {
-    transformControls.attach(targetSphereL);
-    document.getElementById('btn-toggle-gizmo-l').classList.add('active');
-    document.getElementById('btn-toggle-gizmo-r').classList.remove('active');
-  } else {
-    transformControls.attach(targetSphereR);
-    document.getElementById('btn-toggle-gizmo-r').classList.add('active');
-    document.getElementById('btn-toggle-gizmo-l').classList.remove('active');
+    showGizmoL = !showGizmoL;
+    const btn = document.getElementById('btn-toggle-gizmo-l');
+    if (btn) btn.classList.toggle('active', showGizmoL);
+    if (targetSphereL) targetSphereL.visible = showGizmoL;
+    if (showGizmoL) activeGizmoArm = 'left';
+  } else if (arm === 'right') {
+    showGizmoR = !showGizmoR;
+    const btn = document.getElementById('btn-toggle-gizmo-r');
+    if (btn) btn.classList.toggle('active', showGizmoR);
+    if (targetSphereR) targetSphereR.visible = showGizmoR;
+    if (showGizmoR) activeGizmoArm = 'right';
   }
+  updateGizmoVisibility();
+  updateMarkerHighlights();
 }
 
 function onCanvasPointerDown(event) {
@@ -515,7 +808,20 @@ function onCanvasPointerDown(event) {
   mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(mouse, camera);
 
-  // Check clicks on robot hand meshes
+  // 1. Prioritize clicking on wrist target markers
+  const markerHits = raycaster.intersectObjects([targetSphereL, targetSphereR].filter(Boolean), false);
+  if (markerHits.length > 0) {
+    const hitObj = markerHits[0].object;
+    if (hitObj === targetSphereL) {
+      toggleActiveGizmo('left');
+      return;
+    } else if (hitObj === targetSphereR) {
+      toggleActiveGizmo('right');
+      return;
+    }
+  }
+
+  // 2. Check clicks on robot hand meshes
   const intersects = raycaster.intersectObjects(robotGroup.children, true);
   if (intersects.length > 0) {
     let topObj = intersects[0].object;
@@ -637,10 +943,304 @@ function applyMuJoCoPoses(poses) {
   }
 }
 
-function animate() {
+let lastRenderTime = 0;
+const targetRenderInterval = 1000 / 60; // clamp rendering to <= 60 fps
+
+function animate(currentTime) {
+  if (inXRSession) return; // In XR session, onXRFrame handles rendering
   requestAnimationFrame(animate);
+  if (currentTime - lastRenderTime < targetRenderInterval) {
+    return;
+  }
+  lastRenderTime = currentTime;
   orbitControls.update();
   renderer.render(scene, camera);
+}
+
+// ==========================================
+// WebXR Immersive-AR / VR Session Management
+// ==========================================
+function checkXRSupport() {
+  const btn = document.getElementById('btn-enter-vr');
+  if (!btn) return;
+  if (!window.isSecureContext) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.innerText = 'VR: Insecure Context';
+    btn.title = 'WebXR requires HTTPS or localhost';
+    return;
+  }
+  if (!navigator.xr) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.innerText = 'VR: Unsupported';
+    btn.title = 'WebXR not supported in this browser';
+    return;
+  }
+  navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+    if (supported) {
+      btn.innerText = 'Enter AR (Quest)';
+      btn.disabled = false;
+    } else {
+      navigator.xr.isSessionSupported('immersive-vr').then(vrSupported => {
+        if (vrSupported) {
+          btn.innerText = 'Enter VR (Quest)';
+          btn.disabled = false;
+        } else {
+          btn.disabled = true;
+          btn.style.opacity = '0.5';
+          btn.innerText = 'VR: Not Supported';
+        }
+      }).catch(() => {
+        btn.disabled = true;
+        btn.innerText = 'VR: Error';
+      });
+    }
+  }).catch(() => {
+    btn.disabled = true;
+    btn.innerText = 'VR: Error';
+  });
+}
+
+function toggleXRRotation(checked) {
+  xrRotationEnabled = Boolean(checked);
+}
+
+async function toggleXRSession() {
+  if (xrSession) {
+    await xrSession.end();
+    return;
+  }
+  if (!navigator.xr) return;
+
+  const btn = document.getElementById('btn-enter-vr');
+  try {
+    let sessionInit = {
+      optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+    };
+    let mode = 'immersive-ar';
+    let isSupported = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
+    if (!isSupported) {
+      mode = 'immersive-vr';
+    }
+
+    const session = await navigator.xr.requestSession(mode, sessionInit);
+    onXRSessionStarted(session, mode);
+  } catch (err) {
+    console.error('Failed to start WebXR session:', err);
+    if (btn) btn.innerText = 'VR Failed: ' + (err.message || err.name);
+  }
+}
+
+async function onXRSessionStarted(session, mode) {
+  xrSession = session;
+  inXRSession = true;
+  const btn = document.getElementById('btn-enter-vr');
+  if (btn) {
+    btn.innerText = 'Exit VR';
+    btn.style.background = '#d32f2f';
+    btn.style.borderColor = '#ff5252';
+  }
+
+  // Update session tag
+  const xrTag = document.getElementById('xr-tag');
+  if (xrTag) {
+    xrTag.innerText = 'XR: IN SESSION';
+    xrTag.className = 'tag tag-ok';
+  }
+
+  // Hide 2D HUD and desktop DOM sidebar
+  const hud = document.getElementById('viewport-hud');
+  if (hud) hud.style.display = 'none';
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar) sidebar.style.display = 'none';
+
+  // Hide desktop TransformControls in VR (markers stay visible)
+  if (transformControlsL_trans) transformControlsL_trans.visible = false;
+  if (transformControlsL_rot) transformControlsL_rot.visible = false;
+  if (transformControlsR_trans) transformControlsR_trans.visible = false;
+  if (transformControlsR_rot) transformControlsR_rot.visible = false;
+
+  // Background handling: transparent for AR passthrough, dark room for VR
+  if (mode === 'immersive-ar') {
+    scene.background = null;
+  } else {
+    scene.background = new THREE.Color(0x0a0d14);
+  }
+
+  // Position robotGroup in front of user at floor level: ~0.8m forward in -Z, feet at Y=0
+  robotGroup.position.set(0, 0, -0.8);
+  robotGroup.rotation.set(-Math.PI / 2, 0, 0); // Convert MuJoCo Z-up to Three.js WebXR Y-up
+
+  // Session end listener
+  session.addEventListener('end', onXRSessionEnded);
+
+  // Setup WebXR rendering context
+  if (renderer.xr) {
+    await renderer.xr.setSession(session);
+  }
+
+  // Reference space: local-floor preferred, fallback local
+  try {
+    xrRefSpace = await session.requestReferenceSpace('local-floor');
+  } catch (e) {
+    xrRefSpace = await session.requestReferenceSpace('local');
+  }
+
+  session.requestAnimationFrame(onXRFrame);
+}
+
+function onXRSessionEnded() {
+  xrSession = null;
+  inXRSession = false;
+  xrRefSpace = null;
+
+  const btn = document.getElementById('btn-enter-vr');
+  if (btn) {
+    btn.innerText = 'Enter VR (Quest)';
+    btn.style.background = '#00c853';
+    btn.style.borderColor = '#00e676';
+  }
+
+  const xrTag = document.getElementById('xr-tag');
+  if (xrTag) {
+    xrTag.innerText = 'XR: IDLE';
+    xrTag.className = 'tag tag-warn';
+  }
+
+  // Restore DOM HUD and sidebar
+  const hud = document.getElementById('viewport-hud');
+  if (hud) hud.style.display = 'flex';
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar) sidebar.style.display = 'flex';
+
+  // Restore robot group position and scene background
+  robotGroup.position.set(0, 0, 0);
+  robotGroup.rotation.set(0, 0, 0);
+  scene.background = new THREE.Color(0x0e111a);
+
+  // Restore desktop gizmo visibility
+  updateGizmoVisibility();
+
+  // Resume desktop animation loop
+  animate();
+}
+
+function onXRFrame(time, frame) {
+  if (!xrSession) return;
+  xrSession.requestAnimationFrame(onXRFrame);
+
+  // Render scene through WebXR camera
+  renderer.render(scene, camera);
+
+  if (!xrRefSpace) return;
+
+  // Extract controller poses and buttons
+  const inputSources = xrSession.inputSources || [];
+  let leftPacket = null;
+  let rightPacket = null;
+
+  for (let i = 0; i < inputSources.length; i++) {
+    const src = inputSources[i];
+    if (!src || !src.gamepad) continue;
+    const handedness = src.handedness;
+    if (handedness !== 'left' && handedness !== 'right') continue;
+
+    // Pose: targetRaySpace or gripSpace
+    const space = src.gripSpace || src.targetRaySpace;
+    let posArr = null;
+    let quatArr = null;
+    if (space) {
+      const pose = frame.getPose(space, xrRefSpace);
+      if (pose && pose.transform) {
+        const p = pose.transform.position;
+        const q = pose.transform.orientation;
+        posArr = [p.x, p.y, p.z];
+        // WebXR (x, y, z, w) -> Python (w, x, y, z)
+        quatArr = [q.w, q.x, q.y, q.z];
+      }
+    }
+
+    const gp = src.gamepad;
+    const btns = gp.buttons || [];
+    const axes = gp.axes || [0.0, 0.0];
+
+    // Trigger = Button 0
+    let triggerVal = 0.0;
+    if (btns.length > 0) {
+      triggerVal = typeof btns[0].value === 'number' ? btns[0].value : (btns[0].pressed ? 1.0 : 0.0);
+    }
+
+    // Grip = Button 1
+    let gripVal = 0.0;
+    let gripPressed = false;
+    if (btns.length > 1) {
+      gripVal = typeof btns[1].value === 'number' ? btns[1].value : (btns[1].pressed ? 1.0 : 0.0);
+      gripPressed = gripVal >= 0.25 || Boolean(btns[1].pressed);
+    }
+
+    // Thumbstick click = Button 3
+    let thumbClick = false;
+    if (btns.length > 3) {
+      thumbClick = Boolean(btns[3].pressed || (typeof btns[3].value === 'number' && btns[3].value > 0.5));
+    }
+
+    // Primary button (A on right, X on left) = Button 4
+    let btnPrimary = false;
+    if (btns.length > 4) {
+      btnPrimary = Boolean(btns[4].pressed || (typeof btns[4].value === 'number' && btns[4].value > 0.5));
+    }
+
+    // Secondary button (B on right, Y on left) = Button 5
+    let btnSecondary = false;
+    if (btns.length > 5) {
+      btnSecondary = Boolean(btns[5].pressed || (typeof btns[5].value === 'number' && btns[5].value > 0.5));
+    }
+
+    // Thumbstick axes
+    let stickX = axes.length > 0 ? axes[0] : 0.0;
+    let stickY = axes.length > 1 ? axes[1] : 0.0;
+    if (Math.abs(stickX) < 0.05 && Math.abs(stickY) < 0.05 && axes.length >= 4) {
+      if (Math.abs(axes[2]) > 0.05 || Math.abs(axes[3]) > 0.05) {
+        stickX = axes[2];
+        stickY = axes[3];
+      }
+    }
+
+    const handData = {
+      pos: posArr,
+      quat: quatArr,
+      grip: gripPressed,
+      grip_val: gripVal,
+      trigger: triggerVal,
+      thumbstick: [stickX, stickY],
+      thumbstick_click: thumbClick,
+      buttons: {
+        primary: btnPrimary,   // X on Left, A on Right
+        secondary: btnSecondary // Y on Left, B on Right
+      }
+    };
+    if (handedness === 'left') {
+      handData.btn_x = btnPrimary;
+      handData.btn_y = btnSecondary;
+      leftPacket = handData;
+    } else {
+      handData.btn_a = btnPrimary;
+      handData.btn_b = btnSecondary;
+      rightPacket = handData;
+    }
+  }
+
+  // Send over /ws_panel at display rate
+  if (leftPacket || rightPacket) {
+    sendCmd({
+      cmd: 'xr_controllers',
+      t: performance.now() / 1000.0,
+      rotation_enabled: xrRotationEnabled,
+      left: leftPacket,
+      right: rightPacket
+    });
+  }
 }
 
 
@@ -696,10 +1296,17 @@ function sendCmd(obj) {
 }
 
 function updateUIStatus(s) {
+  latestStatusData = s;
   lastLeftClosure = s.hand_closure_l;
   lastRightClosure = s.hand_closure_r;
 
   // Update badges
+  const inputSrcTag = document.getElementById('input-src-tag');
+  if (inputSrcTag) {
+    const isXR = s.input_source === 'QUEST VR' || s.xr_controllers_active;
+    inputSrcTag.innerText = isXR ? 'INPUT: QUEST VR' : 'INPUT: MOUSE';
+    inputSrcTag.className = isXR ? 'tag tag-warn' : 'tag tag-ok';
+  }
   const simTag = document.getElementById('sim-tag');
   if (simTag) {
     simTag.innerText = s.sim_running !== false ? 'SIM: OK' : 'SIM: STOPPED';
@@ -722,8 +1329,77 @@ function updateUIStatus(s) {
 
   // Sync target marker positions when not dragging
   if (!isDraggingGizmo) {
-    if (targetSphereL && s.tgt_l) targetSphereL.position.set(s.tgt_l[0], s.tgt_l[1], s.tgt_l[2]);
-    if (targetSphereR && s.tgt_r) targetSphereR.position.set(s.tgt_r[0], s.tgt_r[1], s.tgt_r[2]);
+    if (followActualWrist) {
+      if (targetSphereL && s.ee_l) targetSphereL.position.set(s.ee_l[0], s.ee_l[1], s.ee_l[2]);
+      if (targetSphereR && s.ee_r) targetSphereR.position.set(s.ee_r[0], s.ee_r[1], s.ee_r[2]);
+    } else {
+      if (targetSphereL && s.tgt_l) targetSphereL.position.set(s.tgt_l[0], s.tgt_l[1], s.tgt_l[2]);
+      if (targetSphereR && s.tgt_r) targetSphereR.position.set(s.tgt_r[0], s.tgt_r[1], s.tgt_r[2]);
+    }
+    if (targetSphereL && s.rot_l && gizmoMode !== 'rotate') {
+      const m = new THREE.Matrix4();
+      m.set(
+        s.rot_l[0][0], s.rot_l[0][1], s.rot_l[0][2], 0,
+        s.rot_l[1][0], s.rot_l[1][1], s.rot_l[1][2], 0,
+        s.rot_l[2][0], s.rot_l[2][1], s.rot_l[2][2], 0,
+        0, 0, 0, 1
+      );
+      targetSphereL.quaternion.setFromRotationMatrix(m);
+    }
+    if (targetSphereR && s.rot_r && gizmoMode !== 'rotate') {
+      const m = new THREE.Matrix4();
+      m.set(
+        s.rot_r[0][0], s.rot_r[0][1], s.rot_r[0][2], 0,
+        s.rot_r[1][0], s.rot_r[1][1], s.rot_r[1][2], 0,
+        s.rot_r[2][0], s.rot_r[2][1], s.rot_r[2][2], 0,
+        0, 0, 0, 1
+      );
+      targetSphereR.quaternion.setFromRotationMatrix(m);
+    }
+  }
+
+  // Update HUD gizmo feedback pill (IK Error + Clamping + Collision)
+  const hudFeedback = document.getElementById('gizmo-feedback');
+  if (hudFeedback) {
+    const ikErr = (activeGizmoArm === 'left') ? (s.ik_err_l || 0.0) : (s.ik_err_r || 0.0);
+    let txt = `${activeGizmoArm.toUpperCase()} IK Err: ${ikErr.toFixed(1)} mm`;
+    if (s.collision_blocked) {
+      txt = `⚠️ Self-collision blocked (${(s.min_distance_mm || 0.0).toFixed(1)} mm)`;
+      hudFeedback.style.color = '#ff1744';
+      hudFeedback.style.borderColor = '#ff1744';
+      hudFeedback.style.backgroundColor = 'rgba(255, 23, 68, 0.2)';
+    } else if (s.warning && s.warning.toLowerCase().includes('clamp')) {
+      txt += ` ⚠️ CLAMPED`;
+      hudFeedback.style.color = '#ff5252';
+      hudFeedback.style.borderColor = '#ff5252';
+      hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';
+    } else {
+      hudFeedback.style.color = ikErr > 15.0 ? '#ffb74d' : '#81c784';
+      hudFeedback.style.borderColor = '#32415d';
+      hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';
+    }
+    hudFeedback.innerText = txt;
+    hudFeedback.style.display = 'inline-block';
+  }
+
+  // Tint blocked wrist marker red if collision blocked
+  if (s.collision_blocked) {
+    if (activeGizmoArm === 'left' && targetSphereL) {
+      targetSphereL.material.color.setHex(0xff1744);
+      targetSphereL.material.emissive.setHex(0xb71c1c);
+    } else if (activeGizmoArm === 'right' && targetSphereR) {
+      targetSphereR.material.color.setHex(0xff1744);
+      targetSphereR.material.emissive.setHex(0xb71c1c);
+    }
+  } else {
+    if (targetSphereL) {
+      targetSphereL.material.color.setHex(0x00e676);
+      targetSphereL.material.emissive.setHex(0x00a844);
+    }
+    if (targetSphereR) {
+      targetSphereR.material.color.setHex(0x2979ff);
+      targetSphereR.material.emissive.setHex(0x1565c0);
+    }
   }
 
   // Update status sidebar
@@ -841,14 +1517,23 @@ class WebPanelServer:
         # Visual bodies manifest & geometry mapping
         self.visual_manifest = self._build_visual_manifest()
 
-        self.app = web.Application()
-        # Route 1: Redirect / to /panel
-        self.app.router.add_get("/", self.handle_root_redirect)
+        @web.middleware
+        async def static_cache_middleware(request, handler):
+            resp = await handler(request)
+            if request.path.startswith("/web_meshes/") or request.path.startswith("/static/"):
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
+
+        self.app = web.Application(middlewares=[static_cache_middleware])
+        # Route 1: Direct panel serving on / and /panel (no redirect on /)
+        self.app.router.add_get("/", self.handle_panel)
         self.app.router.add_get("/panel", self.handle_panel)
+        self.app.router.add_get("/vr", self.handle_vr)
         self.app.router.add_get("/health", self.handle_health)
         self.app.router.add_get("/ws_panel", self.handle_ws)
         self.app.router.add_post("/api/command", self.handle_post_cmd)
         self.app.router.add_get("/api/status", self.handle_get_status)
+        self.app.router.add_post("/api/quest/launch", self.handle_post_quest_launch)
 
         # Serve static assets (Three.js and decimated meshes)
         if os.path.exists(STATIC_JS_DIR):
@@ -898,21 +1583,49 @@ class WebPanelServer:
             st = self.latest_status.copy()
         viewer_status = "ACTIVE" if st.get("viewer_running", False) else ("ENABLED" if st.get("viewer_enabled", False) else "OFF")
         nan_detected = bool(st.get("nan_detected", False))
+        collision_blocked = bool(st.get("collision_blocked", False))
+        min_distance_mm = float(st.get("min_distance_mm", 999.0))
+        quest_info = {
+            "adb": False,
+            "device": None,
+            "reverse": False,
+            "xr_session": bool(st.get("xr_active", False) or st.get("xr_controllers_active", False))
+        }
+        if hasattr(self, "quest_manager") and self.quest_manager is not None:
+            q_st = self.quest_manager.get_status()
+            quest_info["adb"] = q_st.get("adb_installed", False)
+            quest_info["device"] = q_st.get("device")
+            quest_info["device_state"] = q_st.get("device_state")
+            quest_info["reverse"] = q_st.get("reverse_active", False)
+            quest_info["quest_url"] = q_st.get("quest_url")
+
         health_resp = {
             "status": "ERROR" if nan_detected else "OK",
             "nan_detected": nan_detected,
+            "collision_blocked": collision_blocked,
+            "min_distance_mm": min_distance_mm,
             "sim": "RUNNING" if st.get("sim_running", True) else "STOPPED",
             "viewer": viewer_status,
             "server": "LISTENING",
             "panel": "READY",
             "xr_receiver": "CONNECTED" if st.get("xr_active", False) else "IDLE",
-            "safety": "ESTOP_TRIGGERED" if st.get("estop", False) else "NORMAL",
+            "safety": "ESTOP_TRIGGERED" if st.get("estop", False) else ("COLLISION_BLOCKED" if collision_blocked else "NORMAL"),
+            "quest": quest_info,
             "details": st
         }
         return web.json_response(health_resp)
 
     async def handle_panel(self, request):
         return web.Response(text=HTML_PANEL, content_type="text/html")
+
+    async def handle_vr(self, request):
+        return web.Response(text=HTML_VR, content_type="text/html")
+
+    async def handle_post_quest_launch(self, request):
+        if hasattr(self, "quest_manager") and self.quest_manager is not None:
+            ok = self.quest_manager.launch_quest_browser(force=True)
+            return web.json_response({"status": "ok" if ok else "failed"})
+        return web.json_response({"status": "error", "message": "Quest ADB manager not available"}, status=503)
 
     async def handle_ws(self, request):
         ws = web.WebSocketResponse()
@@ -985,8 +1698,13 @@ class WebPanelServer:
 
             runner = web.AppRunner(self.app)
             self.loop.run_until_complete(runner.setup())
-            site = web.TCPSite(runner, "0.0.0.0", self.port, ssl_context=ssl_context)
-            self.loop.run_until_complete(site.start())
+            site_v4 = web.TCPSite(runner, "0.0.0.0", self.port, ssl_context=ssl_context)
+            self.loop.run_until_complete(site_v4.start())
+            try:
+                site_v6 = web.TCPSite(runner, "::", self.port, ssl_context=ssl_context)
+                self.loop.run_until_complete(site_v6.start())
+            except Exception:
+                pass  # Fallback to IPv4 only if dual-stack :: bind is unavailable
             self.loop.run_forever()
 
         self.thread = threading.Thread(target=_runner, daemon=True)

@@ -33,6 +33,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from teleop.kinematics.agibot_a2_ik import AgibotA2IK
 from teleop.kinematics.mink_ik import AgibotMinkIK, REAL_ROBOT_LIMITS
+try:
+    from teleop.kinematics.pyroki_ik import AgibotPyrokiIK
+except ImportError:
+    AgibotPyrokiIK = None
 from teleop.kinematics.filters import InputFilterPipeline, JointTrajectoryFilter
 
 SCENE_XML = str(PROJECT_ROOT / "assets" / "agibot_a2_ultra" / "mjcf" / "scene.xml")
@@ -95,16 +99,26 @@ def generate_trajectories(home_pos, home_rot, num_steps=300, dt=0.02):
         near_singular.append((p, home_rot))
     trajectories["Near-Singular Path"] = near_singular
 
+    # 6. Gizmo 15cm Step Jump
+    step_jump = []
+    for i in range(num_steps):
+        p = home_pos.copy()
+        if i >= num_steps // 2:
+            p += np.array([0.15, 0.0, 0.0]) # 15 cm step jump
+        step_jump.append((p, home_rot))
+    trajectories["Gizmo 15cm Step Jump"] = step_jump
+
     return trajectories
 
 
 def run_benchmark():
     print("=" * 85)
-    print("AGIBOT A2 ULTRA INVERSE KINEMATICS BENCHMARK: DLS vs MINK (QP)")
+    print("AGIBOT A2 ULTRA INVERSE KINEMATICS BENCHMARK: DLS vs MINK (QP) vs PYROKI (JAX)")
     print("=" * 85)
 
     dls_solver = AgibotA2IK(SCENE_XML, arm="left")
     mink_solver = AgibotMinkIK(SCENE_XML, arm="left", use_real_robot_profile=True)
+    pyroki_solver = AgibotPyrokiIK(arm="left", use_real_robot_profile=True) if AgibotPyrokiIK else None
 
     home_pos, home_rot = dls_solver.forward_kinematics(dls_solver.nominal_qpos)
     dt = 0.02
@@ -114,10 +128,17 @@ def run_benchmark():
     joint_names = [f"idx{i}_left_arm_joint{i-12}" for i in range(13, 20)]
     bounds = np.array([REAL_ROBOT_LIMITS[j] for j in joint_names])
 
+    solvers_to_test = [
+        ("DLS", dls_solver, False),
+        ("Mink (QP)", mink_solver, True),
+    ]
+    if pyroki_solver:
+        solvers_to_test.append(("Pyroki", pyroki_solver, True))
+
     results = []
 
     for traj_name, points in trajectories.items():
-        for solver_name, solver, use_filters in [("DLS", dls_solver, False), ("Mink (QP)", mink_solver, True)]:
+        for solver_name, solver, use_filters in solvers_to_test:
             q_history = []
             pos_errors = []
             rot_errors = []
@@ -139,6 +160,8 @@ def run_benchmark():
                 t0 = time.perf_counter()
                 if solver_name == "DLS":
                     q_sol, succ, pe, re, _ = solver.solve(p_tgt, r_tgt, init_qpos=q_cur, max_iters=25)
+                elif solver_name == "Pyroki":
+                    q_sol, succ, pe, re, _ = solver.solve(p_tgt, r_tgt, init_qpos=q_cur)
                 else:
                     q_sol, succ, pe, re, _ = solver.solve(p_tgt, r_tgt, init_qpos=q_cur, max_iters=5)
                 t_solve = (time.perf_counter() - t0) * 1000.0
