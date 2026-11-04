@@ -1,0 +1,24 @@
+<mujoco model="agibot_a2_ultra_scene">
+  <include file="a2_ultra.xml"/>
+
+  <statistic center="0 0 0.9" extent="1.5"/>
+
+  <visual>
+    <headlight diffuse="0.7 0.7 0.7" ambient="0.2 0.2 0.2" specular="0.3 0.3 0.3"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-135" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0.1 0.15 0.2" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.25 0.28 0.32" rgb2="0.18 0.20 0.24" markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.15"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 3.0" dir="0 0 -1" directional="false" diffuse="0.8 0.8 0.8"/>
+    <light pos="1.5 1.5 2.5" dir="-1 -1 -1" directional="true" diffuse="0.5 0.5 0.5"/>
+    <light pos="-1.5 -1.5 2.5" dir="1 1 -1" directional="true" diffuse="0.4 0.4 0.4"/>
+    <geom name="floor" size="5 5 0.05" type="plane" material="groundplane" contype="1" conaffinity="1"/>
+  </worldbody>
+</mujoco>

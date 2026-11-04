@@ -1,0 +1,11 @@
+Trajectory,Solver,Mean_Pos_Err_mm,Mean_Rot_Err_deg,Max_Vel_rad_s,Max_Acc_rad_s2,Jerk_RMS,Elbow_Flips,Solve_p50_ms,Solve_p95_ms,Violations
+Smooth Circle,DLS,2.289,0.008,1.556,22.019,25.491,0,0.303,0.419,14
+Smooth Circle,Mink (QP),2.078,0.098,0.965,5.908,19.551,0,0.594,1.384,0
+Fast Line,DLS,16.823,2.103,4.664,130.114,1388.519,0,3.289,3.935,204
+Fast Line,Mink (QP),50.541,2.648,0.609,4.654,15.900,0,1.164,1.268,0
+Noisy Hand (3mm Jitter),DLS,2.879,0.017,4.950,328.479,5547.207,0,0.257,0.304,0
+Noisy Hand (3mm Jitter),Mink (QP),1.324,0.053,0.831,5.791,17.943,0,0.572,1.022,0
+Near-Limit Path,DLS,2.678,0.408,3.173,151.465,1342.962,0,0.257,0.299,0
+Near-Limit Path,Mink (QP),4.662,1.949,1.111,6.280,29.606,0,1.140,1.255,0
+Near-Singular Path,DLS,139.974,26.617,2.971,148.560,2396.617,0,3.141,3.410,356
+Near-Singular Path,Mink (QP),81.684,2.676,0.614,4.953,18.135,0,1.177,1.291,0

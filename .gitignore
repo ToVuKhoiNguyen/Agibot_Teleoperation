@@ -1,0 +1,31 @@
+# Environments & Virtual Envs
+venv/
+.venv/
+
+# Trash & Archives
+_trash/
+*.zip
+
+# Python caches & build artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+MUJOCO_LOG.TXT
+
+# Secrets & Local Certificates
+*.pem
+*.key
+.env
+
+# OS junk
+.DS_Store
+
+# Large mesh assets (>5MB) / Third-party vendor CAD (default safety exclusion)
+# assets/agibot_a2_ultra/meshes/
+# assets/agibot_a2_ultra/web_meshes/
+venv/
+venv

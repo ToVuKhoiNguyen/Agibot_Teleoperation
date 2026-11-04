@@ -1,0 +1,94 @@
+simulation:
+  scene_xml: "assets/agibot_a2_ultra/mjcf/scene.xml"
+  model_xml: "assets/agibot_a2_ultra/mjcf/a2_ultra.xml"
+  urdf_path: "assets/agibot_a2_ultra/urdf/a2.urdf"
+  timestep: 0.002
+  integrator: "implicitfast"
+  base_welded: true
+  base_pos: [0.0, 0.0, 0.93]
+
+teleop:
+  host: "0.0.0.0"
+  port: 8012
+  ssl_cert: "certs/cert.pem"
+  ssl_key: "certs/key.pem"
+  frequency_hz: 60.0
+  arm_scale: 1.0
+  tracking_timeout_s: 0.5
+
+safety:
+  max_joint_velocity: 3.0       # rad/s
+  max_hand_velocity: 5.0        # rad/s
+  emergency_stop_key: "q"
+  start_key: "r"
+  hold_pose_on_loss: true
+
+arms:
+  left:
+    joints:
+      - "idx13_left_arm_joint1"
+      - "idx14_left_arm_joint2"
+      - "idx15_left_arm_joint3"
+      - "idx16_left_arm_joint4"
+      - "idx17_left_arm_joint5"
+      - "idx18_left_arm_joint6"
+      - "idx19_left_arm_joint7"
+    ee_site: "left_arm_ee"
+    ee_body: "left_hand"
+    base_body: "left_arm_link_base"
+    rest_qpos: [0.0, 0.3, 0.0, -1.0, 0.0, 0.0, 0.0]
+
+  right:
+    joints:
+      - "idx20_right_arm_joint1"
+      - "idx21_right_arm_joint2"
+      - "idx22_right_arm_joint3"
+      - "idx23_right_arm_joint4"
+      - "idx24_right_arm_joint5"
+      - "idx25_right_arm_joint6"
+      - "idx26_right_arm_joint7"
+    ee_site: "right_arm_ee"
+    ee_body: "right_hand"
+    base_body: "right_arm_link_base"
+    rest_qpos: [0.0, -0.3, 0.0, 1.0, 0.0, 0.0, 0.0]
+
+hands:
+  left:
+    active_joints:
+      - "L_thumb_swing_joint"
+      - "L_thumb_1_joint"
+      - "L_index_1_joint"
+      - "L_middle_1_joint"
+      - "L_ring_1_joint"
+      - "L_pinky_1_joint"
+    mimic_joints:
+      L_thumb_2_joint: {parent: "L_thumb_1_joint", multiplier: 0.40}
+      L_thumb_3_joint: {parent: "L_thumb_1_joint", multiplier: 0.60}
+      L_index_2_joint: {parent: "L_index_1_joint", multiplier: 1.00}
+      L_middle_2_joint: {parent: "L_middle_1_joint", multiplier: 1.00}
+      L_ring_2_joint: {parent: "L_ring_1_joint", multiplier: 1.00}
+      L_pinky_2_joint: {parent: "L_pinky_1_joint", multiplier: 1.00}
+
+  right:
+    active_joints:
+      - "R_thumb_swing_joint"
+      - "R_thumb_1_joint"
+      - "R_index_1_joint"
+      - "R_middle_1_joint"
+      - "R_ring_1_joint"
+      - "R_pinky_1_joint"
+    mimic_joints:
+      R_thumb_2_joint: {parent: "R_thumb_1_joint", multiplier: 0.40}
+      R_thumb_3_joint: {parent: "R_thumb_1_joint", multiplier: 0.60}
+      R_index_2_joint: {parent: "R_index_1_joint", multiplier: 1.00}
+      R_middle_2_joint: {parent: "R_middle_1_joint", multiplier: 1.00}
+      R_ring_2_joint: {parent: "R_ring_1_joint", multiplier: 1.00}
+      R_pinky_2_joint: {parent: "R_pinky_1_joint", multiplier: 1.00}
+
+ik:
+  damping: 0.02
+  max_iterations: 30
+  pos_tolerance_m: 0.005        # 5 mm
+  rot_tolerance_rad: 0.035      # ~2 deg
+  step_size: 0.6
+  null_space_weight: 0.01

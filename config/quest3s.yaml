@@ -1,0 +1,14 @@
+# Quest 3S WebXR Configuration
+# Axis mapping: Quest/WebXR frame (x right, y up, -z forward) -> robot frame (x forward, y left, z up)
+#
+# x_robot = -z_xr   (forward)
+# y_robot = -x_xr   (left)
+# z_robot =  y_xr   (up)
+controller_axis_map:
+  - [ 0.0,  0.0, -1.0]
+  - [-1.0,  0.0,  0.0]
+  - [ 0.0,  1.0,  0.0]
+
+default_scale: 1.0
+tracking_timeout_s: 0.5
+

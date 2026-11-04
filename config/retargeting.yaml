@@ -1,0 +1,45 @@
+# Configuration for XR & Teleoperation Filtering and Stateful IK
+
+input_filter:
+  position:
+    min_cutoff: 1.2      # Hz - minimum cutoff frequency for One Euro filter
+    beta: 0.007          # Speed coefficient for One Euro filter
+    d_cutoff: 1.0        # Hz - cutoff frequency for derivative
+  orientation:
+    slerp_alpha: 0.35    # Smoothing factor for quaternion SLERP (0..1)
+  spike_rejection:
+    pos_jump_threshold_m: 0.30     # Reject position jumps > 30 cm per frame
+    rot_jump_threshold_rad: 1.57   # Reject rotation jumps > 90 deg per frame
+  deadzone:
+    pos_deadzone_m: 0.0015         # 1.5 mm deadzone to avoid micro-tremors
+    rot_deadzone_rad: 0.015        # ~0.8 deg deadzone
+
+clutch:
+  ramp_duration_s: 0.30  # Smooth blend duration when re-anchoring or resuming tracking
+
+output_filter:
+  critically_damped:
+    natural_frequency_hz: 25.0    # 25 Hz critically damped filter
+  ruckig:
+    enabled: true
+    max_velocity_rad_s: 3.00       # AimDK real robot hardware limit
+    max_acceleration_rad_s2: 6.28  # AimDK real robot hardware limit
+    max_jerk_rad_s3: 40.0          # Jerk limit for ultra-smooth motion
+
+mink_ik:
+  solver: "daqp"                  # daqp / osqp
+  dt: 0.02
+  weights:
+    position_cost: 25.0
+    orientation_cost: 2.5
+    posture_cost: 0.05
+    damping: 0.05
+    regularization: 1e-4
+  wrist_limits_profile: "real_robot"  # real_robot: J6 ±0.45 rad, J7 ±0.35 rad
+  collision_avoidance: false
+
+finger_filter:
+  min_cutoff: 1.5
+  beta: 0.01
+  d_cutoff: 1.0
+
