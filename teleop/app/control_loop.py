@@ -112,6 +112,10 @@ def run_control_loop(app):
                 app.last_hand_cmd_right = safe_hand_r
                 app.hand_collision_blocked = bool(blocked_l or blocked_r)
                 app.min_hand_distance_m = min(dist_l, dist_r)
+                if app.collision_blocked:
+                    app.clamp_counter_arm = getattr(app, "clamp_counter_arm", 0) + 1
+                if app.hand_collision_blocked:
+                    app.clamp_counter_hand = getattr(app, "clamp_counter_hand", 0) + 1
 
                 if hasattr(app, "robot_safety") and app.robot_safety is not None and getattr(app.robot_safety, "is_connected", False):
                     q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
@@ -185,6 +189,7 @@ def run_control_loop(app):
             if sleep_t > 0.0005:
                 time.sleep(sleep_t)
             elif sleep_t < -0.05:
+                app.frame_gaps = getattr(app, "frame_gaps", 0) + 1
                 next_step_time = now_perf
 
     except KeyboardInterrupt:

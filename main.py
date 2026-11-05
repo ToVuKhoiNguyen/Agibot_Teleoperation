@@ -159,6 +159,11 @@ class UnifiedTeleopApp:
                 self.tracker.tv_wrapper.close()
             except Exception:
                 pass
+        try:
+            from teleop.utils.session_logger import save_session_log
+            save_session_log(self)
+        except Exception as e:
+            print(f"[WARN] Failed to write session log: {e}")
         print("[INFO] Cleanup complete. Exiting.")
 
 

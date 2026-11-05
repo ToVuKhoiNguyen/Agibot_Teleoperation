@@ -141,6 +141,7 @@ function createTextSprite(text, bgColor) {
 
 const urlParams = new URLSearchParams(window.location.search);
 const isDebug = urlParams.get('debug') === '1';
+const showStats = urlParams.get('stats') !== '0';
 const qualityMode = (urlParams.get('quality') || 'low').toLowerCase();
 
 function init3D() {
@@ -160,6 +161,11 @@ function init3D() {
     debugEl.style.display = 'block';
     const qEl = document.getElementById('dbg-quality');
     if (qEl) qEl.innerText = qualityMode;
+  }
+
+  const statsEl = document.getElementById('stats-overlay');
+  if (statsEl && showStats) {
+    statsEl.style.display = 'block';
   }
 
   const useAntialias = (qualityMode === 'high');

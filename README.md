@@ -30,6 +30,7 @@ pip install -r requirements.txt
 python main.py
 ```
 Open **`https://localhost:8012/`** (accept self-signed SSL cert).
+For complete automated and manual verification procedures, see [`docs/TESTING.md`](file:///home/nguyen/a2_ws/docs/TESTING.md).
 
 ### Quest 3S USB Setup
 1. Enable USB debugging on Quest 3S and connect via USB-C cable.

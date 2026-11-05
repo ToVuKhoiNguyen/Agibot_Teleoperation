@@ -206,6 +206,8 @@ def init_subsystems(
         key_file=app.key_path,
         scene_xml=scene_xml
     )
+    app.server.teleop = app
+    app.server.get_hand_log = lambda: list(app.hand_log_ring)
 
     # WebXR Receiver
     from teleop.tracking.webxr_vuer_handler import WebXRReceiver

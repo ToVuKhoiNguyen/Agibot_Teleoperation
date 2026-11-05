@@ -5,6 +5,7 @@ Initializes application runtime session state, telemetry counters, and Quest VR 
 
 import time
 import signal
+import collections
 from pathlib import Path
 import numpy as np
 import yaml
@@ -44,6 +45,13 @@ def init_state(app, project_root: Path):
     app.cmd_rate_hz = 0.0
     app.cmd_rate_timer = time.time()
     app.status_warning = ""
+    app.session_start_time = time.time()
+    app.tracking_loss_events = 0
+    app.clamp_counter_arm = 0
+    app.clamp_counter_hand = 0
+    app.fault_events = 0
+    app.frame_gaps = 0
+    app.msg_ages_ms = []
 
     # Quest 3S WebXR Teleoperation Configuration & Clutch State
     app.quest_config_path = project_root / "config" / "quest3s.yaml"
@@ -126,6 +134,7 @@ def init_state(app, project_root: Path):
     app.grasp_type_r = "cylinder"
     app.hand_closure_l = 0.0
     app.hand_closure_r = 0.0
+    app.hand_log_ring = collections.deque(maxlen=300)
     app.stick_x_state_l = 0
     app.stick_x_state_r = 0
     app.xr_thumb_click_prev_l = False

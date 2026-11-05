@@ -26,6 +26,63 @@ def build_status_packet(app) -> dict:
     closure_l = app.hand_closure_l if not getattr(app, "direct_hand_override_l", False) else float(np.mean(app.last_hand_cmd_left[2:6])) / 1.21
     closure_r = app.hand_closure_r if not getattr(app, "direct_hand_override_r", False) else float(np.mean(app.last_hand_cmd_right[2:6])) / 1.21
 
+    comfort_targets = np.array([0.95, 0.32, 1.18, 1.22, 1.22, 1.22], dtype=np.float64)
+    safe_l = getattr(app, "current_safe_hand_l", np.zeros(6))
+    safe_r = getattr(app, "current_safe_hand_r", np.zeros(6))
+    finger_pcts_l = [round(float(x), 1) for x in np.clip(safe_l[1:6] / comfort_targets[1:6], 0.0, 1.0) * 100.0]
+    finger_pcts_r = [round(float(x), 1) for x in np.clip(safe_r[1:6] / comfort_targets[1:6], 0.0, 1.0) * 100.0]
+
+    # Hand diagnostics ring buffer logging (20 Hz)
+    if hasattr(app, "hand_log_ring"):
+        reason_l = "none"
+        if getattr(app, "hand_collision_blocked", False) and hasattr(app, "collision_checker"):
+            _, _, p_l = app.collision_checker.check_hand_collision("left", safe_l, margin=0.001)
+            if p_l and len(p_l) > 2 and p_l[2]:
+                reason_l = str(p_l[2])
+        reason_r = "none"
+        if getattr(app, "hand_collision_blocked", False) and hasattr(app, "collision_checker"):
+            _, _, p_r = app.collision_checker.check_hand_collision("right", safe_r, margin=0.001)
+            if p_r and len(p_r) > 2 and p_r[2]:
+                reason_r = str(p_r[2])
+
+        actual_l = app.env.get_left_hand_qpos()
+        actual_r = app.env.get_right_hand_qpos()
+        f_names = ["thumb", "index", "middle", "ring", "pinky"]
+        f_indices = [1, 2, 3, 4, 5]
+        f_dict_l = {
+            fn: {
+                "target": round(float(safe_l[fi]), 4),
+                "actual": round(float(actual_l[fi]), 4),
+                "clamped": bool(reason_l != "none"),
+                "reason": reason_l if reason_l != "none" else "none"
+            }
+            for fn, fi in zip(f_names, f_indices)
+        }
+        f_dict_r = {
+            fn: {
+                "target": round(float(safe_r[fi]), 4),
+                "actual": round(float(actual_r[fi]), 4),
+                "clamped": bool(reason_r != "none"),
+                "reason": reason_r if reason_r != "none" else "none"
+            }
+            for fn, fi in zip(f_names, f_indices)
+        }
+        app.hand_log_ring.append({
+            "timestamp": float(now_t),
+            "left": {
+                "grasp_type": str(app.grasp_type_l),
+                "stick_y_raw": float(getattr(app, "xr_stick_y_l", 0.0)),
+                "close_cmd": float(np.clip(app.hand_closure_l, 0.0, 1.0)),
+                "fingers": f_dict_l
+            },
+            "right": {
+                "grasp_type": str(app.grasp_type_r),
+                "stick_y_raw": float(getattr(app, "xr_stick_y_r", 0.0)),
+                "close_cmd": float(np.clip(app.hand_closure_r, 0.0, 1.0)),
+                "fingers": f_dict_r
+            }
+        })
+
     xr_active = False
     if app.tracker is not None and getattr(app.tracker, "tv_wrapper", None) is not None:
         tvuer = getattr(app.tracker.tv_wrapper, "tvuer", None)
@@ -59,6 +116,8 @@ def build_status_packet(app) -> dict:
         "ik_err_r": err_r,
         "hand_closure_l": float(np.clip(app.hand_closure_l, 0.0, 1.0)),
         "hand_closure_r": float(np.clip(app.hand_closure_r, 0.0, 1.0)),
+        "hand_fingers_l": finger_pcts_l,
+        "hand_fingers_r": finger_pcts_r,
         "held": bool(app.manual_held),
         "estop": bool(app.state_estop),
         "collision_blocked": bool(app.collision_blocked),
@@ -94,6 +153,7 @@ def build_status_packet(app) -> dict:
                 "precision": bool(app.precision_l),
                 "grasp_type": app.grasp_type_l,
                 "closure": float(app.hand_closure_l),
+                "finger_pcts": finger_pcts_l,
                 "home_progress": float(app.xr_home_progress_l)
             },
             "right": {
@@ -109,6 +169,7 @@ def build_status_packet(app) -> dict:
                 "precision": bool(app.precision_r),
                 "grasp_type": app.grasp_type_r,
                 "closure": float(app.hand_closure_r),
+                "finger_pcts": finger_pcts_r,
                 "home_progress": float(app.xr_home_progress_r)
             },
             "events": app.xr_event_log[-8:]

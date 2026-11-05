@@ -22,6 +22,8 @@ from teleop.web.server.panel_routes import (
     handle_post_quest_launch_impl,
     handle_post_cmd_impl,
     handle_get_status_impl,
+    handle_get_hand_log_impl,
+    handle_dump_hand_log_impl,
 )
 from teleop.web.server.ws_broadcaster import (
     handle_ws_impl,
@@ -87,8 +89,11 @@ class WebPanelServer:
         self.app.router.add_get("/bundle.bin", self.handle_bundle_bin)
         self.app.router.add_get("/ws_panel", self.handle_ws)
         self.app.router.add_get("/api/status", self.handle_get_status)
+        self.app.router.add_get("/api/hand_log", self.handle_get_hand_log)
+        self.app.router.add_post("/api/dump_hand_log", self.handle_dump_hand_log)
         self.app.router.add_post("/api/command", self.handle_post_cmd)
         self.app.router.add_post("/api/launch_quest", self.handle_post_quest_launch)
+        self.app.router.add_post("/api/quest/launch", self.handle_post_quest_launch)
 
         # Serve static assets
         if os.path.exists(STATIC_DIR):
@@ -132,6 +137,12 @@ class WebPanelServer:
 
     async def handle_get_status(self, request):
         return await handle_get_status_impl(self.status_lock, self.latest_status, request)
+
+    async def handle_get_hand_log(self, request):
+        return await handle_get_hand_log_impl(self, request)
+
+    async def handle_dump_hand_log(self, request):
+        return await handle_dump_hand_log_impl(self, request)
 
     def set_status(self, status_dict: dict):
         set_status_impl(self, status_dict)

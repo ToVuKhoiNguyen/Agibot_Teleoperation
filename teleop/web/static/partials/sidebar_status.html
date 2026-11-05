@@ -15,6 +15,15 @@
             <span id="xr_clutch_l" class="badge-clutch" style="background:#37474f; color:#eceff1; padding:1px 4px; border-radius:3px; font-size:9px;">LOCKED</span>
           </div>
           <div style="margin-top:3px; font-size:9px;">Grasp: <b id="xr_grasp_l" style="color:#ffb74d;">CYLINDER</b></div>
+          <div style="display:flex; align-items:center; gap:2px; margin-top:2px;" title="Fingers: Thumb, Index, Middle, Ring, Pinky">
+            <span style="font-size:8px; color:#90a4ae; width:8px;">F:</span>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Thumb"><div id="xr_f_t_l" style="width:0%; height:100%; background:#0284c7;"></div></div>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Index"><div id="xr_f_i_l" style="width:0%; height:100%; background:#0284c7;"></div></div>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Middle"><div id="xr_f_m_l" style="width:0%; height:100%; background:#0284c7;"></div></div>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Ring"><div id="xr_f_r_l" style="width:0%; height:100%; background:#0284c7;"></div></div>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Pinky"><div id="xr_f_p_l" style="width:0%; height:100%; background:#0284c7;"></div></div>
+            <span id="xr_f_sum_l" style="font-size:8px; color:#90caf9; width:14px; text-align:right;">0F</span>
+          </div>
           <div style="display:flex; align-items:center; gap:3px; margin-top:2px;">
             <span style="width:58px;" title="Button 0 (Front Trigger): Translation">Trig [Trans]:</span>
             <div style="flex:1; background:#1c2533; height:6px; border-radius:3px; overflow:hidden;">
@@ -56,6 +65,15 @@
             <span id="xr_clutch_r" class="badge-clutch" style="background:#37474f; color:#eceff1; padding:1px 4px; border-radius:3px; font-size:9px;">LOCKED</span>
           </div>
           <div style="margin-top:3px; font-size:9px;">Grasp: <b id="xr_grasp_r" style="color:#ffb74d;">CYLINDER</b></div>
+          <div style="display:flex; align-items:center; gap:2px; margin-top:2px;" title="Fingers: Thumb, Index, Middle, Ring, Pinky">
+            <span style="font-size:8px; color:#90a4ae; width:8px;">F:</span>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Thumb"><div id="xr_f_t_r" style="width:0%; height:100%; background:#4caf50;"></div></div>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Index"><div id="xr_f_i_r" style="width:0%; height:100%; background:#4caf50;"></div></div>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Middle"><div id="xr_f_m_r" style="width:0%; height:100%; background:#4caf50;"></div></div>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Ring"><div id="xr_f_r_r" style="width:0%; height:100%; background:#4caf50;"></div></div>
+            <div style="flex:1; background:#1c2533; height:5px; border-radius:2px; overflow:hidden;" title="Pinky"><div id="xr_f_p_r" style="width:0%; height:100%; background:#4caf50;"></div></div>
+            <span id="xr_f_sum_r" style="font-size:8px; color:#a5d6a7; width:14px; text-align:right;">0F</span>
+          </div>
           <div style="display:flex; align-items:center; gap:3px; margin-top:2px;">
             <span style="width:58px;" title="Button 0 (Front Trigger): Translation">Trig [Trans]:</span>
             <div style="flex:1; background:#1c2533; height:6px; border-radius:3px; overflow:hidden;">
@@ -156,6 +174,12 @@
       </div>
       <div id="sweep_status_area" style="font-size:9px; color:#80cbc4; background:#002422; padding:3px 5px; border-radius:3px; border:1px solid #004d40;">
         Ready
+      </div>
+
+      <!-- Dump Hand Log Button -->
+      <div style="margin-top:8px;">
+        <button onclick="dumpHandLog()" style="width:100%; background:#1c2838; border-color:#2e4460; font-size:10px; padding:4px;">📥 Dump Hand Diagnostics Log</button>
+        <div id="dump-hand-log-feedback" style="display:none; font-size:9px; margin-top:3px; text-align:center;"></div>
       </div>
     </div>
 

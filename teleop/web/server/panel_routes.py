@@ -3,6 +3,7 @@ teleop/web/server/panel_routes.py
 HTTP REST and HTML page request handlers for the teleop control panel.
 """
 
+import json
 from aiohttp import web
 
 
@@ -83,4 +84,25 @@ async def handle_post_cmd_impl(cmd_queue, request):
 async def handle_get_status_impl(status_lock, latest_status, request):
     with status_lock:
         return web.json_response(latest_status)
+
+
+async def handle_get_hand_log_impl(server, request):
+    if hasattr(server, "get_hand_log") and callable(server.get_hand_log):
+        log_data = server.get_hand_log()
+    elif hasattr(server, "teleop") and hasattr(server.teleop, "hand_log_ring"):
+        log_data = list(server.teleop.hand_log_ring)
+    else:
+        log_data = []
+    return web.json_response(log_data)
+
+
+async def handle_dump_hand_log_impl(server, request):
+    if hasattr(server, "teleop") and hasattr(server.teleop, "dump_hand_log"):
+        filepath = server.teleop.dump_hand_log("/tmp/hand_log.json")
+        return web.json_response({"status": "ok", "path": filepath})
+    log_data = server.get_hand_log() if hasattr(server, "get_hand_log") and callable(server.get_hand_log) else []
+    with open("/tmp/hand_log.json", "w", encoding="utf-8") as f:
+        json.dump(log_data, f, indent=2)
+    return web.json_response({"status": "ok", "path": "/tmp/hand_log.json"})
+
 

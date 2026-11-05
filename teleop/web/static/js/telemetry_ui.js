@@ -25,6 +25,16 @@ function updateTelemetryUI(s) {
       }
       const grEl = document.getElementById('xr_grasp_l');
       if (grEl) grEl.innerText = (l.grasp_type || 'CYLINDER').toUpperCase();
+
+      const fPctsL = l.finger_pcts || s.hand_fingers_l || [0, 0, 0, 0, 0];
+      ['t', 'i', 'm', 'r', 'p'].forEach((fn, idx) => {
+        const bar = document.getElementById('xr_f_' + fn + '_l');
+        if (bar) bar.style.width = Math.min(100, Math.max(0, Math.round(fPctsL[idx] || 0))) + '%';
+      });
+      const activeL = fPctsL.filter(p => p > 15).length;
+      const sumL = document.getElementById('xr_f_sum_l');
+      if (sumL) sumL.innerText = `${activeL}F`;
+
       const barGripL = document.getElementById('xr_bar_grip_l');
       if (barGripL) barGripL.style.width = Math.round((l.grip_val || 0) * 100) + '%';
       const valGripL = document.getElementById('xr_val_grip_l');
@@ -70,6 +80,16 @@ function updateTelemetryUI(s) {
       }
       const grEl = document.getElementById('xr_grasp_r');
       if (grEl) grEl.innerText = (r.grasp_type || 'CYLINDER').toUpperCase();
+
+      const fPctsR = r.finger_pcts || s.hand_fingers_r || [0, 0, 0, 0, 0];
+      ['t', 'i', 'm', 'r', 'p'].forEach((fn, idx) => {
+        const bar = document.getElementById('xr_f_' + fn + '_r');
+        if (bar) bar.style.width = Math.min(100, Math.max(0, Math.round(fPctsR[idx] || 0))) + '%';
+      });
+      const activeR = fPctsR.filter(p => p > 15).length;
+      const sumR = document.getElementById('xr_f_sum_r');
+      if (sumR) sumR.innerText = `${activeR}F`;
+
       const barGripR = document.getElementById('xr_bar_grip_r');
       if (barGripR) barGripR.style.width = Math.round((r.grip_val || 0) * 100) + '%';
       const valGripR = document.getElementById('xr_val_grip_r');

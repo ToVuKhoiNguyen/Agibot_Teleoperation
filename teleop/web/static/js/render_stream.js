@@ -122,6 +122,18 @@ function animate(currentTime) {
     const currentFps = Math.round((renderFrameCount * 1000) / elapsed);
     renderFrameCount = 0;
     lastFpsUpdateTime = currentTime;
+    if (typeof showStats !== 'undefined' && showStats) {
+      const statsEl = document.getElementById('stats-overlay');
+      if (statsEl) {
+        const calls = renderer.info.render.calls;
+        const tris = renderer.info.render.triangles;
+        const dpr = renderer.getPixelRatio().toFixed(1);
+        const msgs = (typeof measuredStateRateHz !== 'undefined') ? measuredStateRateHz.toFixed(0) : '0';
+        const age = (typeof lastMessageAgeMs !== 'undefined') ? lastMessageAgeMs.toFixed(0) : '0';
+        statsEl.innerText = `${currentFps} FPS | ${lastFrameDurationMs.toFixed(1)} ms | ${calls} calls | ${tris.toLocaleString()} tris | DPR ${dpr} | ${msgs} msgs/s | ${age} ms`;
+      }
+    }
+
     if (isDebug) {
       const fpsEl = document.getElementById('dbg-fps');
       const timeEl = document.getElementById('dbg-frametime');

@@ -138,6 +138,29 @@ document.querySelectorAll('.repeatable').forEach(btn => {
   btn.addEventListener('touchend', stopRepeat);
 });
 
+async function dumpHandLog() {
+  const fb = document.getElementById('dump-hand-log-feedback');
+  if (fb) {
+    fb.style.display = 'block';
+    fb.style.color = '#38bdf8';
+    fb.innerText = 'Dumping hand log...';
+  }
+  try {
+    const res = await fetch('/api/dump_hand_log', { method: 'POST' });
+    const data = await res.json();
+    if (fb) {
+      fb.style.color = '#4caf50';
+      fb.innerText = `Saved ${data.path || '/tmp/hand_log.json'}`;
+      setTimeout(() => { fb.style.display = 'none'; }, 3500);
+    }
+  } catch (err) {
+    if (fb) {
+      fb.style.color = '#f44336';
+      fb.innerText = `Failed: ${err.message}`;
+    }
+  }
+}
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {
   init3D();

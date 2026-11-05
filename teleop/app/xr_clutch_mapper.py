@@ -36,6 +36,8 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
             app.xr_grip_active_l = False
             app.xr_reengage_required_l = True
             app._log_xr_event("L tracking lost -> clutch released & target held")
+        if not getattr(app, "xr_tracking_lost_l", False):
+            app.tracking_loss_events = getattr(app, "tracking_loss_events", 0) + 1
         app.xr_tracking_lost_l = True
     elif left_present and left_pkt.get("pos") is not None:
         grip_down_l = app.xr_grip_val_l >= app.xr_grip_thresh or bool(left_pkt.get("grip", False))
@@ -117,6 +119,8 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
             app.xr_grip_active_r = False
             app.xr_reengage_required_r = True
             app._log_xr_event("R tracking lost -> clutch released & target held")
+        if not getattr(app, "xr_tracking_lost_r", False):
+            app.tracking_loss_events = getattr(app, "tracking_loss_events", 0) + 1
         app.xr_tracking_lost_r = True
     elif right_present and right_pkt.get("pos") is not None:
         grip_down_r = app.xr_grip_val_r >= app.xr_grip_thresh or bool(right_pkt.get("grip", False))
