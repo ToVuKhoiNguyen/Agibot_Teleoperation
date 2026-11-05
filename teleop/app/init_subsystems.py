@@ -30,6 +30,7 @@ from teleop.kinematics.filters import (
 from teleop.retargeting.agibot_arm_retargeting import AgibotArmRetargeting
 from teleop.retargeting.agibot_hand_retargeting import AgibotHandRetargeting
 from teleop.xr.adb_setup import QuestAdbManager
+from teleop.robot import SimBackend, DryRunBackend, ReplayBackend, RealBackend, SafetyLayer
 
 
 def init_subsystems(
@@ -38,7 +39,7 @@ def init_subsystems(
     render_viewer: bool = False,
     use_controller: bool = False,
     xr_view: bool = False,
-    backend: str = "mujoco",
+    backend: str = "sim",
     speed_scale: float = 1.0,
     ik_solver_type: str = "mink",
     self_collision: bool = True,
@@ -46,6 +47,7 @@ def init_subsystems(
     no_quest_launch: bool = False,
     project_root: Path = None,
     scene_xml: str = None,
+    allow_hardware_risk: bool = False,
 ):
     app.port = port
     app.render_viewer = render_viewer
@@ -87,6 +89,30 @@ def init_subsystems(
     app.robot_home_pos_r = home_poses["right"]["pos"].copy()
     app.robot_home_rot_l = home_poses["left"]["rot"].copy()
     app.robot_home_rot_r = home_poses["right"]["rot"].copy()
+
+    # 3b. Real/Sim Robot Backend and SafetyLayer
+    app.allow_hardware_risk = bool(allow_hardware_risk)
+    backend_key = (app.backend or "sim").lower()
+    if backend_key in ("sim", "mujoco"):
+        app.robot_backend = SimBackend(app.env)
+    elif backend_key == "dryrun":
+        app.robot_backend = DryRunBackend()
+    elif backend_key == "replay":
+        app.robot_backend = ReplayBackend()
+    elif backend_key == "real":
+        app.robot_backend = RealBackend(allow_hardware_risk=app.allow_hardware_risk)
+    else:
+        app.robot_backend = SimBackend(app.env)
+
+    app.robot_safety = SafetyLayer(app.robot_backend, max_velocity_rad_s=1.0)
+    try:
+        app.robot_safety.connect()
+    except Exception as e:
+        if backend_key == "real":
+            print(f"[FATAL] RealBackend connection failed: {e}")
+            raise
+        else:
+            print(f"[WARN] Robot backend connect: {e}")
 
     # 4. Retargeting & IK
     print(f"[INFO] Initializing Arm / Hand Retargeters and IK Solvers (Engine: {app.ik_solver_type.upper()})...")

@@ -108,8 +108,14 @@ def run_control_loop(app):
                 app.hand_collision_blocked = bool(blocked_l or blocked_r)
                 app.min_hand_distance_m = min(dist_l, dist_r)
 
-                app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
-                app.env.set_hand_commands(app.last_hand_cmd_left, app.last_hand_cmd_right)
+                if hasattr(app, "robot_safety") and app.robot_safety is not None and getattr(app.robot_safety, "is_connected", False):
+                    q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
+                    h12 = np.concatenate([app.last_hand_cmd_left, app.last_hand_cmd_right])
+                    app.robot_safety.send_arm(q14, dt=app.control_dt)
+                    app.robot_safety.send_hand(h12)
+                else:
+                    app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
+                    app.env.set_hand_commands(app.last_hand_cmd_left, app.last_hand_cmd_right)
                 if (app.hand_closure_l >= 0.95 or app.hand_closure_r >= 0.95) and not getattr(app, "_logged_hand_close_trace", False):
                     app._logged_hand_close_trace = True
                     print(f"[HAND_CLOSE_TRACE] Commanded 6 joints L: {app.last_hand_cmd_left.round(3)}, R: {app.last_hand_cmd_right.round(3)}")

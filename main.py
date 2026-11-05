@@ -48,12 +48,13 @@ class UnifiedTeleopApp:
         render_viewer: bool = False,
         use_controller: bool = False,
         xr_view: bool = False,
-        backend: str = "mujoco",
+        backend: str = "sim",
         speed_scale: float = 1.0,
         ik_solver_type: str = "mink",
         self_collision: bool = True,
         no_adb: bool = False,
         no_quest_launch: bool = False,
+        allow_hardware_risk: bool = False,
     ):
         init_subsystems(
             self,
@@ -69,6 +70,7 @@ class UnifiedTeleopApp:
             no_quest_launch=no_quest_launch,
             project_root=PROJECT_ROOT,
             scene_xml=SCENE_XML,
+            allow_hardware_risk=allow_hardware_risk,
         )
         init_state(self, project_root=PROJECT_ROOT)
 
@@ -133,6 +135,11 @@ class UnifiedTeleopApp:
             self.quest_manager.stop()
         if hasattr(self, "server") and self.server:
             self.server.stop()
+        if hasattr(self, "robot_safety") and self.robot_safety:
+            try:
+                self.robot_safety.disconnect()
+            except Exception:
+                pass
         if hasattr(self, "env") and self.env:
             self.env.close()
         if self.tracker and getattr(self.tracker, "tv_wrapper", None):
@@ -152,7 +159,8 @@ def main():
     parser.add_argument("--headless", action="store_true", help="Explicitly run headless (forces native viewer OFF)")
     parser.add_argument("--controller", action="store_true", help="Use controller clutch teleop mode")
     parser.add_argument("--xr-view", action="store_true", help="Enable XR digital twin in Quest headset")
-    parser.add_argument("--backend", type=str, default="mujoco", choices=["mujoco", "replay"], help="Physics backend")
+    parser.add_argument("--backend", type=str, default="sim", choices=["sim", "mujoco", "dryrun", "replay", "real"], help="Robot execution backend (default: sim)")
+    parser.add_argument("--i-understand-hardware-risk", action="store_true", help="Explicit acknowledgement required to unlock real robot hardware")
     parser.add_argument("--speed-scale", type=float, default=1.0, help="Simulation execution speed multiplier")
     parser.add_argument("--ik", type=str, default="mink", choices=["mink", "dls", "pyroki"], help="Inverse kinematics engine (default: mink)")
     parser.add_argument("--self-collision", type=str, default="on", choices=["on", "off"], help="Enable/disable self-collision safety gate (default: on)")
@@ -180,7 +188,8 @@ def main():
         ik_solver_type=args.ik,
         self_collision=self_col_enabled,
         no_adb=args.no_adb,
-        no_quest_launch=args.no_quest_launch
+        no_quest_launch=args.no_quest_launch,
+        allow_hardware_risk=getattr(args, "i_understand_hardware_risk", False),
     )
     app.run()
 
