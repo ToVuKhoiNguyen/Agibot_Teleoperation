@@ -73,6 +73,8 @@ def build_status_packet(app) -> dict:
         "cmd_rate_hz": float(app.cmd_rate_hz),
         "last_cmd_name": str(app.last_cmd_name),
         "last_cmd_time": float(app.last_cmd_time),
+        "fault_latched": bool(getattr(getattr(app, "robot_safety", None), "fault_latched", False)),
+        "fault_reason": str(getattr(getattr(app, "robot_safety", None), "fault_reason", "")),
         "warning": str(app.status_warning),
         "xr_status": {
             "pkt_count": int(app.xr_total_pkts),

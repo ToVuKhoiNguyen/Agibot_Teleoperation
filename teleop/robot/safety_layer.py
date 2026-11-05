@@ -19,7 +19,11 @@ ARM_UPPER_14 = np.array([
 ], dtype=np.float64)
 
 HAND_LOWER_12 = np.zeros(12, dtype=np.float64)
-HAND_UPPER_12 = np.ones(12, dtype=np.float64)
+# Max physical joint limits in radians [thumb_swing, thumb_1, index_1, middle_1, ring_1, pinky_1] x 2
+HAND_UPPER_12 = np.array([
+    2.286, 0.780, 1.700, 1.700, 1.700, 1.700,
+    2.286, 0.780, 1.700, 1.700, 1.700, 1.700,
+], dtype=np.float64)
 
 
 class SafetyLayer:
@@ -44,6 +48,8 @@ class SafetyLayer:
         self.is_connected = False
         self.estop_active = False
         self.hold_active = False
+        self.fault_latched = False
+        self.fault_reason = ""
 
         self._last_cmd_t = None
         self._last_cmd_q14 = None
@@ -99,16 +105,33 @@ class SafetyLayer:
         self._last_cmd_h12 = h_act.copy()
         self._last_cmd_t = time.time()
 
+    def clear_fault(self, confirm: bool = False) -> bool:
+        """Requires explicit operator confirmation to clear a latched hardware fault."""
+        if not confirm:
+            return False
+        self.fault_latched = False
+        self.fault_reason = ""
+        self._deviation_start_t = None
+        self.clear_hold()
+        if hasattr(self.backend, "clear_fault"):
+            self.backend.clear_fault(confirm=True)
+        return True
+
     def read_state(self) -> tuple[np.ndarray, np.ndarray, float]:
         return self.backend.read_state()
 
     def check_watchdog(self, now: float = None) -> bool:
-        """Returns True if watchdog tripped due to stale command stream."""
+        """Returns True if watchdog tripped due to stale command stream or stale state."""
         t = now if now is not None else time.time()
         if self._last_cmd_t is not None and (t - self._last_cmd_t) > self.watchdog_timeout_s:
             if not self.hold_active and not self.estop_active:
                 self.stats["watchdog_trips"] += 1
                 self.hold()
+            return True
+        if hasattr(self.backend, "is_alive") and not self.backend.is_alive():
+            self.fault_latched = True
+            self.fault_reason = getattr(self.backend, "fault_reason", "Robot state stale (>200ms)")
+            self.hold()
             return True
         return False
 
@@ -116,7 +139,7 @@ class SafetyLayer:
         """Filters and delivers 14-DoF arm commands. Returns False if rejected."""
         t_now = now if now is not None else time.time()
 
-        if self.estop_active:
+        if self.estop_active or self.fault_latched:
             self.backend.hold()
             return False
 
@@ -174,6 +197,8 @@ class SafetyLayer:
                 self._deviation_start_t = t_now
             elif (t_now - self._deviation_start_t) > self.deviation_timeout_s:
                 self.stats["deviation_trips"] += 1
+                self.fault_latched = True
+                self.fault_reason = f"Position deviation >0.05 rad (>200ms) on joint {int(np.argmax(err))}"
                 self.hold()
                 return False
         else:

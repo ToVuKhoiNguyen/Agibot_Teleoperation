@@ -18,6 +18,17 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
         app.state_estop = False
         print("[INFO] E-STOP CLEARED")
         return True
+    elif name == "clear_fault":
+        confirmed = bool(cmd.get("confirmed", False))
+        if hasattr(app, "robot_safety") and app.robot_safety is not None:
+            if app.robot_safety.clear_fault(confirm=confirmed):
+                app.status_warning = ""
+                print("[INFO] HARDWARE FAULT CLEARED")
+            else:
+                app.status_warning = "Clear fault requires explicit confirmation."
+        else:
+            app.status_warning = ""
+        return True
     elif name == "hold_toggle":
         app.manual_held = not app.manual_held
         return True

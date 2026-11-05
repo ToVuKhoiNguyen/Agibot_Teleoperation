@@ -181,5 +181,23 @@ function updateUIStatus(s) {
   document.getElementById('slider_hand_r').value = Math.round(s.hand_closure_r * 100);
   document.getElementById('slider_hand_r_val').innerText = Math.round(s.hand_closure_r * 100) + '%';
 
+  // Update persistent Hardware Fault Banner
+  const faultBanner = document.getElementById('fault-banner');
+  if (faultBanner) {
+    if (s.fault_latched || window.forceFaultBanner || (s.warning && s.warning.includes('HARDWARE FAULT'))) {
+      faultBanner.style.display = 'flex';
+      const faultText = document.getElementById('fault-banner-text');
+      if (faultText) faultText.innerText = window.forceFaultText || (s.fault_reason ? `⚠️ FAULT: ${s.fault_reason}` : (s.warning || '⚠️ HARDWARE FAULT LATCHED'));
+    } else {
+      faultBanner.style.display = 'none';
+    }
+  }
+
   if (typeof updateTelemetryUI === 'function') updateTelemetryUI(s);
+};
+
+window.confirmClearFault = function() {
+  if (confirm("Operator confirmation required: Clear latched hardware fault and resume?")) {
+    sendCmd({cmd: "clear_fault", confirmed: true});
+  }
 };

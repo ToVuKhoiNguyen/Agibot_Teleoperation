@@ -55,6 +55,12 @@ class UnifiedTeleopApp:
         no_adb: bool = False,
         no_quest_launch: bool = False,
         allow_hardware_risk: bool = False,
+        arms: str = "both",
+        no_hand: bool = False,
+        real_max_vel: float = 0.3,
+        i_accept_higher_speed: bool = False,
+        hand_raw_max: int = 800,
+        enable_thumb_swing: bool = False,
     ):
         init_subsystems(
             self,
@@ -71,6 +77,12 @@ class UnifiedTeleopApp:
             project_root=PROJECT_ROOT,
             scene_xml=SCENE_XML,
             allow_hardware_risk=allow_hardware_risk,
+            arms=arms,
+            no_hand=no_hand,
+            real_max_vel=real_max_vel,
+            i_accept_higher_speed=i_accept_higher_speed,
+            hand_raw_max=hand_raw_max,
+            enable_thumb_swing=enable_thumb_swing,
         )
         init_state(self, project_root=PROJECT_ROOT)
 
@@ -159,7 +171,13 @@ def main():
     parser.add_argument("--headless", action="store_true", help="Explicitly run headless (forces native viewer OFF)")
     parser.add_argument("--controller", action="store_true", help="Use controller clutch teleop mode")
     parser.add_argument("--xr-view", action="store_true", help="Enable XR digital twin in Quest headset")
-    parser.add_argument("--backend", type=str, default="sim", choices=["sim", "mujoco", "dryrun", "replay", "real"], help="Robot execution backend (default: sim)")
+    parser.add_argument("--backend", type=str, default="sim", choices=["sim", "mujoco", "dryrun", "replay", "real", "ros2", "ros2dry"], help="Robot execution backend (default: sim)")
+    parser.add_argument("--arms", type=str, default="both", choices=["left", "right", "both"], help="Active manipulation arms (default: both)")
+    parser.add_argument("--no-hand", action="store_true", help="Disable hand publishing")
+    parser.add_argument("--real-max-vel", type=float, default=0.3, help="Max velocity cap for real robot (default: 0.3 rad/s)")
+    parser.add_argument("--i-accept-higher-speed", action="store_true", help="Permit real robot velocity up to 3.0 rad/s (default ceiling: 1.0 rad/s)")
+    parser.add_argument("--enable-thumb-swing", action="store_true", help="Enable active thumb swing (default: held neutral)")
+    parser.add_argument("--hand-raw-max", type=int, default=800, help="Cap maximum raw hand output in range 0..2000 (default: 800)")
     parser.add_argument("--i-understand-hardware-risk", action="store_true", help="Explicit acknowledgement required to unlock real robot hardware")
     parser.add_argument("--speed-scale", type=float, default=1.0, help="Simulation execution speed multiplier")
     parser.add_argument("--ik", type=str, default="mink", choices=["mink", "dls", "pyroki"], help="Inverse kinematics engine (default: mink)")
@@ -190,6 +208,12 @@ def main():
         no_adb=args.no_adb,
         no_quest_launch=args.no_quest_launch,
         allow_hardware_risk=getattr(args, "i_understand_hardware_risk", False),
+        arms=args.arms,
+        no_hand=args.no_hand,
+        real_max_vel=args.real_max_vel,
+        i_accept_higher_speed=args.i_accept_higher_speed,
+        hand_raw_max=args.hand_raw_max,
+        enable_thumb_swing=args.enable_thumb_swing,
     )
     app.run()
 

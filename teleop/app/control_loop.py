@@ -54,9 +54,14 @@ def run_control_loop(app):
                     app.xr_anchor_ctrl_rot_r = None
                     app.gizmo_active_l = False
                     app.gizmo_active_r = False
+                    if hasattr(app, "robot_safety") and app.robot_safety is not None:
+                        app.robot_safety.hold()
                     app.status_warning = "Quest XR tracking lost (watchdog 350ms): clutches released"
                     app._log_xr_event("Watchdog 350ms -> clutches released")
                 app.xr_input_active = False
+
+            if hasattr(app, "robot_safety") and app.robot_safety is not None:
+                app.robot_safety.check_watchdog(now=now_t)
 
             if app.homing_active:
                 app._update_homing(dt)
@@ -168,7 +173,10 @@ def run_control_loop(app):
                     app._loop_hz_last_t = now_perf_hz
                 status_packet = build_status_packet(app)
                 app.server.set_status(status_packet)
-                app.status_warning = ""
+                if hasattr(app, "robot_safety") and getattr(app.robot_safety, "fault_latched", False):
+                    app.status_warning = f"HARDWARE FAULT: {app.robot_safety.fault_reason}"
+                else:
+                    app.status_warning = ""
 
             step += 1
             next_step_time += target_step_dt

@@ -161,3 +161,81 @@ class ReplayBackend(RobotInterface):
     def is_alive(self) -> bool:
         return self.connected
 
+
+class Ros2DryBackend(RobotInterface):
+    """
+    ROS 2 dry-run preview backend.
+    Does NOT connect to hardware or open sockets.
+    Prints a 2 Hz (0.5 s) live table showing:
+      joint name | sim value | would-publish value | unit
+    """
+
+    def __init__(self, log_interval_s: float = 0.5):
+        self.log_interval_s = float(log_interval_s)
+        self.connected = False
+        self._q14 = np.zeros(14, dtype=np.float64)
+        self._h12 = np.zeros(12, dtype=np.float64)
+        self._cmd_count = 0
+        self._last_log_t = time.time()
+        self._interval_cmd_count = 0
+
+    def connect(self) -> None:
+        self.connected = True
+        self._last_log_t = time.time()
+        print("[Ros2DryBackend] Connected (2 Hz ROS 2 preview table mode, no network/sockets).")
+
+    def disconnect(self) -> None:
+        self.connected = False
+        print("[Ros2DryBackend] Disconnected.")
+
+    def _maybe_log(self, t_now: float) -> None:
+        elapsed = t_now - self._last_log_t
+        if elapsed >= self.log_interval_s:
+            self._print_table(elapsed)
+            self._last_log_t = t_now
+            self._interval_cmd_count = 0
+
+    def _print_table(self, elapsed: float) -> None:
+        from teleop.robot.aimdk_map import ARM_JOINT_NAMES_AIMDK, HAND_JOINT_NAMES, sim_hand_to_robot_raw
+
+        rate = self._interval_cmd_count / elapsed if elapsed > 0 else 0.0
+        sim_hands = self._h12
+        raw_hands = sim_hand_to_robot_raw(self._h12)
+
+        lines = [
+            f"\n--- [ROS2 PREVIEW] Rate: {rate:4.1f} Hz | Cmds: {self._cmd_count} ---",
+            f"{'Joint Name':<16} | {'Sim Value':>10} | {'Would-Publish':>14} | {'Unit':<5}",
+            f"{'-'*16}-+-{'-'*10}-+-{'-'*14}-+-{'-'*5}",
+        ]
+        for i in range(14):
+            val = float(self._q14[i])
+            lines.append(f"{ARM_JOINT_NAMES_AIMDK[i]:<16} | {val:>10.3f} | {val:>14.3f} | rad")
+        for i in range(12):
+            s_val = float(sim_hands[i])
+            r_val = int(raw_hands[i])
+            lines.append(f"{HAND_JOINT_NAMES[i]:<16} | {s_val:>10.3f} | {r_val:>14d} | raw")
+        lines.append("=" * 53)
+        print("\n".join(lines))
+
+    def send_arm(self, q14: np.ndarray) -> None:
+        self._q14 = np.asarray(q14, dtype=np.float64).copy()
+        self._cmd_count += 1
+        self._interval_cmd_count += 1
+        self._maybe_log(time.time())
+
+    def send_hand(self, h12: np.ndarray) -> None:
+        self._h12 = np.asarray(h12, dtype=np.float64).copy()
+        self._maybe_log(time.time())
+
+    def read_state(self) -> tuple[np.ndarray, np.ndarray, float]:
+        return self._q14.copy(), self._h12.copy(), time.time()
+
+    def estop(self) -> None:
+        print("[Ros2DryBackend] ESTOP commanded.")
+
+    def hold(self) -> None:
+        print("[Ros2DryBackend] HOLD commanded.")
+
+    def is_alive(self) -> bool:
+        return self.connected
+

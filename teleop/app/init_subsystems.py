@@ -30,7 +30,7 @@ from teleop.kinematics.filters import (
 from teleop.retargeting.agibot_arm_retargeting import AgibotArmRetargeting
 from teleop.retargeting.agibot_hand_retargeting import AgibotHandRetargeting
 from teleop.xr.adb_setup import QuestAdbManager
-from teleop.robot import SimBackend, DryRunBackend, ReplayBackend, RealBackend, SafetyLayer
+from teleop.robot import SimBackend, DryRunBackend, Ros2DryBackend, ReplayBackend, RealBackend, SafetyLayer
 
 
 def init_subsystems(
@@ -48,6 +48,12 @@ def init_subsystems(
     project_root: Path = None,
     scene_xml: str = None,
     allow_hardware_risk: bool = False,
+    arms: str = "both",
+    no_hand: bool = False,
+    real_max_vel: float = 0.3,
+    i_accept_higher_speed: bool = False,
+    hand_raw_max: int = 800,
+    enable_thumb_swing: bool = False,
 ):
     app.port = port
     app.render_viewer = render_viewer
@@ -97,14 +103,26 @@ def init_subsystems(
         app.robot_backend = SimBackend(app.env)
     elif backend_key == "dryrun":
         app.robot_backend = DryRunBackend()
+    elif backend_key == "ros2dry":
+        app.robot_backend = Ros2DryBackend()
     elif backend_key == "replay":
         app.robot_backend = ReplayBackend()
-    elif backend_key == "real":
-        app.robot_backend = RealBackend(allow_hardware_risk=app.allow_hardware_risk)
+    elif backend_key in ("real", "ros2"):
+        from teleop.robot import Ros2Backend
+        app.robot_backend = Ros2Backend(
+            arms=arms,
+            no_hand=no_hand,
+            real_max_vel=real_max_vel,
+            i_accept_higher_speed=i_accept_higher_speed,
+            hand_raw_max=hand_raw_max,
+            enable_thumb_swing=enable_thumb_swing,
+            allow_hardware_risk=app.allow_hardware_risk,
+        )
     else:
         app.robot_backend = SimBackend(app.env)
 
-    app.robot_safety = SafetyLayer(app.robot_backend, max_velocity_rad_s=1.0)
+    max_vel = real_max_vel if backend_key in ("real", "ros2") else 1.0
+    app.robot_safety = SafetyLayer(app.robot_backend, max_velocity_rad_s=max_vel)
     try:
         app.robot_safety.connect()
     except Exception as e:
