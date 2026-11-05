@@ -47,9 +47,26 @@ class CollisionChecker:
 
         self._discover_collision_geoms()
         self._build_collision_pairs()
+        self._build_hand_collision_pairs()
         self.last_min_dist = 999.0
         self.last_min_pair = (None, None, "none")
         self.step_idx = 0
+
+        # Discover hand joint addresses for FK checks
+        self.hand_active_jnt_adrs = {}
+        self.hand_mimic_jnt_adrs = {}
+        for s in ("left", "right"):
+            p = "L_" if s == "left" else "R_"
+            act_names = [f"{p}thumb_swing_joint", f"{p}thumb_1_joint", f"{p}index_1_joint", f"{p}middle_1_joint", f"{p}ring_1_joint", f"{p}pinky_1_joint"]
+            mim_names = [f"{p}thumb_2_joint", f"{p}thumb_3_joint", f"{p}index_2_joint", f"{p}middle_2_joint", f"{p}ring_2_joint", f"{p}pinky_2_joint"]
+            self.hand_active_jnt_adrs[s] = [
+                self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, j)]
+                for j in act_names
+            ]
+            self.hand_mimic_jnt_adrs[s] = [
+                self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, j)]
+                for j in mim_names
+            ]
 
     def _discover_collision_geoms(self):
         """Discovers visual/hull collision geoms for torso, head, arms, and hands."""
@@ -134,6 +151,53 @@ class CollisionChecker:
                 self.pairs.append((lh, rg, "arm_arm"))
             for rh in self.right_hand_geoms:
                 self.pairs.append((lh, rh, "hand_hand"))
+
+    def _build_hand_collision_pairs(self):
+        """Constructs intra-hand collision pairs for finger-finger and finger-palm pairs."""
+        self.hand_pairs = {"left": [], "right": []}
+        excluded = {
+            ("thumb_swing", "thumb_1"),
+            ("thumb_1", "thumb_2"),
+            ("thumb_2", "thumb_3"),
+            ("thumb_swing", "thumb_2"),
+            ("thumb_swing", "thumb_3"),
+            ("index_1", "index_2"),
+            ("middle_1", "middle_2"),
+            ("ring_1", "ring_2"),
+            ("pinky_1", "pinky_2"),
+            ("thumb_swing", "palm"),
+            ("thumb_1", "palm"),
+            ("index_1", "middle_1"),
+            ("middle_1", "ring_1"),
+            ("ring_1", "pinky_1"),
+        }
+
+        for side in ("left", "right"):
+            p = "L_" if side == "left" else "R_"
+            palm_bname = "left_arm_link07" if side == "left" else "right_arm_link07"
+            body_geoms = {}
+            for gid in range(self.model.ngeom):
+                bid = self.model.geom_bodyid[gid]
+                bname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, bid) or ""
+                mid = self.model.geom_dataid[gid]
+                mname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_MESH, mid) if self.model.geom_type[gid] == mujoco.mjtGeom.mjGEOM_MESH else ""
+                if mname == "R_paw" and bname == palm_bname:
+                    body_geoms["palm"] = gid
+                elif ("hull" in mname or self.model.geom_group[gid] == 0) and bname.startswith(p):
+                    key = bname[len(p):]
+                    body_geoms[key] = gid
+
+            pairs = []
+            keys = list(body_geoms.keys())
+            for i in range(len(keys)):
+                for j in range(i + 1, len(keys)):
+                    k1, k2 = keys[i], keys[j]
+                    if (k1, k2) in excluded or (k2, k1) in excluded:
+                        continue
+                    if "palm" in (k1, k2) and any(b in (k1, k2) for b in ["index_1", "middle_1", "ring_1", "pinky_1"]):
+                        continue
+                    pairs.append((body_geoms[k1], body_geoms[k2], f"{k1}_{k2}"))
+            self.hand_pairs[side] = pairs
 
     def compute_min_distance(self, data: mujoco.MjData = None, force: bool = False) -> tuple[float, tuple[int, int, str]]:
         """
@@ -287,3 +351,108 @@ class CollisionChecker:
             return target_ee_pos + restore, True
 
         return target_ee_pos.copy(), False
+
+    def check_hand_collision(
+        self,
+        side: str,
+        active_qpos: np.ndarray,
+        margin: float = 0.001,
+        data: mujoco.MjData = None
+    ) -> tuple[bool, float, tuple]:
+        """
+        Forward-kinematics check of candidate active hand command (6 active joints).
+        Mimic joints are computed automatically.
+        Returns (is_safe, min_dist, min_pair).
+        """
+        if not self.enabled:
+            return True, 1.0, (None, None, "disabled")
+
+        d = data if data is not None else self.scratch_data
+        side = "left" if side == "left" else "right"
+        q_act = np.asarray(active_qpos, dtype=np.float64)
+        if len(q_act) < 6:
+            return True, 1.0, (None, None, "insufficient_dims")
+
+        # Set active joints
+        act_adrs = self.hand_active_jnt_adrs[side]
+        for idx, val in zip(act_adrs, q_act):
+            d.qpos[idx] = val
+
+        # Set mimic joints from active joints
+        mim_adrs = self.hand_mimic_jnt_adrs[side]
+        d.qpos[mim_adrs[0]] = 0.40 * q_act[1]  # thumb_2
+        d.qpos[mim_adrs[1]] = 0.60 * q_act[1]  # thumb_3
+        d.qpos[mim_adrs[2]] = 1.00 * q_act[2]  # index_2
+        d.qpos[mim_adrs[3]] = 1.00 * q_act[3]  # middle_2
+        d.qpos[mim_adrs[4]] = 1.00 * q_act[4]  # ring_2
+        d.qpos[mim_adrs[5]] = 1.00 * q_act[5]  # pinky_2
+
+        mujoco.mj_forward(self.model, d)
+
+        min_dist = 999.0
+        min_pair = (None, None, "none")
+        for g1, g2, pname in self.hand_pairs[side]:
+            dist = mujoco.mj_geomDistance(self.model, d, g1, g2, self.dist_max, self.fromto)
+            if dist < min_dist:
+                min_dist = dist
+                min_pair = (g1, g2, pname)
+                if min_dist < 0.0:
+                    break
+
+        is_safe = (min_dist >= margin)
+        return is_safe, float(min_dist), min_pair
+
+    def filter_hand_step(
+        self,
+        side: str,
+        current_active_qpos: np.ndarray,
+        target_active_qpos: np.ndarray,
+        margin: float = 0.001,
+        data: mujoco.MjData = None
+    ) -> tuple[np.ndarray, bool, float]:
+        """
+        Validates target_active_qpos. If any finger pair violates margin (< margin),
+        performs binary line search on closure along trajectory to back off to safe margin.
+        Returns (safe_active_qpos, hand_collision_blocked, min_dist).
+        """
+        if not self.enabled:
+            return target_active_qpos.copy(), False, 1.0
+
+        curr = np.asarray(current_active_qpos, dtype=np.float64) if current_active_qpos is not None else np.zeros(6)
+        tgt = np.asarray(target_active_qpos, dtype=np.float64)
+
+        if np.max(np.abs(tgt - curr)) < 1e-4:
+            return curr.copy(), False, 0.005
+
+        safe_tgt, dist_tgt, _ = self.check_hand_collision(side, target_active_qpos, margin=margin, data=data)
+        if safe_tgt:
+            return target_active_qpos.copy(), False, dist_tgt
+
+        # Target violates margin -> perform binary line search backoff
+        blocked = True
+        curr = np.asarray(current_active_qpos, dtype=np.float64) if current_active_qpos is not None else np.zeros(6)
+        tgt = np.asarray(target_active_qpos, dtype=np.float64)
+
+        # First check current
+        safe_curr, dist_curr, _ = self.check_hand_collision(side, curr, margin=margin, data=data)
+        if not safe_curr:
+            curr = np.zeros(6, dtype=np.float64)
+            safe_curr, dist_curr, _ = self.check_hand_collision(side, curr, margin=margin, data=data)
+
+        low_a = 0.0
+        high_a = 1.0
+        best_cmd = curr.copy()
+        best_dist = dist_curr if safe_curr else margin
+
+        for _ in range(8):
+            mid_a = 0.5 * (low_a + high_a)
+            cand = curr + mid_a * (tgt - curr)
+            s_cand, d_cand, _ = self.check_hand_collision(side, cand, margin=margin, data=data)
+            if s_cand:
+                best_cmd = cand.copy()
+                best_dist = d_cand
+                low_a = mid_a
+            else:
+                high_a = mid_a
+
+        return best_cmd, blocked, float(best_dist)

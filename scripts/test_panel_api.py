@@ -260,8 +260,80 @@ def run_tests():
         print(f"Result (Right Yaw): err={angle_r_err_deg:.2f}° (<= 3.0°) | Left unchanged: {left_rot_iso_deg:.2f}° | Pass: {t8b_pass}")
         if not t8b_pass: passed_all = False
 
-        # Final reset to home
+        # TEST 9: Direct Per-Joint Hand Control (command active joints & verify mimic coupling)
+        print("\n--- TEST 9: Direct Per-Joint Hand Control ---")
         post_cmd({"name": "preset", "pose": "reset"})
+        post_cmd({"name": "hand_stop"})
+        time.sleep(0.5)
+
+        # Commanded targets for active joints
+        # Limits: L_index_1 (0..1.7), L_thumb_1 (0..0.78), R_index_1 (0..1.7)
+        cmd_tests = [
+            ("left", "L_index_1_joint", 1.0, "L_index_2_joint"),
+            ("left", "L_thumb_1_joint", 0.5, "L_thumb_2_joint"),
+            ("right", "R_index_1_joint", 1.0, "R_index_2_joint"),
+        ]
+
+        t9_pass = True
+        for side, j_active, target_val, j_mimic in cmd_tests:
+            post_cmd({"name": "hand_joint", "side": side, "joint": j_active, "angle": target_val})
+            time.sleep(0.1)
+        time.sleep(1.0)
+
+        st_hand = get_status()
+        hand_st = st_hand.get("hand_status", {})
+        for side, j_active, target_val, j_mimic in cmd_tests:
+            side_info = hand_st.get(side, {})
+            act_info = side_info.get("active_joints", {}).get(j_active, {})
+            val = act_info.get("val", 0.0)
+            err_pct = abs(val - target_val) / target_val * 100.0
+            mimic_val = side_info.get("mimic_joints", {}).get(j_mimic, 0.0)
+            j_pass = (err_pct <= 5.0) and (mimic_val > 0.15)
+            print(f"Result [{side} {j_active}]: cmd={target_val:.2f}, val={val:.4f} (Err: {err_pct:.2f}%) | "
+                  f"mimic [{j_mimic}]: {mimic_val:.4f} | Pass: {j_pass}")
+            if not j_pass:
+                t9_pass = False
+
+        if not t9_pass: passed_all = False
+
+        # TEST 10: Hand Sweep and Stop Commands
+        print("\n--- TEST 10: Hand Sweep & Stop Commands ---")
+        # 10a: Single joints sweep
+        post_cmd({"name": "hand_sweep", "mode": "single_joints", "side": "both"})
+        time.sleep(0.5)
+        st_sw1 = get_status()
+        sw_st1 = st_sw1.get("hand_status", {})
+        sw_active1 = sw_st1.get("sweep_active", False)
+        sw_info1 = sw_st1.get("sweep_info", "")
+        t10a_pass = sw_active1 and ("Sweeping" in sw_info1 or "Starting" in sw_info1)
+        print(f"Result (Single-Joint Sweep Start): active={sw_active1}, info='{sw_info1}' | Pass: {t10a_pass}")
+        if not t10a_pass: passed_all = False
+
+        # 10b: Hand stop
+        post_cmd({"name": "hand_stop"})
+        time.sleep(0.4)
+        st_stop = get_status()
+        sw_st_stop = st_stop.get("hand_status", {})
+        sw_active_stop = sw_st_stop.get("sweep_active", True)
+        t10b_pass = not sw_active_stop
+        print(f"Result (Hand Stop): active={sw_active_stop} (expected False) | Pass: {t10b_pass}")
+        if not t10b_pass: passed_all = False
+
+        # 10c: All-fingers sweep
+        post_cmd({"name": "hand_sweep", "mode": "all_fingers", "side": "both"})
+        time.sleep(0.5)
+        st_sw2 = get_status()
+        sw_st2 = st_sw2.get("hand_status", {})
+        sw_active2 = sw_st2.get("sweep_active", False)
+        sw_info2 = sw_st2.get("sweep_info", "")
+        t10c_pass = sw_active2 and ("cycle" in sw_info2.lower() or "all-finger" in sw_info2.lower())
+        print(f"Result (All-Fingers Sweep Start): active={sw_active2}, info='{sw_info2}' | Pass: {t10c_pass}")
+        if not t10c_pass: passed_all = False
+
+        # Final stop & reset to home
+        post_cmd({"name": "hand_stop"})
+        post_cmd({"name": "preset", "pose": "reset"})
+        time.sleep(0.5)
 
         print("=" * 80)
         if passed_all:

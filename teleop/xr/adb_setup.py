@@ -124,7 +124,7 @@ class QuestAdbManager:
         if not force and self.no_launch:
             return False
 
-        vr_url = f"https://localhost:{self.port}/vr"
+        vr_url = f"https://localhost:{self.port}/"
         cmd = [
             self.adb_bin, "-s", target_serial, "shell", "am", "start",
             "-a", "android.intent.action.VIEW",
@@ -216,7 +216,7 @@ class QuestAdbManager:
             "device": self.device_id,
             "device_state": self.device_state,
             "reverse_active": bool(self.reverse_active),
-            "quest_url": f"https://localhost:{self.port}/vr",
+            "quest_url": f"https://localhost:{self.port}/",
             "has_launched": bool(self.has_launched_once)
         }
 

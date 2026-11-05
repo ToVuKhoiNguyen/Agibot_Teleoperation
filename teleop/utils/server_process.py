@@ -40,10 +40,14 @@ def ensure_server_running(timeout_s: float = 20.0):
     main_script = project_root / "main.py"
     python_bin = sys.executable
 
+    log_file = open("/tmp/main_server.log", "w", buffering=1)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
     proc = subprocess.Popen(
-        [python_bin, str(main_script)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        [python_bin, "-u", str(main_script), "--headless", "--no-adb"],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        env=env,
         cwd=str(project_root)
     )
 

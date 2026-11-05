@@ -195,10 +195,12 @@
 			if ( intersect ) {
 
 				this.axis = intersect.object.name;
+				this.intersectDistance = intersect.distance;
 
 			} else {
 
 				this.axis = null;
+				this.intersectDistance = Infinity;
 
 			}
 
@@ -747,12 +749,45 @@
 			matInvisible.opacity = 0.15;
 			const matHelper = gizmoMaterial.clone();
 			matHelper.opacity = 0.33;
+			const GIZMO_SCALE = ( typeof window !== 'undefined' && window.GIZMO_SCALE !== undefined ) ? window.GIZMO_SCALE : 0.455;
+			const HANDLE_SCALE = ( typeof window !== 'undefined' && window.HANDLE_SCALE !== undefined ) ? window.HANDLE_SCALE : 2.5;
+			const GIZMO_HANDLE_SCALE = HANDLE_SCALE;
+			if ( typeof window !== 'undefined' ) {
+				window.GIZMO_SCALE = GIZMO_SCALE;
+				window.HANDLE_SCALE = HANDLE_SCALE;
+				window.GIZMO_HANDLE_SCALE = GIZMO_HANDLE_SCALE;
+			}
+
 			const matRed = gizmoMaterial.clone();
-			matRed.color.set( 0xff0000 );
+			matRed.color.set( 0xff1744 ); // Robot X red
 			const matGreen = gizmoMaterial.clone();
-			matGreen.color.set( 0x00ff00 );
+			matGreen.color.set( 0x00e676 ); // Robot Y green
 			const matBlue = gizmoMaterial.clone();
-			matBlue.color.set( 0x0000ff );
+			matBlue.color.set( 0x2979ff ); // Robot Z blue
+
+			const matRedLight = gizmoMaterial.clone();
+			matRedLight.color.set( 0xff6b6b ); // Lighter tint X
+			matRedLight.opacity = 0.8;
+
+			const matGreenLight = gizmoMaterial.clone();
+			matGreenLight.color.set( 0x69f0ae ); // Lighter tint Y
+			matGreenLight.opacity = 0.8;
+
+			const matBlueLight = gizmoMaterial.clone();
+			matBlueLight.color.set( 0x82b1ff ); // Lighter tint Z
+			matBlueLight.opacity = 0.8;
+
+			const matGrey = gizmoMaterial.clone();
+			matGrey.color.set( 0x9e9e9e ); // Origin sphere grey
+			matGrey.opacity = 0.85;
+
+			const matLineRed = gizmoLineMaterial.clone();
+			matLineRed.color.set( 0xff1744 );
+			const matLineGreen = gizmoLineMaterial.clone();
+			matLineGreen.color.set( 0x00e676 );
+			const matLineBlue = gizmoLineMaterial.clone();
+			matLineBlue.color.set( 0x2979ff );
+
 			const matWhiteTransparent = gizmoMaterial.clone();
 			matWhiteTransparent.opacity = 0.25;
 			const matYellowTransparent = matWhiteTransparent.clone();
@@ -763,12 +798,7 @@
 			matMagentaTransparent.color.set( 0xff00ff );
 			const matYellow = gizmoMaterial.clone();
 			matYellow.color.set( 0xffff00 );
-			const matLineRed = gizmoLineMaterial.clone();
-			matLineRed.color.set( 0xff0000 );
-			const matLineGreen = gizmoLineMaterial.clone();
-			matLineGreen.color.set( 0x00ff00 );
-			const matLineBlue = gizmoLineMaterial.clone();
-			matLineBlue.color.set( 0x0000ff );
+
 			const matLineCyan = gizmoLineMaterial.clone();
 			matLineCyan.color.set( 0x00ffff );
 			const matLineMagenta = gizmoLineMaterial.clone();
@@ -778,57 +808,115 @@
 			const matLineGray = gizmoLineMaterial.clone();
 			matLineGray.color.set( 0x787878 );
 			const matLineYellowTransparent = matLineYellow.clone();
-			matLineYellowTransparent.opacity = 0.25; // reusable geometry
+			matLineYellowTransparent.opacity = 0.25;
 
-			const arrowGeometry = new THREE.CylinderGeometry( 0, 0.05, 0.2, 12, 1, false );
+			const arrowGeometry = new THREE.CylinderGeometry( 0, 0.035 * HANDLE_SCALE, 0.12 * HANDLE_SCALE, 16, 1, false );
 			const scaleHandleGeometry = new THREE.BoxGeometry( 0.125, 0.125, 0.125 );
 			const lineGeometry = new THREE.BufferGeometry();
 			lineGeometry.setAttribute( 'position', new THREE.Float32BufferAttribute( [ 0, 0, 0, 1, 0, 0 ], 3 ) );
 
-			function CircleGeometry( radius, arc ) {
+			const planeSquareGeometry = new THREE.PlaneGeometry( 0.10 * HANDLE_SCALE, 0.10 * HANDLE_SCALE );
+			const planeSquarePicker = new THREE.PlaneGeometry( 0.12 * HANDLE_SCALE, 0.12 * HANDLE_SCALE );
 
+			const centerSphereGeometry = new THREE.SphereGeometry( 0.04 * HANDLE_SCALE, 16, 16 );
+			const centerSpherePicker = new THREE.SphereGeometry( 0.055 * HANDLE_SCALE, 12, 12 );
+
+			const knobGeometry = new THREE.SphereGeometry( 0.035 * HANDLE_SCALE, 16, 16 );
+			const knobPicker = new THREE.SphereGeometry( 0.055 * HANDLE_SCALE, 12, 12 );
+
+			const R_ARC = 0.65;
+			const MID_ARC = R_ARC * Math.SQRT1_2; // ~0.4596
+
+			function ArcGeometryYZ( radius, segments = 32 ) {
 				const geometry = new THREE.BufferGeometry();
 				const vertices = [];
-
-				for ( let i = 0; i <= 64 * arc; ++ i ) {
-
-					vertices.push( 0, Math.cos( i / 32 * Math.PI ) * radius, Math.sin( i / 32 * Math.PI ) * radius );
-
+				for ( let i = 0; i <= segments; ++ i ) {
+					const u = ( i / segments ) * ( Math.PI / 2 );
+					vertices.push( 0, Math.cos( u ) * radius, Math.sin( u ) * radius );
 				}
-
 				geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) );
 				return geometry;
+			}
 
-			} // Special geometry for transform helper. If scaled with position vector it spans from [0,0,0] to position
+			function ArcGeometryZX( radius, segments = 32 ) {
+				const geometry = new THREE.BufferGeometry();
+				const vertices = [];
+				for ( let i = 0; i <= segments; ++ i ) {
+					const u = ( i / segments ) * ( Math.PI / 2 );
+					vertices.push( Math.sin( u ) * radius, 0, Math.cos( u ) * radius );
+				}
+				geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) );
+				return geometry;
+			}
 
+			function ArcGeometryXY( radius, segments = 32 ) {
+				const geometry = new THREE.BufferGeometry();
+				const vertices = [];
+				for ( let i = 0; i <= segments; ++ i ) {
+					const u = ( i / segments ) * ( Math.PI / 2 );
+					vertices.push( Math.cos( u ) * radius, Math.sin( u ) * radius, 0 );
+				}
+				geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) );
+				return geometry;
+			}
 
 			function TranslateHelperGeometry() {
-
 				const geometry = new THREE.BufferGeometry();
 				geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( [ 0, 0, 0, 1, 1, 1 ], 3 ) );
 				return geometry;
-
-			} // Gizmo definitions - custom hierarchy definitions for setupGizmo() function
-
+			}
 
 			const gizmoTranslate = {
-				X: [[ new THREE.Mesh( arrowGeometry, matRed ), [ 1, 0, 0 ], [ 0, 0, - Math.PI / 2 ], null, 'fwd' ], [ new THREE.Mesh( arrowGeometry, matRed ), [ 1, 0, 0 ], [ 0, 0, Math.PI / 2 ], null, 'bwd' ], [ new THREE.Line( lineGeometry, matLineRed ) ]],
-				Y: [[ new THREE.Mesh( arrowGeometry, matGreen ), [ 0, 1, 0 ], null, null, 'fwd' ], [ new THREE.Mesh( arrowGeometry, matGreen ), [ 0, 1, 0 ], [ Math.PI, 0, 0 ], null, 'bwd' ], [ new THREE.Line( lineGeometry, matLineGreen ), null, [ 0, 0, Math.PI / 2 ]]],
-				Z: [[ new THREE.Mesh( arrowGeometry, matBlue ), [ 0, 0, 1 ], [ Math.PI / 2, 0, 0 ], null, 'fwd' ], [ new THREE.Mesh( arrowGeometry, matBlue ), [ 0, 0, 1 ], [ - Math.PI / 2, 0, 0 ], null, 'bwd' ], [ new THREE.Line( lineGeometry, matLineBlue ), null, [ 0, - Math.PI / 2, 0 ]]],
-				XYZ: [[ new THREE.Mesh( new THREE.OctahedronGeometry( 0.1, 0 ), matWhiteTransparent.clone() ), [ 0, 0, 0 ], [ 0, 0, 0 ]]],
-				XY: [[ new THREE.Mesh( new THREE.PlaneGeometry( 0.295, 0.295 ), matYellowTransparent.clone() ), [ 0.15, 0.15, 0 ]], [ new THREE.Line( lineGeometry, matLineYellow ), [ 0.18, 0.3, 0 ], null, [ 0.125, 1, 1 ]], [ new THREE.Line( lineGeometry, matLineYellow ), [ 0.3, 0.18, 0 ], [ 0, 0, Math.PI / 2 ], [ 0.125, 1, 1 ]]],
-				YZ: [[ new THREE.Mesh( new THREE.PlaneGeometry( 0.295, 0.295 ), matCyanTransparent.clone() ), [ 0, 0.15, 0.15 ], [ 0, Math.PI / 2, 0 ]], [ new THREE.Line( lineGeometry, matLineCyan ), [ 0, 0.18, 0.3 ], [ 0, 0, Math.PI / 2 ], [ 0.125, 1, 1 ]], [ new THREE.Line( lineGeometry, matLineCyan ), [ 0, 0.3, 0.18 ], [ 0, - Math.PI / 2, 0 ], [ 0.125, 1, 1 ]]],
-				XZ: [[ new THREE.Mesh( new THREE.PlaneGeometry( 0.295, 0.295 ), matMagentaTransparent.clone() ), [ 0.15, 0, 0.15 ], [ - Math.PI / 2, 0, 0 ]], [ new THREE.Line( lineGeometry, matLineMagenta ), [ 0.18, 0, 0.3 ], null, [ 0.125, 1, 1 ]], [ new THREE.Line( lineGeometry, matLineMagenta ), [ 0.3, 0, 0.18 ], [ 0, - Math.PI / 2, 0 ], [ 0.125, 1, 1 ]]]
+				X: [
+					[ new THREE.Mesh( arrowGeometry, matRed ), [ 1, 0, 0 ], [ 0, 0, - Math.PI / 2 ] ],
+					[ new THREE.Line( lineGeometry, matLineRed ) ]
+				],
+				Y: [
+					[ new THREE.Mesh( arrowGeometry, matGreen ), [ 0, 1, 0 ], null ],
+					[ new THREE.Line( lineGeometry, matLineGreen ), null, [ 0, 0, Math.PI / 2 ] ]
+				],
+				Z: [
+					[ new THREE.Mesh( arrowGeometry, matBlue ), [ 0, 0, 1 ], [ Math.PI / 2, 0, 0 ] ],
+					[ new THREE.Line( lineGeometry, matLineBlue ), null, [ 0, - Math.PI / 2, 0 ] ]
+				],
+				XYZ: [
+					[ new THREE.Mesh( centerSphereGeometry, matGrey ), [ 0, 0, 0 ] ]
+				],
+				XY: [
+					[ new THREE.Mesh( planeSquareGeometry, matBlueLight ), [ 0.72, 0.72, 0 ] ]
+				],
+				YZ: [
+					[ new THREE.Mesh( planeSquareGeometry, matRedLight ), [ 0, 0.72, 0.72 ], [ 0, Math.PI / 2, 0 ] ]
+				],
+				XZ: [
+					[ new THREE.Mesh( planeSquareGeometry, matGreenLight ), [ 0.72, 0, 0.72 ], [ - Math.PI / 2, 0, 0 ] ]
+				]
 			};
+
 			const pickerTranslate = {
-				X: [[ new THREE.Mesh( new THREE.CylinderGeometry( 0.2, 0, 1, 4, 1, false ), matInvisible ), [ 0.6, 0, 0 ], [ 0, 0, - Math.PI / 2 ]]],
-				Y: [[ new THREE.Mesh( new THREE.CylinderGeometry( 0.2, 0, 1, 4, 1, false ), matInvisible ), [ 0, 0.6, 0 ]]],
-				Z: [[ new THREE.Mesh( new THREE.CylinderGeometry( 0.2, 0, 1, 4, 1, false ), matInvisible ), [ 0, 0, 0.6 ], [ Math.PI / 2, 0, 0 ]]],
-				XYZ: [[ new THREE.Mesh( new THREE.OctahedronGeometry( 0.2, 0 ), matInvisible ) ]],
-				XY: [[ new THREE.Mesh( new THREE.PlaneGeometry( 0.4, 0.4 ), matInvisible ), [ 0.2, 0.2, 0 ]]],
-				YZ: [[ new THREE.Mesh( new THREE.PlaneGeometry( 0.4, 0.4 ), matInvisible ), [ 0, 0.2, 0.2 ], [ 0, Math.PI / 2, 0 ]]],
-				XZ: [[ new THREE.Mesh( new THREE.PlaneGeometry( 0.4, 0.4 ), matInvisible ), [ 0.2, 0, 0.2 ], [ - Math.PI / 2, 0, 0 ]]]
+				X: [
+					[ new THREE.Mesh( new THREE.CylinderGeometry( 0.055 * HANDLE_SCALE, 0.055 * HANDLE_SCALE, 1.0, 8, 1, false ), matInvisible ), [ 0.55, 0, 0 ], [ 0, 0, - Math.PI / 2 ] ]
+				],
+				Y: [
+					[ new THREE.Mesh( new THREE.CylinderGeometry( 0.055 * HANDLE_SCALE, 0.055 * HANDLE_SCALE, 1.0, 8, 1, false ), matInvisible ), [ 0, 0.55, 0 ] ]
+				],
+				Z: [
+					[ new THREE.Mesh( new THREE.CylinderGeometry( 0.055 * HANDLE_SCALE, 0.055 * HANDLE_SCALE, 1.0, 8, 1, false ), matInvisible ), [ 0, 0, 0.55 ], [ Math.PI / 2, 0, 0 ] ]
+				],
+				XYZ: [
+					[ new THREE.Mesh( centerSpherePicker, matInvisible ), [ 0, 0, 0 ] ]
+				],
+				XY: [
+					[ new THREE.Mesh( planeSquarePicker, matInvisible ), [ 0.72, 0.72, 0 ] ]
+				],
+				YZ: [
+					[ new THREE.Mesh( planeSquarePicker, matInvisible ), [ 0, 0.72, 0.72 ], [ 0, Math.PI / 2, 0 ] ]
+				],
+				XZ: [
+					[ new THREE.Mesh( planeSquarePicker, matInvisible ), [ 0.72, 0, 0.72 ], [ - Math.PI / 2, 0, 0 ] ]
+				]
 			};
+
 			const helperTranslate = {
 				START: [[ new THREE.Mesh( new THREE.OctahedronGeometry( 0.01, 2 ), matHelper ), null, null, null, 'helper' ]],
 				END: [[ new THREE.Mesh( new THREE.OctahedronGeometry( 0.01, 2 ), matHelper ), null, null, null, 'helper' ]],
@@ -837,22 +925,36 @@
 				Y: [[ new THREE.Line( lineGeometry, matHelper.clone() ), [ 0, - 1e3, 0 ], [ 0, 0, Math.PI / 2 ], [ 1e6, 1, 1 ], 'helper' ]],
 				Z: [[ new THREE.Line( lineGeometry, matHelper.clone() ), [ 0, 0, - 1e3 ], [ 0, - Math.PI / 2, 0 ], [ 1e6, 1, 1 ], 'helper' ]]
 			};
+
 			const gizmoRotate = {
-				X: [[ new THREE.Line( CircleGeometry( 1, 0.5 ), matLineRed ) ], [ new THREE.Mesh( new THREE.OctahedronGeometry( 0.04, 0 ), matRed ), [ 0, 0, 0.99 ], null, [ 1, 3, 1 ]]],
-				Y: [[ new THREE.Line( CircleGeometry( 1, 0.5 ), matLineGreen ), null, [ 0, 0, - Math.PI / 2 ]], [ new THREE.Mesh( new THREE.OctahedronGeometry( 0.04, 0 ), matGreen ), [ 0, 0, 0.99 ], null, [ 3, 1, 1 ]]],
-				Z: [[ new THREE.Line( CircleGeometry( 1, 0.5 ), matLineBlue ), null, [ 0, Math.PI / 2, 0 ]], [ new THREE.Mesh( new THREE.OctahedronGeometry( 0.04, 0 ), matBlue ), [ 0.99, 0, 0 ], null, [ 1, 3, 1 ]]],
-				E: [[ new THREE.Line( CircleGeometry( 1.25, 1 ), matLineYellowTransparent ), null, [ 0, Math.PI / 2, 0 ]], [ new THREE.Mesh( new THREE.CylinderGeometry( 0.03, 0, 0.15, 4, 1, false ), matLineYellowTransparent ), [ 1.17, 0, 0 ], [ 0, 0, - Math.PI / 2 ], [ 1, 1, 0.001 ]], [ new THREE.Mesh( new THREE.CylinderGeometry( 0.03, 0, 0.15, 4, 1, false ), matLineYellowTransparent ), [ - 1.17, 0, 0 ], [ 0, 0, Math.PI / 2 ], [ 1, 1, 0.001 ]], [ new THREE.Mesh( new THREE.CylinderGeometry( 0.03, 0, 0.15, 4, 1, false ), matLineYellowTransparent ), [ 0, - 1.17, 0 ], [ Math.PI, 0, 0 ], [ 1, 1, 0.001 ]], [ new THREE.Mesh( new THREE.CylinderGeometry( 0.03, 0, 0.15, 4, 1, false ), matLineYellowTransparent ), [ 0, 1.17, 0 ], [ 0, 0, 0 ], [ 1, 1, 0.001 ]]],
-				XYZE: [[ new THREE.Line( CircleGeometry( 1, 1 ), matLineGray ), null, [ 0, Math.PI / 2, 0 ]]]
+				X: [
+					[ new THREE.Line( ArcGeometryYZ( R_ARC ), matLineRed ) ],
+					[ new THREE.Mesh( knobGeometry, matRedLight ), [ 0, MID_ARC, MID_ARC ] ]
+				],
+				Y: [
+					[ new THREE.Line( ArcGeometryZX( R_ARC ), matLineGreen ) ],
+					[ new THREE.Mesh( knobGeometry, matGreenLight ), [ MID_ARC, 0, MID_ARC ] ]
+				],
+				Z: [
+					[ new THREE.Line( ArcGeometryXY( R_ARC ), matLineBlue ) ],
+					[ new THREE.Mesh( knobGeometry, matBlueLight ), [ MID_ARC, MID_ARC, 0 ] ]
+				]
 			};
+
 			const helperRotate = {
 				AXIS: [[ new THREE.Line( lineGeometry, matHelper.clone() ), [ - 1e3, 0, 0 ], null, [ 1e6, 1, 1 ], 'helper' ]]
 			};
+
 			const pickerRotate = {
-				X: [[ new THREE.Mesh( new THREE.TorusGeometry( 1, 0.1, 4, 24 ), matInvisible ), [ 0, 0, 0 ], [ 0, - Math.PI / 2, - Math.PI / 2 ]]],
-				Y: [[ new THREE.Mesh( new THREE.TorusGeometry( 1, 0.1, 4, 24 ), matInvisible ), [ 0, 0, 0 ], [ Math.PI / 2, 0, 0 ]]],
-				Z: [[ new THREE.Mesh( new THREE.TorusGeometry( 1, 0.1, 4, 24 ), matInvisible ), [ 0, 0, 0 ], [ 0, 0, - Math.PI / 2 ]]],
-				E: [[ new THREE.Mesh( new THREE.TorusGeometry( 1.25, 0.1, 2, 24 ), matInvisible ) ]],
-				XYZE: [[ new THREE.Mesh( new THREE.SphereGeometry( 0.7, 10, 8 ), matInvisible ) ]]
+				X: [
+					[ new THREE.Mesh( knobPicker, matInvisible ), [ 0, MID_ARC, MID_ARC ] ]
+				],
+				Y: [
+					[ new THREE.Mesh( knobPicker, matInvisible ), [ MID_ARC, 0, MID_ARC ] ]
+				],
+				Z: [
+					[ new THREE.Mesh( knobPicker, matInvisible ), [ MID_ARC, MID_ARC, 0 ] ]
+				]
 			};
 			const gizmoScale = {
 				X: [[ new THREE.Mesh( scaleHandleGeometry, matRed ), [ 0.8, 0, 0 ], [ 0, 0, - Math.PI / 2 ]], [ new THREE.Line( lineGeometry, matLineRed ), null, null, [ 0.8, 1, 1 ]]],
@@ -1120,7 +1222,7 @@
 					// Hide translate and scale axis facing the camera
 					const AXIS_HIDE_TRESHOLD = 0.99;
 					const PLANE_HIDE_TRESHOLD = 0.2;
-					const AXIS_FLIP_TRESHOLD = 0.0;
+					const AXIS_FLIP_TRESHOLD = -1.1;
 
 					if ( handle.name === 'X' || handle.name === 'XYZX' ) {
 
@@ -1257,46 +1359,8 @@
 
 				} else if ( this.mode === 'rotate' ) {
 
-					// Align handles to current local or world rotation
-					_tempQuaternion2.copy( quaternion );
-
-					_alignVector.copy( this.eye ).applyQuaternion( _tempQuaternion.copy( quaternion ).invert() );
-
-					if ( handle.name.search( 'E' ) !== - 1 ) {
-
-						handle.quaternion.setFromRotationMatrix( _lookAtMatrix.lookAt( this.eye, _zeroVector, _unitY ) );
-
-					}
-
-					if ( handle.name === 'X' ) {
-
-						_tempQuaternion.setFromAxisAngle( _unitX, Math.atan2( - _alignVector.y, _alignVector.z ) );
-
-						_tempQuaternion.multiplyQuaternions( _tempQuaternion2, _tempQuaternion );
-
-						handle.quaternion.copy( _tempQuaternion );
-
-					}
-
-					if ( handle.name === 'Y' ) {
-
-						_tempQuaternion.setFromAxisAngle( _unitY, Math.atan2( _alignVector.x, _alignVector.z ) );
-
-						_tempQuaternion.multiplyQuaternions( _tempQuaternion2, _tempQuaternion );
-
-						handle.quaternion.copy( _tempQuaternion );
-
-					}
-
-					if ( handle.name === 'Z' ) {
-
-						_tempQuaternion.setFromAxisAngle( _unitZ, Math.atan2( _alignVector.y, _alignVector.x ) );
-
-						_tempQuaternion.multiplyQuaternions( _tempQuaternion2, _tempQuaternion );
-
-						handle.quaternion.copy( _tempQuaternion );
-
-					}
+					// PivotControls: lock quarter-arcs rigidly to object quaternion
+					handle.quaternion.copy( quaternion );
 
 				} // Hide disabled axes
 

@@ -7,7 +7,7 @@ Includes weighted moving window filtering and velocity slew rate clamping.
 
 import numpy as np
 from teleop.utils.weighted_moving_filter import WeightedMovingFilter
-from teleop.kinematics.filters import OneEuroFilter
+from teleop.kinematics.filters import OneEuroFilter, CriticallyDampedFollower
 
 
 class AgibotHandRetargeting:
@@ -21,6 +21,73 @@ class AgibotHandRetargeting:
       4: ring_1_joint       [0.0, 1.700]
       5: pinky_1_joint      [0.0, 1.700]
     """
+
+    GRASP_TYPES = ["cylinder", "pinch", "tripod", "point", "thumbs_up"]
+    # Grasp types supported: cylinder, pinch, tripod, point, thumbs_up, open.
+    # Grasp types marked TODO: spherical (TODO), lateral (TODO), hook (TODO).
+    GRASP_TYPES_TODO = ["spherical", "lateral", "hook"]
+
+    # Per-grasp per-joint comfortable target tables (closure 1.0 = comfortable grasp, NOT the joint limit)
+    # Order: [thumb_swing, thumb_1, index_1, middle_1, ring_1, pinky_1]
+    COMFORTABLE_GRASP_TARGETS = {
+        "cylinder": np.array([0.95, 0.32, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
+        "fist":     np.array([0.95, 0.32, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
+        "close":    np.array([0.95, 0.32, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
+        "power":    np.array([0.95, 0.32, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
+        "pinch":    np.array([1.25, 0.32, 0.72, 0.00, 0.00, 0.00], dtype=np.float64),
+        "tripod":   np.array([1.22, 0.32, 0.72, 0.72, 0.00, 0.00], dtype=np.float64),
+        "point":    np.array([0.90, 0.32, 0.00, 1.18, 1.22, 1.22], dtype=np.float64),
+        "thumbs_up":np.array([0.00, 0.00, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
+        "thumbsup": np.array([0.00, 0.00, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
+        "open":     np.zeros(6, dtype=np.float64),
+    }
+
+    # Per-finger comfortable closure limits (never reaches a penetrating pose, thumb stops earlier)
+    COMFORTABLE_LIMITS = np.array([1.60, 0.35, 1.30, 1.30, 1.30, 1.30], dtype=np.float64)
+
+    @classmethod
+    def get_grasp_targets(cls, grasp_type: str, closure: float = 1.0) -> np.ndarray:
+        """Returns the 6 active joint targets for the given grasp type and closure in [0, 1]."""
+        cl = float(np.clip(closure, 0.0, 1.0))
+        g = str(grasp_type).lower().strip()
+        base = cls.COMFORTABLE_GRASP_TARGETS.get(g, cls.COMFORTABLE_GRASP_TARGETS["cylinder"])
+        return base * cl
+
+    @classmethod
+    def encode_raw_commands(cls, joint_angles: np.ndarray) -> np.ndarray:
+        """Encodes active joint angles (rad) into vendor raw integer values [0, 2000]."""
+        angles = np.asarray(joint_angles, dtype=np.float64)
+        norm = np.clip(angles / cls.COMFORTABLE_LIMITS, 0.0, 1.0)
+        return np.round(norm * 2000.0).astype(int)
+
+    @classmethod
+    def decode_raw_commands(cls, raw_values: np.ndarray) -> np.ndarray:
+        """Decodes vendor raw integer values [0, 2000] into active joint angles (rad)."""
+        raw = np.clip(np.asarray(raw_values, dtype=np.float64), 0.0, 2000.0)
+        return (raw / 2000.0) * cls.COMFORTABLE_LIMITS
+
+    @staticmethod
+    def get_grasp_curls(grasp_type: str, closure: float = 1.0) -> tuple[np.ndarray, float]:
+        """
+        Returns (curls_5, pinch_strength) for the given grasp type and closure in [0, 1],
+        mapped to safe, comfortable grasp poses.
+        """
+        cl = float(np.clip(closure, 0.0, 1.0))
+        g = str(grasp_type).lower().strip()
+        if g in ("cylinder", "close", "fist", "power"):
+            return np.array([0.41, 0.70, 0.72, 0.72, 0.72], dtype=np.float64) * cl, 0.58 * cl
+        elif g == "pinch":
+            return np.array([0.41, 0.42, 0.0, 0.0, 0.0], dtype=np.float64) * cl, 0.95 * cl
+        elif g == "tripod":
+            return np.array([0.41, 0.42, 0.42, 0.0, 0.0], dtype=np.float64) * cl, 0.91 * cl
+        elif g == "point":
+            return np.array([0.41, 0.0, 0.70, 0.72, 0.72], dtype=np.float64) * cl, 0.51 * cl
+        elif g in ("thumbs_up", "thumbsup"):
+            return np.array([0.0, 0.70, 0.72, 0.72, 0.72], dtype=np.float64) * cl, 0.0
+        elif g == "open":
+            return np.zeros(5, dtype=np.float64), 0.0
+        else:
+            return np.array([0.41, 0.70, 0.72, 0.72, 0.72], dtype=np.float64) * cl, 0.58 * cl
 
     def __init__(self, hand: str = "left", filter_weights=(0.5, 0.3, 0.2), max_vel_rad_s: float = 6.0):
         assert hand in ["left", "right"], f"Hand must be 'left' or 'right', got {hand}"
@@ -39,11 +106,13 @@ class AgibotHandRetargeting:
 
         self.filter = WeightedMovingFilter(weights=filter_weights, data_size=6)
         self.one_euro_filter = OneEuroFilter(min_cutoff=1.5, beta=0.01, d_cutoff=1.0)
+        self.follower = CriticallyDampedFollower(natural_freq_hz=15.0, dt=0.02)
         self.last_cmd = np.zeros(6, dtype=np.float64)
 
     def reset(self):
         self.filter.reset()
         self.one_euro_filter.reset()
+        self.follower.reset()
         self.last_cmd = np.zeros(6, dtype=np.float64)
 
     def retarget_curls(
@@ -77,13 +146,32 @@ class AgibotHandRetargeting:
         # Apply moving average filter
         filtered_cmd = self.filter.add_data(raw_cmd)
 
+        # Apply critically damped follower for smooth, overshoot-free closure
+        smoothed_cmd = self.follower.update(filtered_cmd, dt=dt)
+
         # Apply velocity slew rate limiting
         max_step = self.max_vel_rad_s * dt
-        diff = filtered_cmd - self.last_cmd
+        diff = smoothed_cmd - self.last_cmd
         clamped_diff = np.clip(diff, -max_step, max_step)
         clamped_cmd = self.last_cmd + clamped_diff
 
         # Final joint limit enforcement
+        final_cmd = np.clip(clamped_cmd, self.limits[:, 0], self.limits[:, 1])
+        self.last_cmd = final_cmd.copy()
+        return final_cmd
+
+    def retarget_direct_joints(self, target_joints: np.ndarray, dt: float = 0.02) -> np.ndarray:
+        """
+        Directly targets 6 active joints with One Euro + moving average filtering,
+        velocity slew rate clamping (<= 6.0 rad/s), and hard joint limits.
+        """
+        raw_cmd = np.clip(np.asarray(target_joints, dtype=np.float64), self.limits[:, 0], self.limits[:, 1])
+        raw_cmd = self.one_euro_filter.filter(raw_cmd)
+        filtered_cmd = self.filter.add_data(raw_cmd)
+        max_step = self.max_vel_rad_s * dt
+        diff = filtered_cmd - self.last_cmd
+        clamped_diff = np.clip(diff, -max_step, max_step)
+        clamped_cmd = self.last_cmd + clamped_diff
         final_cmd = np.clip(clamped_cmd, self.limits[:, 0], self.limits[:, 1])
         self.last_cmd = final_cmd.copy()
         return final_cmd

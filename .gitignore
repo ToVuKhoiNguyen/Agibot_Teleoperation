@@ -29,3 +29,4 @@ MUJOCO_LOG.TXT
 # assets/agibot_a2_ultra/web_meshes/
 venv/
 venv
+docs/vendor/

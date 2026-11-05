@@ -65,7 +65,7 @@ def print_startup_banner(port: int, host_ip: str, status_dict: dict, quest_dict:
     adb_str = "Active" if quest_dict.get("adb_installed") else "Not found (Install with: sudo apt install adb)"
     dev_str = quest_dict.get("device") or (f"None ({quest_dict.get('device_state')})" if quest_dict.get("device_state") else "None")
     rev_str = "ACTIVE (tcp:8012 -> tcp:8012)" if quest_dict.get("reverse_active") else "Inactive"
-    quest_url = quest_dict.get("quest_url", f"https://localhost:{port}/vr")
+    quest_url = quest_dict.get("quest_url", f"https://localhost:{port}/")
 
     print("\n" + "=" * 80)
     print("READY - AGIBOT A2 ULTRA TELEOPERATION SYSTEM ACTIVE")
@@ -75,7 +75,7 @@ def print_startup_banner(port: int, host_ip: str, status_dict: dict, quest_dict:
     print(f"   ADB Status            : {adb_str}")
     print(f"   Connected Headset     : {dev_str}")
     print(f"   ADB Reverse           : {rev_str}")
-    print(f"3. QUEST 3S (WI-FI / LAN): https://{host_ip}:{port}/vr")
+    print(f"3. QUEST 3S (WI-FI / LAN): https://{host_ip}:{port}/")
     print(f"4. HEALTH ENDPOINT       : https://localhost:{port}/health")
     print("-" * 80)
     print("SUBSYSTEM STATUS:")
@@ -274,8 +274,16 @@ class UnifiedTeleopApp:
             "rotation_enabled": True,
             "deadband_m": 0.002,
             "grip_threshold": 0.25,
+            "trigger_threshold": 0.25,
             "tracking_timeout_s": 0.35,
-            "estop_combo_hold_s": 0.5
+            "estop_combo_hold_s": 0.5,
+            "home_hold_s": 1.5,
+            "home_duration": 1.5,
+            "precision_scale_factor": 0.3,
+            "precision_follower_factor": 0.5,
+            "finger_closure_rate": 1.0,
+            "thumbstick_deadband": 0.15,
+            "thumbstick_x_deadband": 0.40
         }
         if self.quest_config_path.exists():
             try:
@@ -291,12 +299,20 @@ class UnifiedTeleopApp:
         self.xr_rotation_enabled = bool(self.quest_cfg.get("rotation_enabled", True))
         self.xr_deadband = float(self.quest_cfg.get("deadband_m", 0.002))
         self.xr_grip_thresh = float(self.quest_cfg.get("grip_threshold", 0.25))
+        self.xr_trigger_thresh = float(self.quest_cfg.get("trigger_threshold", 0.25))
         self.xr_timeout = float(self.quest_cfg.get("tracking_timeout_s", 0.35))
         self.xr_estop_hold_thresh = float(self.quest_cfg.get("estop_combo_hold_s", 0.5))
+        self.xr_home_hold_s = float(self.quest_cfg.get("home_hold_s", 1.5))
+        self.xr_precision_scale_factor = float(self.quest_cfg.get("precision_scale_factor", 0.3))
+        self.xr_precision_follower_factor = float(self.quest_cfg.get("precision_follower_factor", 0.5))
+        self.xr_closure_rate = float(self.quest_cfg.get("finger_closure_rate", 1.0))
+        self.xr_stick_deadband = float(self.quest_cfg.get("thumbstick_deadband", 0.15))
+        self.xr_stick_x_deadband = float(self.quest_cfg.get("thumbstick_x_deadband", 0.40))
 
         self.xr_input_active = False
         self.xr_last_packet_time = 0.0
         self.xr_pkt_count = 0
+        self.xr_total_pkts = 0
         self.xr_rate_hz = 0.0
         self.xr_rate_timer = time.time()
         self.xr_grip_active_l = False
@@ -313,6 +329,90 @@ class UnifiedTeleopApp:
         self.xr_prev_btn_y = False
         self.xr_estop_combo_start_time = None
 
+        # Precision mode per side
+        self.precision_l = False
+        self.precision_r = False
+
+        # Clutch state per side: "LOCKED" | "TRANSLATE" | "ROTATE" | "6D"
+        self.xr_clutch_state_l = "LOCKED"
+        self.xr_clutch_state_r = "LOCKED"
+
+        # Grasp types and finger closure state
+        self.grasp_type_l = "cylinder"
+        self.grasp_type_r = "cylinder"
+        self.hand_closure_l = 0.0
+        self.hand_closure_r = 0.0
+        self.stick_x_state_l = 0
+        self.stick_x_state_r = 0
+        self.xr_thumb_click_prev_l = False
+        self.xr_thumb_click_prev_r = False
+
+        # Home hold progress
+        self.x_hold_start = None
+        self.x_home_triggered = False
+        self.xr_home_progress_l = 0.0
+        self.a_hold_start = None
+        self.a_home_triggered = False
+        self.xr_home_progress_r = 0.0
+
+        # Raw signals for UI telemetry
+        self.xr_left_connected = False
+        self.xr_right_connected = False
+        self.xr_btn_x = False
+        self.xr_btn_y = False
+        self.xr_btn_a = False
+        self.xr_btn_b = False
+        self.xr_btn_menu_l = False
+        self.xr_btn_menu_r = False
+        self.xr_grip_val_l = 0.0
+        self.xr_grip_val_r = 0.0
+        self.xr_trig_val_l = 0.0
+        self.xr_trig_val_r = 0.0
+        self.xr_stick_x_l = 0.0
+        self.xr_stick_y_l = 0.0
+        self.xr_stick_x_r = 0.0
+        self.xr_stick_y_r = 0.0
+        self.xr_thumb_click_l = False
+        self.xr_thumb_click_r = False
+
+        # Event log (last 8 events)
+        self.xr_event_log = []
+
+        # Direct joint command overrides & sweep test state
+        self.direct_hand_override_l = False
+        self.direct_hand_override_r = False
+        self.direct_hand_target_l = np.zeros(6, dtype=np.float64)
+        self.direct_hand_target_r = np.zeros(6, dtype=np.float64)
+        self.hand_sweep_active = False
+        self.hand_sweep_mode = "single_joints"
+        self.hand_sweep_side = "both"
+        self.hand_sweep_time = 0.0
+        self.hand_sweep_joint_idx = 0
+        self.hand_sweep_info = "Ready"
+        self.hand_sweep_saved_joints_l = np.zeros(6, dtype=np.float64)
+        self.hand_sweep_saved_joints_r = np.zeros(6, dtype=np.float64)
+
+        # Smooth Homing State
+        self.home_duration = float(self.quest_cfg.get("home_duration", 1.5))
+        self.homing_active = False
+        self.homing_side = "both"
+        self.homing_elapsed = 0.0
+        self.homing_duration_current = self.home_duration
+        self.robot_home_q_l = self.env.get_left_arm_qpos().copy()
+        self.robot_home_q_r = self.env.get_right_arm_qpos().copy()
+        self.homing_start_pos_l = self.robot_home_pos_l.copy()
+        self.homing_start_pos_r = self.robot_home_pos_r.copy()
+        self.homing_start_rot_l = self.robot_home_rot_l.copy()
+        self.homing_start_rot_r = self.robot_home_rot_r.copy()
+        self.homing_start_q_l = self.robot_home_q_l.copy()
+        self.homing_start_q_r = self.robot_home_q_r.copy()
+
+        # Hand Safety Gate State
+        self.current_safe_hand_l = np.zeros(6, dtype=np.float64)
+        self.current_safe_hand_r = np.zeros(6, dtype=np.float64)
+        self.hand_collision_blocked = False
+        self.min_hand_distance_m = 999.0
+
         # Setup Clean Shutdown Signals
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
@@ -321,7 +421,197 @@ class UnifiedTeleopApp:
         print("\n[INFO] Shutdown signal received. Cleaning up resources...")
         self.running = False
 
-    def _solve_arm_ik(self, arm="both"):
+    def _log_xr_event(self, msg: str):
+        t_str = time.strftime("%H:%M:%S")
+        self.xr_event_log.append({"t": t_str, "msg": str(msg)})
+        if len(self.xr_event_log) > 16:
+            self.xr_event_log.pop(0)
+
+    def _update_precision(self, side: str, is_precision: bool):
+        base_hz = 30.0
+        factor = self.xr_precision_follower_factor if is_precision else 1.0
+        new_omega = 2.0 * np.pi * base_hz * factor
+        if side == "left":
+            self.gizmo_follower_l.omega = new_omega
+        elif side == "right":
+            self.gizmo_follower_r.omega = new_omega
+
+    def _slerp_quaternion(self, rot_start: np.ndarray, rot_target: np.ndarray, alpha: float) -> np.ndarray:
+        try:
+            from scipy.spatial.transform import Rotation as R, Slerp
+            r1 = R.from_matrix(rot_start)
+            r2 = R.from_matrix(rot_target)
+            q1 = r1.as_quat()
+            q2 = r2.as_quat()
+            if np.dot(q1, q2) < 0.0:
+                q2 = -q2
+            slerp = Slerp([0.0, 1.0], R.from_quat([q1, q2]))
+            return slerp([float(np.clip(alpha, 0.0, 1.0))])[0].as_matrix()
+        except Exception:
+            return (1.0 - alpha) * rot_start + alpha * rot_target
+
+    def _start_smooth_homing(self, side: str = "both", duration: float = None):
+        dur = duration if duration is not None else self.home_duration
+        self.homing_duration_current = max(0.5, float(dur))
+        self.homing_elapsed = 0.0
+        self.homing_side = side
+        self.active_sequence = None
+        self.walking_demo_active = False
+
+        ee = self.env.get_ee_poses()
+        if side in ("left", "both"):
+            self.homing_start_pos_l = ee["left"]["pos"].copy()
+            self.homing_start_rot_l = ee["left"]["rot"].copy()
+            self.homing_start_q_l = self.last_arm_cmd_left.copy()
+            self.cur_target_pos_l = self.homing_start_pos_l.copy()
+            self.cur_target_rot_l = self.homing_start_rot_l.copy()
+            self.gizmo_follower_l.reset(self.homing_start_pos_l)
+            self.gizmo_rot_follower_l.reset(self.homing_start_rot_l)
+            self.xr_clutch_state_l = "LOCKED"
+            self.xr_grip_active_l = False
+            self.target_curls_l = np.zeros(5, dtype=np.float64)
+            self.target_pinch_l = 0.0
+            self.hand_closure_l = 0.0
+            self.grasp_type_l = "open"
+            self.direct_hand_override_l = False
+            self.gizmo_active_l = True
+
+        if side in ("right", "both"):
+            self.homing_start_pos_r = ee["right"]["pos"].copy()
+            self.homing_start_rot_r = ee["right"]["rot"].copy()
+            self.homing_start_q_r = self.last_arm_cmd_right.copy()
+            self.cur_target_pos_r = self.homing_start_pos_r.copy()
+            self.cur_target_rot_r = self.homing_start_rot_r.copy()
+            self.gizmo_follower_r.reset(self.homing_start_pos_r)
+            self.gizmo_rot_follower_r.reset(self.homing_start_rot_r)
+            self.xr_clutch_state_r = "LOCKED"
+            self.xr_grip_active_r = False
+            self.target_curls_r = np.zeros(5, dtype=np.float64)
+            self.target_pinch_r = 0.0
+            self.hand_closure_r = 0.0
+            self.grasp_type_r = "open"
+            self.direct_hand_override_r = False
+            self.gizmo_active_r = True
+
+        self.hand_sweep_active = False
+        self.homing_active = True
+        self._log_xr_event(f"Smooth homing started ({side}, {self.homing_duration_current:.1f}s)")
+
+    def _reset_arm_to_home(self, side: str):
+        self._start_smooth_homing(side)
+
+    def _update_homing(self, dt: float):
+        if not self.homing_active:
+            return
+
+        # Interrupt homing if user engages clutch
+        if (self.xr_grip_active_l and self.homing_side in ("left", "both")) or \
+           (self.xr_grip_active_r and self.homing_side in ("right", "both")):
+            self.homing_active = False
+            self._log_xr_event("Homing interrupted by user clutch")
+            return
+
+        self.homing_elapsed += dt
+        tau = np.clip(self.homing_elapsed / self.homing_duration_current, 0.0, 1.0)
+        # Min-jerk polynomial s(tau) = 10*tau^3 - 15*tau^4 + 6*tau^5
+        s = 10.0 * (tau ** 3) - 15.0 * (tau ** 4) + 6.0 * (tau ** 5)
+
+        hint_l = None
+        hint_r = None
+
+        if self.homing_side in ("left", "both"):
+            self.cur_target_pos_l = (1.0 - s) * self.homing_start_pos_l + s * self.robot_home_pos_l
+            self.cur_target_rot_l = self._slerp_quaternion(self.homing_start_rot_l, self.robot_home_rot_l, s)
+            hint_l = self.robot_home_q_l if tau >= 1.0 else ((1.0 - s) * self.homing_start_q_l + s * self.robot_home_q_l)
+
+        if self.homing_side in ("right", "both"):
+            self.cur_target_pos_r = (1.0 - s) * self.homing_start_pos_r + s * self.robot_home_pos_r
+            self.cur_target_rot_r = self._slerp_quaternion(self.homing_start_rot_r, self.robot_home_rot_r, s)
+            hint_r = self.robot_home_q_r if tau >= 1.0 else ((1.0 - s) * self.homing_start_q_r + s * self.robot_home_q_r)
+
+        self._solve_arm_ik(self.homing_side, posture_hint_l=hint_l, posture_hint_r=hint_r)
+
+        if tau >= 1.0:
+            ee = self.env.get_ee_poses()
+            err_l = np.linalg.norm(ee["left"]["pos"] - self.robot_home_pos_l) if self.homing_side in ("left", "both") else 0.0
+            err_r = np.linalg.norm(ee["right"]["pos"] - self.robot_home_pos_r) if self.homing_side in ("right", "both") else 0.0
+            if (err_l < 0.0015 and err_r < 0.0015) or (self.homing_elapsed >= self.homing_duration_current + 0.4):
+                self.homing_active = False
+                if self.homing_side in ("left", "both"):
+                    self.cur_target_pos_l = ee["left"]["pos"].copy()
+                    self.cur_target_rot_l = ee["left"]["rot"].copy()
+                    self.gizmo_follower_l.reset(self.cur_target_pos_l)
+                    self.gizmo_rot_follower_l.reset(self.cur_target_rot_l)
+                    self.gizmo_active_l = False
+                if self.homing_side in ("right", "both"):
+                    self.cur_target_pos_r = ee["right"]["pos"].copy()
+                    self.cur_target_rot_r = ee["right"]["rot"].copy()
+                    self.gizmo_follower_r.reset(self.cur_target_pos_r)
+                    self.gizmo_rot_follower_r.reset(self.cur_target_rot_r)
+                    self.gizmo_active_r = False
+
+    def _update_hand_sweep(self, dt: float):
+        if not self.hand_sweep_active:
+            return
+        self.hand_sweep_time += dt
+
+        if self.hand_sweep_mode == "single_joints":
+            T_joint = 1.0
+            idx = int(self.hand_sweep_time // T_joint)
+            if idx >= 6:
+                self.hand_sweep_active = False
+                self.direct_hand_override_l = False
+                self.direct_hand_override_r = False
+                self.hand_sweep_info = "Single-joint sweep complete"
+                return
+
+            t_in_joint = self.hand_sweep_time - idx * T_joint
+            jname_l = self.env.left_hand_active_joints[idx]
+            lo_l, hi_l = self.env.joint_limits[jname_l]
+            val_norm = 0.5 * (1.0 - np.cos(2.0 * np.pi * t_in_joint / T_joint))
+            angle_l = lo_l + val_norm * (hi_l - lo_l)
+
+            if self.hand_sweep_side in ("left", "both"):
+                self.direct_hand_override_l = True
+                cmd_l = self.hand_sweep_saved_joints_l.copy()
+                cmd_l[idx] = angle_l
+                self.direct_hand_target_l = cmd_l
+
+            if self.hand_sweep_side in ("right", "both"):
+                jname_r = self.env.right_hand_active_joints[idx]
+                lo_r, hi_r = self.env.joint_limits[jname_r]
+                angle_r = lo_r + val_norm * (hi_r - lo_r)
+                self.direct_hand_override_r = True
+                cmd_r = self.hand_sweep_saved_joints_r.copy()
+                cmd_r[idx] = angle_r
+                self.direct_hand_target_r = cmd_r
+
+            act_l = self.env.data.qpos[self.env.qpos_idx_map[jname_l]]
+            self.hand_sweep_info = f"Sweeping {jname_l}: cmd={angle_l:.2f} rad, act={act_l:.2f} rad"
+
+        elif self.hand_sweep_mode == "all_fingers":
+            T_cycle = 1.5
+            total_time = 3.0 * T_cycle
+            if self.hand_sweep_time >= total_time:
+                self.hand_sweep_active = False
+                self.hand_sweep_info = "All-finger sweep complete"
+                return
+
+            phase = 2.0 * np.pi * self.hand_sweep_time / T_cycle
+            closure = float(0.5 * (1.0 - np.cos(phase)))
+            curls = np.ones(5, dtype=np.float64) * closure
+            if self.hand_sweep_side in ("left", "both"):
+                self.target_curls_l = curls
+                self.target_pinch_l = 0.5 * closure
+                self.hand_closure_l = closure
+            if self.hand_sweep_side in ("right", "both"):
+                self.target_curls_r = curls
+                self.target_pinch_r = 0.5 * closure
+                self.hand_closure_r = closure
+            cycle_num = min(3, int(self.hand_sweep_time / T_cycle) + 1)
+            self.hand_sweep_info = f"All-finger curl cycle {cycle_num}/3 ({closure*100.0:.0f}%)"
+
+    def _solve_arm_ik(self, arm="both", posture_hint_l: np.ndarray = None, posture_hint_r: np.ndarray = None):
         ee_poses = self.env.get_ee_poses()
 
         if hasattr(self.ik_left, "conf") and self.ik_left.conf is not None:
@@ -333,69 +623,44 @@ class UnifiedTeleopApp:
         slid_blocked_r = False
 
         if arm in ("left", "both"):
-            if self.gizmo_active_l:
-                # Direct critically damped follower (no One Euro, no dead zone, no 0.3s blend)
-                follow_pos_l = self.gizmo_follower_l.update(self.cur_target_pos_l, self.control_dt)
-                follow_rot_l = self.gizmo_rot_follower_l.update(self.cur_target_rot_l, self.control_dt)
-                slid_pos_l, slid_blocked_l = self.collision_checker.project_target_tangent(
-                    ee_poses["left"]["pos"], follow_pos_l, self.env.data
-                )
-                warm_q_l = getattr(self, "last_ik_sol_left", self.env.get_left_arm_qpos())
-                q_sol_l, _, _, _, _ = self.ik_left.solve(
-                    target_pos=slid_pos_l,
-                    target_rot=follow_rot_l,
-                    init_qpos=warm_q_l,
-                    max_iters=14,
-                    pos_tol=0.001, rot_tol=0.035
-                )
-                self.last_ik_sol_left = q_sol_l.copy()
-                cand_left = self.output_filter_left_gizmo.filter(q_sol_l)
-            else:
-                now_t = time.perf_counter()
-                filt_pos_l, filt_rot_l = self.input_filter_left.filter(self.cur_target_pos_l, self.cur_target_rot_l, timestamp=now_t)
-                ramped_pos_l = self.clutch_ramp_left.blend(filt_pos_l)
-
-                q_sol_l, _, _, _, _ = self.ik_left.solve(
-                    target_pos=ramped_pos_l,
-                    target_rot=filt_rot_l,
-                    init_qpos=self.last_arm_cmd_left,
-                    max_iters=12,
-                    pos_tol=0.002, rot_tol=0.035
-                )
-                cand_left = self.output_filter_left.filter(q_sol_l)
+            follow_pos_l = self.gizmo_follower_l.update(self.cur_target_pos_l, self.control_dt)
+            follow_rot_l = self.gizmo_rot_follower_l.update(self.cur_target_rot_l, self.control_dt)
+            slid_pos_l, slid_blocked_l = self.collision_checker.project_target_tangent(
+                ee_poses["left"]["pos"], follow_pos_l, self.env.data
+            )
+            warm_q_l = getattr(self, "last_ik_sol_left", self.env.get_left_arm_qpos())
+            kwargs_l = {"elbow_hint": posture_hint_l} if (posture_hint_l is not None and hasattr(self.ik_left, "set_elbow_hint")) else {}
+            q_sol_l, _, _, _, _ = self.ik_left.solve(
+                target_pos=slid_pos_l,
+                target_rot=follow_rot_l,
+                init_qpos=warm_q_l,
+                max_iters=14,
+                pos_tol=0.001, rot_tol=0.035,
+                **kwargs_l
+            )
+            self.last_ik_sol_left = q_sol_l.copy()
+            cand_left = self.output_filter_left_gizmo.filter(q_sol_l)
         else:
             cand_left = self.last_arm_cmd_left.copy()
 
         if arm in ("right", "both"):
-            if self.gizmo_active_r:
-                follow_pos_r = self.gizmo_follower_r.update(self.cur_target_pos_r, self.control_dt)
-                follow_rot_r = self.gizmo_rot_follower_r.update(self.cur_target_rot_r, self.control_dt)
-                slid_pos_r, slid_blocked_r = self.collision_checker.project_target_tangent(
-                    ee_poses["right"]["pos"], follow_pos_r, self.env.data
-                )
-                warm_q_r = getattr(self, "last_ik_sol_right", self.env.get_right_arm_qpos())
-                q_sol_r, _, _, _, _ = self.ik_right.solve(
-                    target_pos=slid_pos_r,
-                    target_rot=follow_rot_r,
-                    init_qpos=warm_q_r,
-                    max_iters=14,
-                    pos_tol=0.001, rot_tol=0.035
-                )
-                self.last_ik_sol_right = q_sol_r.copy()
-                cand_right = self.output_filter_right_gizmo.filter(q_sol_r)
-            else:
-                now_t = time.perf_counter()
-                filt_pos_r, filt_rot_r = self.input_filter_right.filter(self.cur_target_pos_r, self.cur_target_rot_r, timestamp=now_t)
-                ramped_pos_r = self.clutch_ramp_right.blend(filt_pos_r)
-
-                q_sol_r, _, _, _, _ = self.ik_right.solve(
-                    target_pos=ramped_pos_r,
-                    target_rot=filt_rot_r,
-                    init_qpos=self.last_arm_cmd_right,
-                    max_iters=12,
-                    pos_tol=0.002, rot_tol=0.035
-                )
-                cand_right = self.output_filter_right.filter(q_sol_r)
+            follow_pos_r = self.gizmo_follower_r.update(self.cur_target_pos_r, self.control_dt)
+            follow_rot_r = self.gizmo_rot_follower_r.update(self.cur_target_rot_r, self.control_dt)
+            slid_pos_r, slid_blocked_r = self.collision_checker.project_target_tangent(
+                ee_poses["right"]["pos"], follow_pos_r, self.env.data
+            )
+            warm_q_r = getattr(self, "last_ik_sol_right", self.env.get_right_arm_qpos())
+            kwargs_r = {"elbow_hint": posture_hint_r} if (posture_hint_r is not None and hasattr(self.ik_right, "set_elbow_hint")) else {}
+            q_sol_r, _, _, _, _ = self.ik_right.solve(
+                target_pos=slid_pos_r,
+                target_rot=follow_rot_r,
+                init_qpos=warm_q_r,
+                max_iters=14,
+                pos_tol=0.001, rot_tol=0.035,
+                **kwargs_r
+            )
+            self.last_ik_sol_right = q_sol_r.copy()
+            cand_right = self.output_filter_right_gizmo.filter(q_sol_r)
         else:
             cand_right = self.last_arm_cmd_right.copy()
 
@@ -523,146 +788,308 @@ class UnifiedTeleopApp:
 
         elif name == "xr_controllers":
             now_t = time.time()
+            dt_pkt = min(0.1, max(0.005, now_t - getattr(self, "xr_last_pkt_t", now_t - 0.02)))
+            self.xr_last_pkt_t = now_t
             self.xr_last_packet_time = now_t
             self.xr_input_active = True
             self.xr_pkt_count += 1
+            self.xr_total_pkts += 1
+
+            if now_t - self.xr_rate_timer >= 1.0:
+                self.xr_rate_hz = self.xr_pkt_count / (now_t - self.xr_rate_timer)
+                self.xr_rate_timer = now_t
+                self.xr_pkt_count = 0
 
             left_pkt = cmd.get("left")
             right_pkt = cmd.get("right")
             rot_enabled = cmd.get("rotation_enabled", self.xr_rotation_enabled)
 
+            self.xr_left_connected = bool(left_pkt is not None)
+            self.xr_right_connected = bool(right_pkt is not None)
+
             # Button states extraction
             btn_x = False
             btn_y = False
-            btn_a = False
-            btn_b = False
+            btn_menu_l = False
             if left_pkt:
                 btn_x = bool(left_pkt.get("btn_x", left_pkt.get("buttons", {}).get("primary", False)))
                 btn_y = bool(left_pkt.get("btn_y", left_pkt.get("buttons", {}).get("secondary", False)))
+                btn_menu_l = bool(left_pkt.get("btn_menu", left_pkt.get("buttons", {}).get("menu", False)))
+                self.xr_grip_val_l = float(left_pkt.get("grip_val", 1.0 if left_pkt.get("grip") else 0.0))
+                self.xr_trig_val_l = float(left_pkt.get("trigger", 0.0))
+                self.xr_thumb_click_l = bool(left_pkt.get("thumbstick_click", False))
+                if "thumbstick" in left_pkt:
+                    self.xr_stick_x_l = float(left_pkt["thumbstick"][0])
+                    self.xr_stick_y_l = float(left_pkt["thumbstick"][1])
+
+            btn_a = False
+            btn_b = False
+            btn_menu_r = False
             if right_pkt:
                 btn_a = bool(right_pkt.get("btn_a", right_pkt.get("buttons", {}).get("primary", False)))
                 btn_b = bool(right_pkt.get("btn_b", right_pkt.get("buttons", {}).get("secondary", False)))
+                btn_menu_r = bool(right_pkt.get("btn_menu", right_pkt.get("buttons", {}).get("menu", False)))
+                self.xr_grip_val_r = float(right_pkt.get("grip_val", 1.0 if right_pkt.get("grip") else 0.0))
+                self.xr_trig_val_r = float(right_pkt.get("trigger", 0.0))
+                self.xr_thumb_click_r = bool(right_pkt.get("thumbstick_click", False))
+                if "thumbstick" in right_pkt:
+                    self.xr_stick_x_r = float(right_pkt["thumbstick"][0])
+                    self.xr_stick_y_r = float(right_pkt["thumbstick"][1])
 
-            # E-STOP Combo: Hold B + Y simultaneously > 0.5s
+            self.xr_btn_x = btn_x
+            self.xr_btn_y = btn_y
+            self.xr_btn_a = btn_a
+            self.xr_btn_b = btn_b
+            self.xr_btn_menu_l = btn_menu_l
+            self.xr_btn_menu_r = btn_menu_r
+
+            # Menu button: immediate E-STOP
+            if btn_menu_l or btn_menu_r:
+                if not self.state_estop:
+                    self.state_estop = True
+                    self._log_xr_event("Menu button -> E-STOP")
+                    print("[ALERT] E-STOP ACTIVE (Quest Menu button pressed)")
+
+            # Fallback E-STOP Combo: Hold B + Y simultaneously > 0.5s
             if btn_b and btn_y:
                 if self.xr_estop_combo_start_time is None:
                     self.xr_estop_combo_start_time = now_t
                 elif (now_t - self.xr_estop_combo_start_time) >= self.xr_estop_hold_thresh:
                     if not self.state_estop:
                         self.state_estop = True
+                        self._log_xr_event("B+Y hold 0.5s -> E-STOP")
                         print("[ALERT] E-STOP ACTIVE (Quest Combo B+Y held > 0.5s)")
             else:
                 self.xr_estop_combo_start_time = None
-
-            # Toggle Hold: single press B or Y (rising edge, if not both held)
-            if not (btn_b and btn_y):
+                # Precision mode toggles on rising edge (if not holding combo)
                 if btn_b and not self.xr_prev_btn_b:
-                    self.manual_held = not self.manual_held
-                    print(f"[INFO] Hold toggled via Quest Button B: {'HELD' if self.manual_held else 'TRACKING'}")
+                    self.precision_r = not self.precision_r
+                    self._update_precision("right", self.precision_r)
+                    self._log_xr_event(f"R B pressed -> Precision {'ON' if self.precision_r else 'OFF'}")
                 if btn_y and not self.xr_prev_btn_y:
-                    self.manual_held = not self.manual_held
-                    print(f"[INFO] Hold toggled via Quest Button Y: {'HELD' if self.manual_held else 'TRACKING'}")
+                    self.precision_l = not self.precision_l
+                    self._update_precision("left", self.precision_l)
+                    self._log_xr_event(f"L Y pressed -> Precision {'ON' if self.precision_l else 'OFF'}")
 
             self.xr_prev_btn_b = btn_b
             self.xr_prev_btn_y = btn_y
 
-            # Reset Target: X resets Left marker to EE; A resets Right marker to EE
-            ee_poses = self.env.get_ee_poses()
+            # Home hold: X (left) hold 1.5s -> left arm goes Home
             if btn_x:
-                self.cur_target_pos_l = ee_poses["left"]["pos"].copy()
-                self.cur_target_rot_l = ee_poses["left"]["rot"].copy()
-                self.gizmo_follower_l.reset(self.cur_target_pos_l)
-                self.gizmo_rot_follower_l.reset(self.cur_target_rot_l)
-                self.xr_grip_active_l = False
+                if self.x_hold_start is None:
+                    self.x_hold_start = now_t
+                    self.x_home_triggered = False
+                dur = now_t - self.x_hold_start
+                self.xr_home_progress_l = min(1.0, dur / self.xr_home_hold_s)
+                if self.xr_home_progress_l >= 1.0 and not self.x_home_triggered:
+                    self._reset_arm_to_home("left")
+                    self.x_home_triggered = True
+                    self._log_xr_event("L X hold 1.5s -> HOME")
+            else:
+                self.x_hold_start = None
+                self.x_home_triggered = False
+                self.xr_home_progress_l = 0.0
+
+            # Home hold: A (right) hold 1.5s -> right arm goes Home
             if btn_a:
-                self.cur_target_pos_r = ee_poses["right"]["pos"].copy()
-                self.cur_target_rot_r = ee_poses["right"]["rot"].copy()
-                self.gizmo_follower_r.reset(self.cur_target_pos_r)
-                self.gizmo_rot_follower_r.reset(self.cur_target_rot_r)
-                self.xr_grip_active_r = False
+                if self.a_hold_start is None:
+                    self.a_hold_start = now_t
+                    self.a_home_triggered = False
+                dur = now_t - self.a_hold_start
+                self.xr_home_progress_r = min(1.0, dur / self.xr_home_hold_s)
+                if self.xr_home_progress_r >= 1.0 and not self.a_home_triggered:
+                    self._reset_arm_to_home("right")
+                    self.a_home_triggered = True
+                    self._log_xr_event("R A hold 1.5s -> HOME")
+            else:
+                self.a_hold_start = None
+                self.a_home_triggered = False
+                self.xr_home_progress_r = 0.0
 
-            # Analog triggers -> hand retargeting
-            if left_pkt and "trigger" in left_pkt:
-                trig_l = float(left_pkt["trigger"])
-                self.target_curls_l = np.full(5, np.clip(trig_l, 0.0, 1.0))
-            if right_pkt and "trigger" in right_pkt:
-                trig_r = float(right_pkt["trigger"])
-                self.target_curls_r = np.full(5, np.clip(trig_r, 0.0, 1.0))
+            # Thumbstick Y: finger closure velocity control (push=close, pull=open, released=hold)
+            if left_pkt and "thumbstick" in left_pkt:
+                sy = self.xr_stick_y_l
+                if sy < -self.xr_stick_deadband:
+                    self.hand_closure_l = min(1.0, self.hand_closure_l + abs(sy) * self.xr_closure_rate * dt_pkt)
+                elif sy > self.xr_stick_deadband:
+                    self.hand_closure_l = max(0.0, self.hand_closure_l - abs(sy) * self.xr_closure_rate * dt_pkt)
 
-            # Smart Clutch State Machine per arm
+            # Left Thumbstick click: Panic Open
+            if self.xr_thumb_click_l:
+                if not self.xr_thumb_click_prev_l:
+                    self.hand_closure_l = 0.0
+                    self._log_xr_event("L Thumb click -> PANIC OPEN")
+                self.xr_thumb_click_prev_l = True
+            else:
+                self.xr_thumb_click_prev_l = False
+
+            # Left Thumbstick X: cycle grasp type
+            if left_pkt and "thumbstick" in left_pkt:
+                sx = self.xr_stick_x_l
+                g_list = AgibotHandRetargeting.GRASP_TYPES
+                if sx > self.xr_stick_x_deadband and self.stick_x_state_l != 1:
+                    idx = g_list.index(self.grasp_type_l) if self.grasp_type_l in g_list else 0
+                    self.grasp_type_l = g_list[(idx + 1) % len(g_list)]
+                    self.stick_x_state_l = 1
+                    self._log_xr_event(f"L Grasp: {self.grasp_type_l}")
+                elif sx < -self.xr_stick_x_deadband and self.stick_x_state_l != -1:
+                    idx = g_list.index(self.grasp_type_l) if self.grasp_type_l in g_list else 0
+                    self.grasp_type_l = g_list[(idx - 1) % len(g_list)]
+                    self.stick_x_state_l = -1
+                    self._log_xr_event(f"L Grasp: {self.grasp_type_l}")
+                elif abs(sx) < self.xr_stick_x_deadband * 0.7:
+                    self.stick_x_state_l = 0
+
+            if not getattr(self, "direct_hand_override_l", False) and not self.hand_sweep_active:
+                curls_l, pinch_l = AgibotHandRetargeting.get_grasp_curls(self.grasp_type_l, self.hand_closure_l)
+                self.target_curls_l = curls_l
+                self.target_pinch_l = pinch_l
+
+            # Right Thumbstick Y
+            if right_pkt and "thumbstick" in right_pkt:
+                sy = self.xr_stick_y_r
+                if sy < -self.xr_stick_deadband:
+                    self.hand_closure_r = min(1.0, self.hand_closure_r + abs(sy) * self.xr_closure_rate * dt_pkt)
+                elif sy > self.xr_stick_deadband:
+                    self.hand_closure_r = max(0.0, self.hand_closure_r - abs(sy) * self.xr_closure_rate * dt_pkt)
+
+            # Right Thumbstick click: Panic Open
+            if self.xr_thumb_click_r:
+                if not self.xr_thumb_click_prev_r:
+                    self.hand_closure_r = 0.0
+                    self._log_xr_event("R Thumb click -> PANIC OPEN")
+                self.xr_thumb_click_prev_r = True
+            else:
+                self.xr_thumb_click_prev_r = False
+
+            # Right Thumbstick X: cycle grasp type
+            if right_pkt and "thumbstick" in right_pkt:
+                sx = self.xr_stick_x_r
+                g_list = AgibotHandRetargeting.GRASP_TYPES
+                if sx > self.xr_stick_x_deadband and self.stick_x_state_r != 1:
+                    idx = g_list.index(self.grasp_type_r) if self.grasp_type_r in g_list else 0
+                    self.grasp_type_r = g_list[(idx + 1) % len(g_list)]
+                    self.stick_x_state_r = 1
+                    self._log_xr_event(f"R Grasp: {self.grasp_type_r}")
+                elif sx < -self.xr_stick_x_deadband and self.stick_x_state_r != -1:
+                    idx = g_list.index(self.grasp_type_r) if self.grasp_type_r in g_list else 0
+                    self.grasp_type_r = g_list[(idx - 1) % len(g_list)]
+                    self.stick_x_state_r = -1
+                    self._log_xr_event(f"R Grasp: {self.grasp_type_r}")
+                elif abs(sx) < self.xr_stick_x_deadband * 0.7:
+                    self.stick_x_state_r = 0
+
+            if not getattr(self, "direct_hand_override_r", False) and not self.hand_sweep_active:
+                curls_r, pinch_r = AgibotHandRetargeting.get_grasp_curls(self.grasp_type_r, self.hand_closure_r)
+                self.target_curls_r = curls_r
+                self.target_pinch_r = pinch_r
+
+            # 4-State Smart Clutch State Machine per arm
             # Left Arm Clutch
             if left_pkt and left_pkt.get("pos") is not None:
                 p_ctrl_l = np.array(left_pkt["pos"], dtype=np.float64)
-                q_ctrl_l = left_pkt.get("quat")  # [w, x, y, z]
-                grip_l = bool(left_pkt.get("grip", False) or left_pkt.get("grip_val", 0.0) >= self.xr_grip_thresh)
+                q_ctrl_l = left_pkt.get("quat")
+                grip_down_l = self.xr_grip_val_l >= self.xr_grip_thresh or bool(left_pkt.get("grip", False))
+                trig_down_l = self.xr_trig_val_l >= self.xr_trigger_thresh
 
-                if grip_l:
-                    if not self.xr_grip_active_l:
-                        # Rising edge: capture anchors
-                        self.xr_grip_active_l = True
+                if grip_down_l and trig_down_l:
+                    next_state_l = "6D"
+                elif grip_down_l and not trig_down_l:
+                    next_state_l = "TRANSLATE"
+                elif not grip_down_l and trig_down_l:
+                    next_state_l = "ROTATE"
+                else:
+                    next_state_l = "LOCKED"
+
+                if next_state_l != self.xr_clutch_state_l:
+                    self.xr_clutch_state_l = next_state_l
+                    if next_state_l != "LOCKED":
                         self.xr_anchor_ctrl_pos_l = p_ctrl_l.copy()
                         self.xr_anchor_marker_pos_l = self.cur_target_pos_l.copy()
                         if q_ctrl_l is not None and len(q_ctrl_l) == 4:
                             self.xr_anchor_ctrl_rot_l = R.from_quat([q_ctrl_l[1], q_ctrl_l[2], q_ctrl_l[3], q_ctrl_l[0]]).as_matrix()
                             self.xr_anchor_marker_rot_l = self.cur_target_rot_l.copy()
+                        self.gizmo_active_l = True
+                        self._log_xr_event(f"L clutch -> {next_state_l}")
                     else:
-                        # While gripped: delta tracking
-                        delta_ctrl_xr = p_ctrl_l - self.xr_anchor_ctrl_pos_l
-                        if np.linalg.norm(delta_ctrl_xr) >= self.xr_deadband:
-                            delta_rob = self.xr_axis_map @ delta_ctrl_xr
-                            new_pos = self.xr_anchor_marker_pos_l + self.xr_scale * delta_rob
-                            # Workspace clamp
-                            new_pos[0] = np.clip(new_pos[0], -0.2, 0.9)
-                            new_pos[1] = np.clip(new_pos[1], -0.9, 0.9)
-                            new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
-                            self.cur_target_pos_l = new_pos
-                            self.gizmo_active_l = True
+                        self.xr_anchor_ctrl_pos_l = None
+                        self.xr_anchor_ctrl_rot_l = None
+                        self.gizmo_active_l = False
+                        self._log_xr_event("L clutch -> LOCKED")
 
-                        if rot_enabled and q_ctrl_l is not None and len(q_ctrl_l) == 4 and self.xr_anchor_ctrl_rot_l is not None:
-                            r_curr_ctrl = R.from_quat([q_ctrl_l[1], q_ctrl_l[2], q_ctrl_l[3], q_ctrl_l[0]]).as_matrix()
-                            r_rel_xr = r_curr_ctrl @ self.xr_anchor_ctrl_rot_l.T
-                            r_rel_rob = self.xr_axis_map @ r_rel_xr @ self.xr_axis_map.T
-                            self.cur_target_rot_l = r_rel_rob @ self.xr_anchor_marker_rot_l
-                else:
-                    if self.xr_grip_active_l:
-                        self.xr_grip_active_l = False
+                if self.xr_clutch_state_l in ("TRANSLATE", "6D") and self.xr_anchor_ctrl_pos_l is not None:
+                    delta_ctrl_xr = p_ctrl_l - self.xr_anchor_ctrl_pos_l
+                    if np.linalg.norm(delta_ctrl_xr) >= self.xr_deadband:
+                        delta_rob = self.xr_axis_map @ delta_ctrl_xr
+                        eff_scale = self.xr_scale * (self.xr_precision_scale_factor if self.precision_l else 1.0)
+                        new_pos = self.xr_anchor_marker_pos_l + eff_scale * delta_rob
+                        new_pos[0] = np.clip(new_pos[0], -0.2, 0.9)
+                        new_pos[1] = np.clip(new_pos[1], -0.9, 0.9)
+                        new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
+                        self.cur_target_pos_l = new_pos
+                        self.gizmo_active_l = True
+
+                if self.xr_clutch_state_l in ("ROTATE", "6D") and rot_enabled and q_ctrl_l is not None and len(q_ctrl_l) == 4 and self.xr_anchor_ctrl_rot_l is not None:
+                    r_curr_ctrl = R.from_quat([q_ctrl_l[1], q_ctrl_l[2], q_ctrl_l[3], q_ctrl_l[0]]).as_matrix()
+                    r_rel_xr = r_curr_ctrl @ self.xr_anchor_ctrl_rot_l.T
+                    r_rel_rob = self.xr_axis_map @ r_rel_xr @ self.xr_axis_map.T
+                    self.cur_target_rot_l = r_rel_rob @ self.xr_anchor_marker_rot_l
+                    self.gizmo_active_l = True
+
+            self.xr_grip_active_l = (self.xr_clutch_state_l != "LOCKED")
 
             # Right Arm Clutch
             if right_pkt and right_pkt.get("pos") is not None:
                 p_ctrl_r = np.array(right_pkt["pos"], dtype=np.float64)
-                q_ctrl_r = right_pkt.get("quat")  # [w, x, y, z]
-                grip_r = bool(right_pkt.get("grip", False) or right_pkt.get("grip_val", 0.0) >= self.xr_grip_thresh)
+                q_ctrl_r = right_pkt.get("quat")
+                grip_down_r = self.xr_grip_val_r >= self.xr_grip_thresh or bool(right_pkt.get("grip", False))
+                trig_down_r = self.xr_trig_val_r >= self.xr_trigger_thresh
 
-                if grip_r:
-                    if not self.xr_grip_active_r:
-                        # Rising edge: capture anchors
-                        self.xr_grip_active_r = True
+                if grip_down_r and trig_down_r:
+                    next_state_r = "6D"
+                elif grip_down_r and not trig_down_r:
+                    next_state_r = "TRANSLATE"
+                elif not grip_down_r and trig_down_r:
+                    next_state_r = "ROTATE"
+                else:
+                    next_state_r = "LOCKED"
+
+                if next_state_r != self.xr_clutch_state_r:
+                    self.xr_clutch_state_r = next_state_r
+                    if next_state_r != "LOCKED":
                         self.xr_anchor_ctrl_pos_r = p_ctrl_r.copy()
                         self.xr_anchor_marker_pos_r = self.cur_target_pos_r.copy()
                         if q_ctrl_r is not None and len(q_ctrl_r) == 4:
                             self.xr_anchor_ctrl_rot_r = R.from_quat([q_ctrl_r[1], q_ctrl_r[2], q_ctrl_r[3], q_ctrl_r[0]]).as_matrix()
                             self.xr_anchor_marker_rot_r = self.cur_target_rot_r.copy()
+                        self.gizmo_active_r = True
+                        self._log_xr_event(f"R clutch -> {next_state_r}")
                     else:
-                        # While gripped: delta tracking
-                        delta_ctrl_xr = p_ctrl_r - self.xr_anchor_ctrl_pos_r
-                        if np.linalg.norm(delta_ctrl_xr) >= self.xr_deadband:
-                            delta_rob = self.xr_axis_map @ delta_ctrl_xr
-                            new_pos = self.xr_anchor_marker_pos_r + self.xr_scale * delta_rob
-                            # Workspace clamp
-                            new_pos[0] = np.clip(new_pos[0], -0.2, 0.9)
-                            new_pos[1] = np.clip(new_pos[1], -0.9, 0.9)
-                            new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
-                            self.cur_target_pos_r = new_pos
-                            self.gizmo_active_r = True
+                        self.xr_anchor_ctrl_pos_r = None
+                        self.xr_anchor_ctrl_rot_r = None
+                        self.gizmo_active_r = False
+                        self._log_xr_event("R clutch -> LOCKED")
 
-                        if rot_enabled and q_ctrl_r is not None and len(q_ctrl_r) == 4 and self.xr_anchor_ctrl_rot_r is not None:
-                            r_curr_ctrl = R.from_quat([q_ctrl_r[1], q_ctrl_r[2], q_ctrl_r[3], q_ctrl_r[0]]).as_matrix()
-                            r_rel_xr = r_curr_ctrl @ self.xr_anchor_ctrl_rot_r.T
-                            r_rel_rob = self.xr_axis_map @ r_rel_xr @ self.xr_axis_map.T
-                            self.cur_target_rot_r = r_rel_rob @ self.xr_anchor_marker_rot_r
-                else:
-                    if self.xr_grip_active_r:
-                        self.xr_grip_active_r = False
+                if self.xr_clutch_state_r in ("TRANSLATE", "6D") and self.xr_anchor_ctrl_pos_r is not None:
+                    delta_ctrl_xr = p_ctrl_r - self.xr_anchor_ctrl_pos_r
+                    if np.linalg.norm(delta_ctrl_xr) >= self.xr_deadband:
+                        delta_rob = self.xr_axis_map @ delta_ctrl_xr
+                        eff_scale = self.xr_scale * (self.xr_precision_scale_factor if self.precision_r else 1.0)
+                        new_pos = self.xr_anchor_marker_pos_r + eff_scale * delta_rob
+                        new_pos[0] = np.clip(new_pos[0], -0.2, 0.9)
+                        new_pos[1] = np.clip(new_pos[1], -0.9, 0.9)
+                        new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
+                        self.cur_target_pos_r = new_pos
+                        self.gizmo_active_r = True
+
+                if self.xr_clutch_state_r in ("ROTATE", "6D") and rot_enabled and q_ctrl_r is not None and len(q_ctrl_r) == 4 and self.xr_anchor_ctrl_rot_r is not None:
+                    r_curr_ctrl = R.from_quat([q_ctrl_r[1], q_ctrl_r[2], q_ctrl_r[3], q_ctrl_r[0]]).as_matrix()
+                    r_rel_xr = r_curr_ctrl @ self.xr_anchor_ctrl_rot_r.T
+                    r_rel_rob = self.xr_axis_map @ r_rel_xr @ self.xr_axis_map.T
+                    self.cur_target_rot_r = r_rel_rob @ self.xr_anchor_marker_rot_r
+                    self.gizmo_active_r = True
+
+            self.xr_grip_active_r = (self.xr_clutch_state_r != "LOCKED")
 
             if self.xr_grip_active_l and self.xr_grip_active_r:
                 self._solve_arm_ik("both")
@@ -671,7 +1098,79 @@ class UnifiedTeleopApp:
             elif self.xr_grip_active_r:
                 self._solve_arm_ik("right")
 
+        elif name in ("hand_grasp", "hand_preset"):
+            side = cmd.get("side", "both")
+            grasp = cmd.get("grasp") or cmd.get("pose") or "cylinder"
+            closure = float(cmd.get("closure", 1.0))
+            if side in ("left", "both"):
+                self.grasp_type_l = grasp
+                self.hand_closure_l = closure
+                self.target_curls_l, self.target_pinch_l = AgibotHandRetargeting.get_grasp_curls(grasp, closure)
+                self.direct_hand_override_l = False
+            if side in ("right", "both"):
+                self.grasp_type_r = grasp
+                self.hand_closure_r = closure
+                self.target_curls_r, self.target_pinch_r = AgibotHandRetargeting.get_grasp_curls(grasp, closure)
+                self.direct_hand_override_r = False
+            self.hand_sweep_active = False
+
+        elif name == "hand_curls":
+            side = cmd.get("side", "left")
+            curls = np.asarray(cmd.get("curls", [0, 0, 0, 0, 0]), dtype=np.float64)
+            pinch = float(cmd.get("pinch", 0.0))
+            if side in ("left", "both"):
+                self.target_curls_l = curls.copy()
+                self.target_pinch_l = pinch
+                self.hand_closure_l = float(np.mean(curls))
+                self.direct_hand_override_l = False
+            if side in ("right", "both"):
+                self.target_curls_r = curls.copy()
+                self.target_pinch_r = pinch
+                self.hand_closure_r = float(np.mean(curls))
+                self.direct_hand_override_r = False
+            self.hand_sweep_active = False
+
+        elif name == "hand_joint":
+            side = cmd.get("side", "left")
+            jname = cmd.get("joint", "")
+            angle = float(cmd.get("angle", 0.0))
+            if side == "left" and jname in self.env.left_hand_active_joints:
+                idx = self.env.left_hand_active_joints.index(jname)
+                lo, hi = self.env.joint_limits[jname]
+                if not getattr(self, "direct_hand_override_l", False):
+                    self.direct_hand_target_l = self.last_hand_cmd_left.copy()
+                self.direct_hand_target_l[idx] = np.clip(angle, lo, hi)
+                self.direct_hand_override_l = True
+            elif side == "right" and jname in self.env.right_hand_active_joints:
+                idx = self.env.right_hand_active_joints.index(jname)
+                lo, hi = self.env.joint_limits[jname]
+                if not getattr(self, "direct_hand_override_r", False):
+                    self.direct_hand_target_r = self.last_hand_cmd_right.copy()
+                self.direct_hand_target_r[idx] = np.clip(angle, lo, hi)
+                self.direct_hand_override_r = True
+            self.hand_sweep_active = False
+
+        elif name == "hand_sweep":
+            mode = cmd.get("mode", "single_joints")
+            side = cmd.get("side", "both")
+            self.hand_sweep_active = True
+            self.hand_sweep_mode = mode
+            self.hand_sweep_side = side
+            self.hand_sweep_time = 0.0
+            self.hand_sweep_joint_idx = 0
+            self.hand_sweep_saved_joints_l = self.last_hand_cmd_left.copy()
+            self.hand_sweep_saved_joints_r = self.last_hand_cmd_right.copy()
+            self.hand_sweep_info = f"Starting {mode} sweep on {side}"
+
+        elif name == "hand_stop":
+            self.hand_sweep_active = False
+            self.direct_hand_override_l = False
+            self.direct_hand_override_r = False
+            self.hand_sweep_info = "Hand motion stopped"
+
         elif name in ("set_wrist_target", "wrist_target"):
+            if self.homing_active:
+                self.homing_active = False
             arm = cmd.get("arm", cmd.get("side", "left"))
             pos = cmd.get("pos")
             rot_quat = cmd.get("rot_quat")
@@ -699,34 +1198,81 @@ class UnifiedTeleopApp:
             if rot_quat is not None and len(rot_quat) == 4:
                 scipy_quat = [rot_quat[1], rot_quat[2], rot_quat[3], rot_quat[0]]
                 rot_mat = R.from_quat(scipy_quat).as_matrix()
-                if arm == "left": self.cur_target_rot_l = rot_mat
-                else: self.cur_target_rot_r = rot_mat
+                if arm == "left":
+                    self.cur_target_rot_l = rot_mat
+                    self.gizmo_active_l = True
+                else:
+                    self.cur_target_rot_r = rot_mat
+                    self.gizmo_active_r = True
 
             self._solve_arm_ik(arm)
 
         elif name in ("hand", "hand_l", "hand_r"):
             arm = cmd.get("arm", "left" if name == "hand_l" else "right")
             action = cmd.get("action", "")
-            if action == "open": curls, pinch = np.zeros(5), 0.0
-            elif action == "close": curls, pinch = np.ones(5), 0.0
-            elif action == "pinch": curls, pinch = np.array([0.9, 0.9, 0.1, 0.1, 0.1]), 1.0
+            if action == "open":
+                curls, pinch = AgibotHandRetargeting.get_grasp_curls("open", 0.0)
+                if arm == "left":
+                    self.hand_closure_l = 0.0
+                    self.direct_hand_override_l = False
+                else:
+                    self.hand_closure_r = 0.0
+                    self.direct_hand_override_r = False
+            elif action == "close":
+                gt = self.grasp_type_l if arm == "left" else self.grasp_type_r
+                curls, pinch = AgibotHandRetargeting.get_grasp_curls(gt, 1.0)
+                if arm == "left":
+                    self.hand_closure_l = 1.0
+                    self.direct_hand_override_l = False
+                else:
+                    self.hand_closure_r = 1.0
+                    self.direct_hand_override_r = False
+            elif action == "pinch":
+                curls, pinch = AgibotHandRetargeting.get_grasp_curls("pinch", 1.0)
+                if arm == "left":
+                    self.hand_closure_l = 1.0
+                    self.grasp_type_l = "pinch"
+                    self.direct_hand_override_l = False
+                else:
+                    self.hand_closure_r = 1.0
+                    self.grasp_type_r = "pinch"
+                    self.direct_hand_override_r = False
             else:
                 val = float(cmd.get("value", cmd.get("closure", 0.0)))
-                curls, pinch = np.full(5, val), 0.0
+                gt = self.grasp_type_l if arm == "left" else self.grasp_type_r
+                curls, pinch = AgibotHandRetargeting.get_grasp_curls(gt, val)
+                if arm == "left":
+                    self.hand_closure_l = val
+                    self.direct_hand_override_l = False
+                else:
+                    self.hand_closure_r = val
+                    self.direct_hand_override_r = False
 
             if arm == "left": self.target_curls_l, self.target_pinch_l = curls, pinch
             else: self.target_curls_r, self.target_pinch_r = curls, pinch
 
-        elif name in ("preset", "reset"):
-            pose = cmd.get("pose", "home") if name == "preset" else "reset"
-            if pose in ("home", "reset"):
+        elif name in ("preset", "reset", "go_home", "home"):
+            pose = cmd.get("pose", "home") if name == "preset" else ("reset" if name == "reset" else "home")
+            if name == "reset" or pose == "reset":
                 self.active_sequence = None
                 self.walking_demo_active = False
+                self.homing_active = False
+                self.direct_hand_override_l = False
+                self.direct_hand_override_r = False
+                self.hand_closure_l = 0.0
+                self.hand_closure_r = 0.0
+                self.target_curls_l = np.zeros(5, dtype=np.float64)
+                self.target_curls_r = np.zeros(5, dtype=np.float64)
+                self.target_pinch_l = 0.0
+                self.target_pinch_r = 0.0
                 self.env.reset()
                 self.last_arm_cmd_left = self.env.get_left_arm_qpos()
                 self.last_arm_cmd_right = self.env.get_right_arm_qpos()
-                self.last_hand_cmd_left = np.zeros(6)
-                self.last_hand_cmd_right = np.zeros(6)
+                self.last_hand_cmd_left = np.zeros(6, dtype=np.float64)
+                self.last_hand_cmd_right = np.zeros(6, dtype=np.float64)
+                self.current_safe_hand_l = np.zeros(6, dtype=np.float64)
+                self.current_safe_hand_r = np.zeros(6, dtype=np.float64)
+                self.hand_collision_blocked = False
                 home_p = self.env.get_ee_poses()
                 self.cur_target_pos_l = home_p["left"]["pos"].copy()
                 self.cur_target_pos_r = home_p["right"]["pos"].copy()
@@ -748,6 +1294,18 @@ class UnifiedTeleopApp:
                 self.gizmo_active_r = False
                 self.xr_grip_active_l = False
                 self.xr_grip_active_r = False
+                self.xr_clutch_state_l = "LOCKED"
+                self.xr_clutch_state_r = "LOCKED"
+                self.xr_anchor_ctrl_pos_l = None
+                self.xr_anchor_ctrl_pos_r = None
+                self.xr_anchor_ctrl_rot_l = None
+                self.xr_anchor_ctrl_rot_r = None
+                self.xr_anchor_marker_pos_l = None
+                self.xr_anchor_marker_pos_r = None
+                self.xr_anchor_marker_rot_l = None
+                self.xr_anchor_marker_rot_r = None
+            elif pose == "home" or name in ("go_home", "home"):
+                self._start_smooth_homing("both")
             elif pose == "forward":
                 self.active_sequence = None
                 self.cur_target_pos_l = self.robot_home_pos_l + np.array([0.25, 0.0, 0.0])
@@ -856,24 +1414,71 @@ class UnifiedTeleopApp:
                 # Quest 3S Watchdog: if no packet for timeout, release clutches
                 now_t = time.time()
                 if self.xr_input_active and (now_t - self.xr_last_packet_time) > self.xr_timeout:
-                    if self.xr_grip_active_l or self.xr_grip_active_r:
+                    if self.xr_clutch_state_l != "LOCKED" or self.xr_clutch_state_r != "LOCKED" or self.xr_grip_active_l or self.xr_grip_active_r:
+                        self.xr_clutch_state_l = "LOCKED"
+                        self.xr_clutch_state_r = "LOCKED"
                         self.xr_grip_active_l = False
                         self.xr_grip_active_r = False
+                        self.xr_anchor_ctrl_pos_l = None
+                        self.xr_anchor_ctrl_pos_r = None
+                        self.xr_anchor_ctrl_rot_l = None
+                        self.xr_anchor_ctrl_rot_r = None
+                        self.gizmo_active_l = False
+                        self.gizmo_active_r = False
                         self.status_warning = "Quest XR tracking lost (watchdog 350ms): clutches released"
+                        self._log_xr_event("Watchdog 350ms -> clutches released")
                     self.xr_input_active = False
 
-                if self.active_sequence:
+                if self.homing_active:
+                    self._update_homing(dt)
+                elif self.active_sequence:
                     self._update_sequence(dt)
                 elif not self.state_estop:
-                    # Continuous tracking convergence for current targets
-                    self._solve_arm_ik("both")
+                    if self.gizmo_active_l and self.gizmo_active_r:
+                        self._solve_arm_ik("both")
+                    elif self.gizmo_active_l:
+                        self._solve_arm_ik("left")
+                    elif self.gizmo_active_r:
+                        self._solve_arm_ik("right")
                 if self.walking_demo_active:
                     self._update_walk_demo()
 
                 # Step simulation
                 if not self.state_estop:
-                    self.last_hand_cmd_left = self.hand_retarget_left.retarget_curls(self.target_curls_l, pinch_strength=self.target_pinch_l, dt=dt)
-                    self.last_hand_cmd_right = self.hand_retarget_right.retarget_curls(self.target_curls_r, pinch_strength=self.target_pinch_r, dt=dt)
+                    if self.hand_sweep_active:
+                        self._update_hand_sweep(dt)
+
+                    if getattr(self, "direct_hand_override_l", False):
+                        cand_hand_l = self.hand_retarget_left.retarget_direct_joints(self.direct_hand_target_l, dt=dt)
+                    else:
+                        cand_hand_l = self.hand_retarget_left.retarget_curls(self.target_curls_l, pinch_strength=self.target_pinch_l, dt=dt)
+
+                    if getattr(self, "direct_hand_override_r", False):
+                        cand_hand_r = self.hand_retarget_right.retarget_direct_joints(self.direct_hand_target_r, dt=dt)
+                    else:
+                        cand_hand_r = self.hand_retarget_right.retarget_curls(self.target_curls_r, pinch_strength=self.target_pinch_r, dt=dt)
+
+                    # Hand Command Gate: Forward kinematics check & line search backoff
+                    if np.max(np.abs(cand_hand_l - self.current_safe_hand_l)) < 1e-4:
+                        safe_hand_l, blocked_l, dist_l = self.current_safe_hand_l, False, 0.005
+                    else:
+                        safe_hand_l, blocked_l, dist_l = self.collision_checker.filter_hand_step(
+                            "left", self.current_safe_hand_l, cand_hand_l, margin=0.001
+                        )
+
+                    if np.max(np.abs(cand_hand_r - self.current_safe_hand_r)) < 1e-4:
+                        safe_hand_r, blocked_r, dist_r = self.current_safe_hand_r, False, 0.005
+                    else:
+                        safe_hand_r, blocked_r, dist_r = self.collision_checker.filter_hand_step(
+                            "right", self.current_safe_hand_r, cand_hand_r, margin=0.001
+                        )
+                    self.current_safe_hand_l = safe_hand_l
+                    self.current_safe_hand_r = safe_hand_r
+                    self.last_hand_cmd_left = safe_hand_l
+                    self.last_hand_cmd_right = safe_hand_r
+                    self.hand_collision_blocked = bool(blocked_l or blocked_r)
+                    self.min_hand_distance_m = min(dist_l, dist_r)
+
                     self.env.set_arm_commands(self.last_arm_cmd_left, self.last_arm_cmd_right)
                     self.env.set_hand_commands(self.last_hand_cmd_left, self.last_hand_cmd_right)
                     self.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=self.last_arm_cmd_left, hold_right_qpos=self.last_arm_cmd_right)
@@ -928,8 +1533,8 @@ class UnifiedTeleopApp:
                         self.xr_pkt_count = 0
                         self.xr_rate_timer = now_t
 
-                    closure_l = float(np.mean(self.last_hand_cmd_left[2:6])) / 1.700
-                    closure_r = float(np.mean(self.last_hand_cmd_right[2:6])) / 1.700
+                    closure_l = self.hand_closure_l if not getattr(self, "direct_hand_override_l", False) else float(np.mean(self.last_hand_cmd_left[2:6])) / 1.21
+                    closure_r = self.hand_closure_r if not getattr(self, "direct_hand_override_r", False) else float(np.mean(self.last_hand_cmd_right[2:6])) / 1.21
 
                     xr_active = False
                     if self.tracker is not None and getattr(self.tracker, "tv_wrapper", None) is not None:
@@ -950,29 +1555,111 @@ class UnifiedTeleopApp:
                         "input_source": "QUEST VR" if self.xr_input_active else "MOUSE",
                         "xr_controllers_active": bool(self.xr_input_active),
                         "xr_rate_hz": float(self.xr_rate_hz),
-                        "xr_grip_l": bool(self.xr_grip_active_l),
-                        "xr_grip_r": bool(self.xr_grip_active_r),
+                        "xr_grip_l": bool(self.xr_clutch_state_l != "LOCKED"),
+                        "xr_grip_r": bool(self.xr_clutch_state_r != "LOCKED"),
                         "ee_l": [float(x) for x in ee["left"]["pos"]],
                         "ee_r": [float(x) for x in ee["right"]["pos"]],
                         "rot_l": [[float(c) for c in row] for row in ee["left"]["rot"]],
                         "rot_r": [[float(c) for c in row] for row in ee["right"]["rot"]],
                         "tgt_l": [float(x) for x in self.cur_target_pos_l],
                         "tgt_r": [float(x) for x in self.cur_target_pos_r],
+                        "tgt_rot_l": [[float(c) for c in row] for row in self.cur_target_rot_l],
+                        "tgt_rot_r": [[float(c) for c in row] for row in self.cur_target_rot_r],
                         "ik_err_l": err_l,
                         "ik_err_r": err_r,
-                        "hand_closure_l": float(np.clip(closure_l, 0.0, 1.0)),
-                        "hand_closure_r": float(np.clip(closure_r, 0.0, 1.0)),
+                        "hand_closure_l": float(np.clip(self.hand_closure_l, 0.0, 1.0)),
+                        "hand_closure_r": float(np.clip(self.hand_closure_r, 0.0, 1.0)),
                         "held": bool(self.manual_held),
                         "estop": bool(self.state_estop),
                         "collision_blocked": bool(self.collision_blocked),
+                        "hand_collision_blocked": bool(self.hand_collision_blocked),
                         "min_distance_mm": float(self.min_collision_distance_m * 1000.0),
+                        "min_hand_distance_mm": float(self.min_hand_distance_m * 1000.0),
+                        "homing": bool(self.homing_active),
                         "qpos_l": [float(x) for x in self.last_arm_cmd_left],
                         "qpos_r": [float(x) for x in self.last_arm_cmd_right],
                         "walking": bool(self.walking_demo_active),
                         "cmd_rate_hz": float(self.cmd_rate_hz),
                         "last_cmd_name": str(self.last_cmd_name),
                         "last_cmd_time": float(self.last_cmd_time),
-                        "warning": str(self.status_warning)
+                        "warning": str(self.status_warning),
+                        "xr_status": {
+                            "pkt_count": int(self.xr_total_pkts),
+                            "rate_hz": float(self.xr_rate_hz),
+                            "age_ms": float(max(0.0, (now_t - self.xr_last_packet_time) * 1000.0)) if self.xr_last_packet_time > 0 else 999.0,
+                            "connected": bool(self.xr_input_active),
+                            "left": {
+                                "connected": bool(self.xr_left_connected),
+                                "clutch_state": self.xr_clutch_state_l,
+                                "grip_val": float(self.xr_grip_val_l),
+                                "trigger_val": float(self.xr_trig_val_l),
+                                "thumbstick": [float(self.xr_stick_x_l), float(self.xr_stick_y_l)],
+                                "thumb_click": bool(self.xr_thumb_click_l),
+                                "btn_primary": bool(self.xr_btn_x),
+                                "btn_secondary": bool(self.xr_btn_y),
+                                "btn_menu": bool(self.xr_btn_menu_l),
+                                "precision": bool(self.precision_l),
+                                "grasp_type": self.grasp_type_l,
+                                "closure": float(self.hand_closure_l),
+                                "home_progress": float(self.xr_home_progress_l)
+                            },
+                            "right": {
+                                "connected": bool(self.xr_right_connected),
+                                "clutch_state": self.xr_clutch_state_r,
+                                "grip_val": float(self.xr_grip_val_r),
+                                "trigger_val": float(self.xr_trig_val_r),
+                                "thumbstick": [float(self.xr_stick_x_r), float(self.xr_stick_y_r)],
+                                "thumb_click": bool(self.xr_thumb_click_r),
+                                "btn_primary": bool(self.xr_btn_a),
+                                "btn_secondary": bool(self.xr_btn_b),
+                                "btn_menu": bool(self.xr_btn_menu_r),
+                                "precision": bool(self.precision_r),
+                                "grasp_type": self.grasp_type_r,
+                                "closure": float(self.hand_closure_r),
+                                "home_progress": float(self.xr_home_progress_r)
+                            },
+                            "events": self.xr_event_log[-8:]
+                        },
+                        "hand_status": {
+                            "left": {
+                                "active_joints": {
+                                    jname: {
+                                        "val": float(self.env.data.qpos[self.env.qpos_idx_map[jname]]),
+                                        "cmd": float(self.last_hand_cmd_left[i]),
+                                        "min": float(self.env.joint_limits[jname][0]),
+                                        "max": float(self.env.joint_limits[jname][1])
+                                    }
+                                    for i, jname in enumerate(self.env.left_hand_active_joints)
+                                },
+                                "mimic_joints": {
+                                    jname: float(self.env.data.qpos[self.env.qpos_idx_map[jname]])
+                                    for jname in self.env.left_hand_mimic_joints
+                                },
+                                "curls": [float(c) for c in self.target_curls_l],
+                                "closure": float(self.hand_closure_l),
+                                "grasp_type": self.grasp_type_l
+                            },
+                            "right": {
+                                "active_joints": {
+                                    jname: {
+                                        "val": float(self.env.data.qpos[self.env.qpos_idx_map[jname]]),
+                                        "cmd": float(self.last_hand_cmd_right[i]),
+                                        "min": float(self.env.joint_limits[jname][0]),
+                                        "max": float(self.env.joint_limits[jname][1])
+                                    }
+                                    for i, jname in enumerate(self.env.right_hand_active_joints)
+                                },
+                                "mimic_joints": {
+                                    jname: float(self.env.data.qpos[self.env.qpos_idx_map[jname]])
+                                    for jname in self.env.right_hand_mimic_joints
+                                },
+                                "curls": [float(c) for c in self.target_curls_r],
+                                "closure": float(self.hand_closure_r),
+                                "grasp_type": self.grasp_type_r
+                            },
+                            "sweep_active": bool(self.hand_sweep_active),
+                            "sweep_info": str(self.hand_sweep_info)
+                        }
                     }
                     self.server.set_status(status_packet)
                     self.status_warning = ""

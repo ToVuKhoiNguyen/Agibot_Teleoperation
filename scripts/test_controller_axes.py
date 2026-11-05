@@ -13,12 +13,12 @@ import yaml
 import numpy as np
 
 # Ensure project root is in sys.path
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from teleop.simulation.mujoco_env import AgibotSimEnv
-from agibot_a2_ik import AgibotA2IK
+from teleop.kinematics.agibot_a2_ik import AgibotA2IK
 
 SCENE_XML = os.path.join(PROJECT_ROOT, "assets", "agibot_a2_ultra", "mjcf", "scene.xml")
 CONFIG_YAML = os.path.join(PROJECT_ROOT, "config", "quest3s.yaml")

@@ -154,11 +154,12 @@ class AgibotSimEnv:
             elif "hip" in name or "tarsus" in name or "toe" in name:
                 self.leg_joints.append(name)
 
-        # Sort for deterministic index matching
+        # Sort for deterministic index matching (arms alphabetically, hands canonically)
         self.left_arm_joints.sort()
         self.right_arm_joints.sort()
-        self.left_hand_active_joints.sort()
-        self.right_hand_active_joints.sort()
+        hand_order = ["thumb_swing", "thumb_1", "index_1", "middle_1", "ring_1", "pinky_1"]
+        self.left_hand_active_joints.sort(key=lambda j: next((i for i, k in enumerate(hand_order) if k in j), 99))
+        self.right_hand_active_joints.sort(key=lambda j: next((i for i, k in enumerate(hand_order) if k in j), 99))
 
     def _discover_actuators(self):
         """Maps actuator names and targets to control vector indices."""
@@ -246,6 +247,20 @@ class AgibotSimEnv:
                 clamped_val = float(np.clip(left_hand[i], lo, hi))
                 if jname in self.actuator_map:
                     self.data.ctrl[self.actuator_map[jname]] = clamped_val
+                if jname in self.qpos_idx_map:
+                    self.data.qpos[self.qpos_idx_map[jname]] = clamped_val
+            if len(left_hand) >= 6:
+                mimic_vals = {
+                    "L_thumb_2_joint": 0.40 * left_hand[1],
+                    "L_thumb_3_joint": 0.60 * left_hand[1],
+                    "L_index_2_joint": 1.00 * left_hand[2],
+                    "L_middle_2_joint": 1.00 * left_hand[3],
+                    "L_ring_2_joint": 1.00 * left_hand[4],
+                    "L_pinky_2_joint": 1.00 * left_hand[5],
+                }
+                for mj, mv in mimic_vals.items():
+                    if mj in self.qpos_idx_map:
+                        self.data.qpos[self.qpos_idx_map[mj]] = mv
 
         if right_hand is not None:
             right_hand = np.asarray(right_hand, dtype=np.float64)
@@ -256,6 +271,20 @@ class AgibotSimEnv:
                 clamped_val = float(np.clip(right_hand[i], lo, hi))
                 if jname in self.actuator_map:
                     self.data.ctrl[self.actuator_map[jname]] = clamped_val
+                if jname in self.qpos_idx_map:
+                    self.data.qpos[self.qpos_idx_map[jname]] = clamped_val
+            if len(right_hand) >= 6:
+                mimic_vals_r = {
+                    "R_thumb_2_joint": 0.40 * right_hand[1],
+                    "R_thumb_3_joint": 0.60 * right_hand[1],
+                    "R_index_2_joint": 1.00 * right_hand[2],
+                    "R_middle_2_joint": 1.00 * right_hand[3],
+                    "R_ring_2_joint": 1.00 * right_hand[4],
+                    "R_pinky_2_joint": 1.00 * right_hand[5],
+                }
+                for mj, mv in mimic_vals_r.items():
+                    if mj in self.qpos_idx_map:
+                        self.data.qpos[self.qpos_idx_map[mj]] = mv
 
     def set_left_arm_qpos(self, qpos: np.ndarray):
         """Directly writes left arm qpos (used for kinematic initialization)."""
