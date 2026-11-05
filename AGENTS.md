@@ -39,3 +39,13 @@ Triggered when the user says `tag vX.Y.Z [message]`:
 - **NEVER** rewrite published history (`rebase -i`, `reset --hard` on remote branches).
 - **NEVER** commit or log secrets, tokens, passwords, private keys, or internal vendor robot credentials.
 - **NEVER** push unless explicitly requested by the user.
+
+## Code Map
+- `main.py`: Launcher entrypoint and facade (`UnifiedTeleopApp`).
+- `teleop/app/`: Core app modules (`control_loop`, `init_subsystems`, `init_state`, `homing_controller`, `ik_dispatcher`, `hand_sweep`, `telemetry_builder`, `cmd_system`, `cmd_hands`, `cmd_targets`, `xr_input_handler`, `xr_clutch_mapper`).
+- `teleop/web/`: Web server (`server/web_server`, `manifest_builder`, `panel_routes`, `ws_broadcaster`, `html_builder`), frontend JS (`static/js/`), CSS (`static/css/`), partials (`static/partials/`).
+- `teleop/simulation/`: MuJoCo env facade (`mujoco_env.py` -> `env_discovery`, `env_poses`), web panel facade (`web_panel.py`).
+- `teleop/kinematics/`: IK solvers (`mink_ik.py`, `agibot_a2_ik.py`), filters facade (`filters.py` -> `signal_filters`, `followers`).
+- `teleop/utils/`: Collision checker facade (`collision_checker.py` -> `pair_builder`, `arm_safety`, `hand_safety`), `startup_banner.py`, `ssl_certs.py`, `port_check.py`.
+- `teleop/retargeting/`: Arm & hand retargeters (`agibot_arm_retargeting.py`, `agibot_hand_retargeting.py`).
+- `teleop/tracking/`: WebXR and Quest tracking receivers.
