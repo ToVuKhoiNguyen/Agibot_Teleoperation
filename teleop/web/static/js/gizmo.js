@@ -7,7 +7,7 @@ function initGizmos() {
   targetSphereL.quaternion.set(-0.24176, 0.81643, 0.51972, -0.06989);
   targetSphereL.userData = { isMarker: true, side: 'left' };
   targetSphereL.renderOrder = 900;
-  scene.add(targetSphereL);
+  (vrRig || scene).add(targetSphereL);
 
   labelSpriteL = createTextSprite('L', '#00c853');
   labelSpriteL.position.set(0, 0, 0.025 * HANDLE_SCALE);
@@ -20,7 +20,7 @@ function initGizmos() {
   targetSphereR.quaternion.set(0.81771, -0.16138, 0.05290, 0.55001);
   targetSphereR.userData = { isMarker: true, side: 'right' };
   targetSphereR.renderOrder = 900;
-  scene.add(targetSphereR);
+  (vrRig || scene).add(targetSphereR);
 
   labelSpriteR = createTextSprite('R', '#1565c0');
   labelSpriteR.position.set(0, 0, 0.025 * HANDLE_SCALE);
@@ -31,11 +31,11 @@ function initGizmos() {
   const actualGeo = new THREE.SphereGeometry(0.008, 12, 12);
   const actualMatL = new THREE.MeshBasicMaterial({ color: 0x69f0ae, wireframe: true });
   actualSphereL = new THREE.Mesh(actualGeo, actualMatL);
-  scene.add(actualSphereL);
+  (vrRig || scene).add(actualSphereL);
 
   const actualMatR = new THREE.MeshBasicMaterial({ color: 0x82b1ff, wireframe: true });
   actualSphereR = new THREE.Mesh(actualGeo, actualMatR);
-  scene.add(actualSphereR);
+  (vrRig || scene).add(actualSphereR);
 
   // Setup Combined TransformControls with unified GIZMO_SIZE
   // Left Marker Controls

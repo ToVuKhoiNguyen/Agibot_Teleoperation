@@ -2,8 +2,8 @@
 """
 scripts/test_xr_controllers.py
 Automated acceptance test for Quest 3S WebXR Controller Teleoperation:
-  1. Grip-only moves position only (rotation locked)
-  2. Trigger-only rotates only (position locked)
+  1. Trigger-only moves position only (rotation locked)
+  2. Grip-only rotates only (position locked)
   3. Both held -> full 6D teleoperation
   4. No jump on state change (< 2 mm / 0.5 deg)
   5. Joystick Y velocity closes then holds
@@ -100,19 +100,19 @@ async def run_xr_tests():
                 quat_identity = [1.0, 0.0, 0.0, 0.0]        # [w, x, y, z]
 
                 # ------------------------------------------------------------------
-                # TEST 1: Grip-only moves position only (rotation locked)
+                # TEST 1: Trigger-only moves position only (rotation locked)
                 # ------------------------------------------------------------------
-                print("\n--- TEST 1: Grip-Only Moves Position Only (Rotation Locked) ---")
-                # Anchor in grip-only
+                print("\n--- TEST 1: Trigger-Only Moves Position Only (Rotation Locked) ---")
+                # Anchor in trigger-only
                 pkt_anchor = {
                     "cmd": "xr_controllers",
                     "t": time.time(),
                     "left": {
                         "pos": base_ctrl_pos.tolist(),
                         "quat": quat_identity,
-                        "grip": True,
-                        "grip_val": 1.0,
-                        "trigger": 0.0
+                        "grip": False,
+                        "grip_val": 0.0,
+                        "trigger": 1.0
                     }
                 }
                 await ws.send_str(json.dumps(pkt_anchor))
@@ -134,9 +134,9 @@ async def run_xr_tests():
                         "left": {
                             "pos": cur_p.tolist(),
                             "quat": quat_yaw_30,
-                            "grip": True,
-                            "grip_val": 1.0,
-                            "trigger": 0.0
+                            "grip": False,
+                            "grip_val": 0.0,
+                            "trigger": 1.0
                         }
                     }
                     await ws.send_str(json.dumps(pkt))
@@ -149,16 +149,16 @@ async def run_xr_tests():
                 print(f"  Target Disp X: {tgt_disp_x*100.0:+.2f} cm (expected ~+10.0 cm)")
                 print(f"  Target Rotation change: {tgt_rot_change:.4f} (expected 0.0)")
                 assert abs(tgt_disp_x - 0.10) < 0.02, f"Target disp {tgt_disp_x} not near 0.10m"
-                assert tgt_rot_change < 0.001, f"Target rotation changed while grip-only: {tgt_rot_change}"
-                print("  [PASS] Grip-only moved position only; rotation remained locked.")
+                assert tgt_rot_change < 0.001, f"Target rotation changed while trigger-only: {tgt_rot_change}"
+                print("  [PASS] Trigger-only moved position only; rotation remained locked.")
 
                 # ------------------------------------------------------------------
-                # TEST 2: Trigger-only rotates only (position locked)
+                # TEST 2: Grip-only rotates only (position locked)
                 # ------------------------------------------------------------------
-                print("\n--- TEST 2: Trigger-Only Rotates Only (Position Locked) ---")
+                print("\n--- TEST 2: Grip-Only Rotates Only (Position Locked) ---")
                 tgt_before_trig = np.array(st1["tgt_l"])
                 tgt_rot_before_trig = np.array(st1["tgt_rot_l"])
-                # Transition to Trigger-only (grip=0, trigger=1.0)
+                # Transition to Grip-only (grip=1.0, trigger=0.0)
                 cur_ctrl_pos = base_ctrl_pos + np.array([0.0, 0.0, -0.10])
                 pkt_trig_anchor = {
                     "cmd": "xr_controllers",
@@ -166,9 +166,9 @@ async def run_xr_tests():
                     "left": {
                         "pos": cur_ctrl_pos.tolist(),
                         "quat": quat_identity,
-                        "grip": False,
-                        "grip_val": 0.0,
-                        "trigger": 1.0
+                        "grip": True,
+                        "grip_val": 1.0,
+                        "trigger": 0.0
                     }
                 }
                 await ws.send_str(json.dumps(pkt_trig_anchor))
@@ -185,9 +185,9 @@ async def run_xr_tests():
                         "left": {
                             "pos": p_offset.tolist(),
                             "quat": q_step,
-                            "grip": False,
-                            "grip_val": 0.0,
-                            "trigger": 1.0
+                            "grip": True,
+                            "grip_val": 1.0,
+                            "trigger": 0.0
                         }
                     }
                     await ws.send_str(json.dumps(pkt))
@@ -199,9 +199,9 @@ async def run_xr_tests():
                 rot_change2 = np.linalg.norm(np.array(st2["tgt_rot_l"]) - tgt_rot_before_trig)
                 print(f"  Target Pos Drift: {tgt_disp_pos*1000.0:.2f} mm (expected < 2.0 mm)")
                 print(f"  Target Rotation change: {rot_change2:.4f} (expected > 0.05)")
-                assert tgt_disp_pos < 0.002, f"Target pos moved during trigger-only: {tgt_disp_pos*1000.0} mm"
-                assert rot_change2 > 0.05, "Target rotation did not update during trigger-only"
-                print("  [PASS] Trigger-only rotated only; position remained locked.")
+                assert tgt_disp_pos < 0.002, f"Target pos moved during grip-only: {tgt_disp_pos*1000.0} mm"
+                assert rot_change2 > 0.05, "Target rotation did not update during grip-only"
+                print("  [PASS] Grip-only rotated only; position remained locked.")
 
                 # ------------------------------------------------------------------
                 # TEST 3: Both Held -> Full 6D Teleoperation
@@ -258,9 +258,9 @@ async def run_xr_tests():
                 print("\n--- TEST 4: No Jump on State Transitions (< 2 mm / 0.5 deg) ---")
                 transitions = [
                     ("LOCKED", 0.0, 0.0),
-                    ("TRANSLATE", 1.0, 0.0),
+                    ("TRANSLATE", 0.0, 1.0),
                     ("6D", 1.0, 1.0),
-                    ("ROTATE", 0.0, 1.0),
+                    ("ROTATE", 1.0, 0.0),
                     ("LOCKED", 0.0, 0.0)
                 ]
                 cur_test_p = base_ctrl_pos + np.array([0.1, 0.05, -0.05])
@@ -457,17 +457,20 @@ async def run_xr_tests():
                 # TEST 10: 350 ms Tracking Watchdog
                 # ------------------------------------------------------------------
                 print("\n--- TEST 10: 350 ms Tracking Watchdog ---")
-                pkt_engage = {
-                    "cmd": "xr_controllers",
-                    "t": time.time(),
-                    "left": {
-                        "pos": base_ctrl_pos.tolist(),
-                        "quat": quat_identity,
-                        "grip": True,
-                        "grip_val": 1.0
+                for _ in range(5):
+                    pkt_engage = {
+                        "cmd": "xr_controllers",
+                        "t": time.time(),
+                        "left": {
+                            "pos": base_ctrl_pos.tolist(),
+                            "quat": quat_identity,
+                            "grip": True,
+                            "grip_val": 1.0,
+                            "trigger": 1.0
+                        }
                     }
-                }
-                await ws.send_str(json.dumps(pkt_engage))
+                    await ws.send_str(json.dumps(pkt_engage))
+                    await asyncio.sleep(0.02)
                 await asyncio.sleep(0.05)
                 st10_pre = await fetch_status(session)
                 assert st10_pre.get("xr_grip_l", False), "Clutch should be active prior to silence"

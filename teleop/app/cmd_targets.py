@@ -58,18 +58,21 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
             curls, pinch = AgibotHandRetargeting.get_grasp_curls("open", 0.0)
             if arm == "left":
                 app.hand_closure_l = 0.0
+                app.grasp_type_l = "cylinder"
                 app.direct_hand_override_l = False
             else:
                 app.hand_closure_r = 0.0
+                app.grasp_type_r = "cylinder"
                 app.direct_hand_override_r = False
         elif action == "close":
-            gt = app.grasp_type_l if arm == "left" else app.grasp_type_r
-            curls, pinch = AgibotHandRetargeting.get_grasp_curls(gt, 1.0)
+            curls, pinch = AgibotHandRetargeting.get_grasp_curls("cylinder", 1.0)
             if arm == "left":
                 app.hand_closure_l = 1.0
+                app.grasp_type_l = "cylinder"
                 app.direct_hand_override_l = False
             else:
                 app.hand_closure_r = 1.0
+                app.grasp_type_r = "cylinder"
                 app.direct_hand_override_r = False
         elif action == "pinch":
             curls, pinch = AgibotHandRetargeting.get_grasp_curls("pinch", 1.0)

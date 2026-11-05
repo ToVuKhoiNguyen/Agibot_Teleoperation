@@ -123,4 +123,27 @@ def filter_hand_step_impl(
         else:
             high_a = mid_a
 
+    # Per-finger refinement: allow non-colliding fingers to flex up to target
+    for j in (3, 4, 5, 2, 0, 1):
+        if abs(tgt[j] - best_cmd[j]) < 1e-3:
+            continue
+        c = best_cmd.copy()
+        c[j] = tgt[j]
+        s_cand, d_cand, _ = _chk(c)
+        if s_cand:
+            best_cmd[j] = tgt[j]
+            best_dist = min(best_dist, d_cand)
+        else:
+            low_j, high_j = best_cmd[j], tgt[j]
+            for _ in range(4):
+                mid_j = 0.5 * (low_j + high_j)
+                c[j] = mid_j
+                s_mid, d_mid, _ = _chk(c)
+                if s_mid:
+                    best_cmd[j] = mid_j
+                    best_dist = min(best_dist, d_mid)
+                    low_j = mid_j
+                else:
+                    high_j = mid_j
+
     return best_cmd, blocked, float(best_dist)

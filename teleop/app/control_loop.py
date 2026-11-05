@@ -110,6 +110,9 @@ def run_control_loop(app):
 
                 app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
                 app.env.set_hand_commands(app.last_hand_cmd_left, app.last_hand_cmd_right)
+                if (app.hand_closure_l >= 0.95 or app.hand_closure_r >= 0.95) and not getattr(app, "_logged_hand_close_trace", False):
+                    app._logged_hand_close_trace = True
+                    print(f"[HAND_CLOSE_TRACE] Commanded 6 joints L: {app.last_hand_cmd_left.round(3)}, R: {app.last_hand_cmd_right.round(3)}")
                 app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=app.last_arm_cmd_left, hold_right_qpos=app.last_arm_cmd_right)
             else:
                 app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=app.last_arm_cmd_left, hold_right_qpos=app.last_arm_cmd_right)
@@ -130,8 +133,8 @@ def run_control_loop(app):
                         lag_ms = (err_m / v_mag) * 1000.0
                         print(f"[GIZMO TRACK] R lag: {lag_ms:.1f} ms | steady err: {err_m*100.0:.2f} cm (vel: {v_mag:.2f} m/s)")
 
-            # Stream ~30 Hz visual body poses to 3D Digital Twin (every 7th step at 200 Hz)
-            if step % 7 == 0:
+            # Update visual body poses for steady 60 Hz streaming (every 2nd step at 200 Hz = 100 Hz sampling)
+            if step % 2 == 0:
                 poses = app.env.get_visual_body_poses()
                 has_nan = False
                 for k, v in poses.items():
@@ -147,6 +150,16 @@ def run_control_loop(app):
 
             # Telemetry updates (20 Hz at 200 Hz loop = every 10 steps)
             if step % 10 == 0:
+                now_perf_hz = time.perf_counter()
+                if not hasattr(app, "_loop_hz_last_t"):
+                    app._loop_hz_count = 0
+                    app._loop_hz_last_t = now_perf_hz
+                    app.loop_hz = 200.0
+                app._loop_hz_count += 10
+                if now_perf_hz - app._loop_hz_last_t >= 0.5:
+                    app.loop_hz = app._loop_hz_count / (now_perf_hz - app._loop_hz_last_t)
+                    app._loop_hz_count = 0
+                    app._loop_hz_last_t = now_perf_hz
                 status_packet = build_status_packet(app)
                 app.server.set_status(status_packet)
                 app.status_warning = ""

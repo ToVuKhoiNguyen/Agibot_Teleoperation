@@ -1,14 +1,20 @@
 // ==========================================
 // WebXR Immersive-VR Session Management
 // ==========================================
+let xrVisibilityHold = false;
+let xrRequireButtonResume = false;
+
 function checkXRSupport() {
+  const container = document.getElementById('vr-corner-container');
   const btn = document.getElementById('btn-vr-corner');
   if (!btn) return;
-  btn.style.display = 'none';
+  if (container) container.style.display = 'none';
+  else btn.style.display = 'none';
   if (!window.isSecureContext || !navigator.xr) return;
 
   navigator.xr.isSessionSupported('immersive-vr').then(supported => {
     if (supported) {
+      if (container) container.style.display = 'flex';
       btn.style.display = 'block';
     }
   }).catch(err => {
@@ -30,7 +36,7 @@ function enterVRDirectly() {
   const errOverlay = document.getElementById('vr-error-overlay');
   if (errOverlay) errOverlay.style.display = 'none';
 
-  // Synchronous requestSession: no await/fetch before it to maintain user gesture
+  // Synchronous requestSession maintaining user gesture
   navigator.xr.requestSession('immersive-vr', {
     optionalFeatures: ['local-floor', 'hand-tracking']
   }).then(session => {
@@ -49,23 +55,45 @@ function toggleXRSession() {
   enterVRDirectly();
 }
 
+function onXRVisibilityChange() {
+  const state = xrSession ? xrSession.visibilityState : 'hidden';
+  if (state === 'hidden' || state === 'visible-blurred') {
+    xrVisibilityHold = true;
+    xrRequireButtonResume = true;
+  } else if (state === 'visible') {
+    xrVisibilityHold = true;
+    xrRequireButtonResume = true;
+  }
+}
+
+function onXRInputSourcesChange(event) {
+  if (typeof onXRInputSourcesChanged === 'function') {
+    onXRInputSourcesChanged(event);
+  }
+}
+
 async function onXRSessionStarted(session, mode) {
   xrSession = session;
   inXRSession = true;
+  vrRigInitialized = false;
+  inViewMode = false;
+  xrVisibilityHold = false;
+  xrRequireButtonResume = false;
+
   const btnCorner = document.getElementById('btn-vr-corner');
   if (btnCorner) {
-    btnCorner.innerText = 'Exit VR';
+    btnCorner.innerText = 'EXIT VR';
     btnCorner.style.background = '#d32f2f';
+    btnCorner.style.color = '#ffffff';
     btnCorner.style.borderColor = '#ff5252';
   }
   const btn = document.getElementById('btn-enter-vr');
   if (btn) {
-    btn.innerText = 'Exit VR';
+    btn.innerText = 'EXIT VR';
     btn.style.background = '#d32f2f';
     btn.style.borderColor = '#ff5252';
   }
 
-  // Update session tag
   const xrTag = document.getElementById('xr-tag');
   if (xrTag) {
     xrTag.innerText = 'XR: IN SESSION';
@@ -78,34 +106,24 @@ async function onXRSessionStarted(session, mode) {
   const sidebar = document.getElementById('sidebar');
   if (sidebar) sidebar.style.display = 'none';
 
-  // Hide desktop TransformControls in VR (markers stay visible)
+  // Hide desktop TransformControls in VR
   if (transformControlsL_trans) transformControlsL_trans.visible = false;
   if (transformControlsL_rot) transformControlsL_rot.visible = false;
   if (transformControlsR_trans) transformControlsR_trans.visible = false;
   if (transformControlsR_rot) transformControlsR_rot.visible = false;
 
-  // Background handling: dark room
   scene.background = new THREE.Color(0x0a0d14);
 
-  // Position robotGroup in front of user at floor level: ~0.8m forward in -Z, feet at Y=0
-  robotGroup.position.set(0, 0, -0.8);
-  robotGroup.rotation.set(-Math.PI / 2, 0, 0); // Convert MuJoCo Z-up to Three.js WebXR Y-up
-
-  // Session end listener
   session.addEventListener('end', onXRSessionEnded);
+  session.addEventListener('visibilitychange', onXRVisibilityChange);
+  session.addEventListener('inputsourceschange', onXRInputSourcesChange);
 
-  // Setup WebXR rendering context with foveation & frame scaling
   if (renderer.xr) {
     await renderer.xr.setSession(session);
-    if (typeof renderer.xr.setFoveation === 'function') {
-      renderer.xr.setFoveation(1.0);
-    }
-    if (typeof renderer.xr.setFramebufferScaleFactor === 'function') {
-      renderer.xr.setFramebufferScaleFactor(0.8);
-    }
+    if (typeof renderer.xr.setFoveation === 'function') renderer.xr.setFoveation(1.0);
+    if (typeof renderer.xr.setFramebufferScaleFactor === 'function') renderer.xr.setFramebufferScaleFactor(0.8);
   }
 
-  // Reference space: local-floor preferred, fallback local
   try {
     xrRefSpace = await session.requestReferenceSpace('local-floor');
   } catch (e) {
@@ -119,12 +137,20 @@ function onXRSessionEnded() {
   xrSession = null;
   inXRSession = false;
   xrRefSpace = null;
+  vrRigInitialized = false;
+  inViewMode = false;
+  xrVisibilityHold = false;
+  xrRequireButtonResume = false;
 
+  const container = document.getElementById('vr-corner-container');
+  if (container) container.style.display = 'flex';
   const btnCorner = document.getElementById('btn-vr-corner');
   if (btnCorner) {
-    btnCorner.innerText = 'VR';
-    btnCorner.style.background = '#00c853';
-    btnCorner.style.borderColor = '#00e676';
+    btnCorner.innerText = 'ENTER VR';
+    btnCorner.style.display = 'block';
+    btnCorner.style.background = '#00ff66';
+    btnCorner.style.color = '#0a0e17';
+    btnCorner.style.borderColor = '#00ff66';
   }
   const btn = document.getElementById('btn-enter-vr');
   if (btn) {
@@ -133,7 +159,6 @@ function onXRSessionEnded() {
     btn.style.borderColor = '#00e676';
   }
 
-  // Restore DOM elements
   const hud = document.getElementById('viewport-hud');
   if (hud) hud.style.display = 'flex';
   const sidebar = document.getElementById('sidebar');
@@ -145,9 +170,15 @@ function onXRSessionEnded() {
     xrTag.className = 'tag tag-warn';
   }
 
-  // Restore robot group pose for desktop view
-  robotGroup.position.set(0, 0, 0);
-  robotGroup.rotation.set(0, 0, 0);
+  // Restore vrRig and robotGroup for desktop
+  if (vrRig) {
+    vrRig.position.set(0, 0, 0);
+    vrRig.quaternion.set(0, 0, 0, 1);
+  }
+  if (robotGroup) {
+    robotGroup.position.set(0, 0, 0);
+    robotGroup.rotation.set(0, 0, 0);
+  }
   scene.background = new THREE.Color(0x0e111a);
   updateGizmoVisibility();
   sceneNeedsRender = true;

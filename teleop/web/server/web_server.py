@@ -27,6 +27,7 @@ from teleop.web.server.ws_broadcaster import (
     handle_ws_impl,
     set_status_impl,
     broadcast_poses_impl,
+    pose_stream_worker_impl,
     dispatch_immediate_stream_impl,
     get_command_impl,
 )
@@ -165,6 +166,7 @@ class WebPanelServer:
                 self.loop.run_until_complete(site_v6.start())
             except Exception:
                 pass
+            self.loop.create_task(pose_stream_worker_impl(self))
             self.loop.run_forever()
 
         self.thread = threading.Thread(target=_runner, daemon=True)

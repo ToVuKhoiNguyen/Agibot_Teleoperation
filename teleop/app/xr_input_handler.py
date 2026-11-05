@@ -4,6 +4,7 @@ Processes Meta Quest WebXR controller packets, button inputs, gestures, and trig
 """
 
 import time
+import math
 from teleop.retargeting.agibot_hand_retargeting import AgibotHandRetargeting
 from teleop.app.xr_clutch_mapper import update_xr_clutch
 
@@ -26,6 +27,10 @@ def handle_xr_controllers_input(app, cmd: dict):
     left_pkt = cmd.get("left")
     right_pkt = cmd.get("right")
     rot_enabled = cmd.get("rotation_enabled", app.xr_rotation_enabled)
+    app.xr_rig_yaw = float(cmd.get("rig_yaw", math.radians(cmd.get("rig_yaw_deg", 0.0))))
+
+    left_track = bool(left_pkt and left_pkt.get("pos") is not None and left_pkt.get("tracking", True) and not left_pkt.get("tracking_loss", False))
+    right_track = bool(right_pkt and right_pkt.get("pos") is not None and right_pkt.get("tracking", True) and not right_pkt.get("tracking_loss", False))
 
     app.xr_left_connected = bool(left_pkt is not None)
     app.xr_right_connected = bool(right_pkt is not None)
@@ -129,8 +134,8 @@ def handle_xr_controllers_input(app, cmd: dict):
         app.a_home_triggered = False
         app.xr_home_progress_r = 0.0
 
-    # Thumbstick Y: finger closure velocity control
-    if left_pkt and "thumbstick" in left_pkt:
+    # Thumbstick Y: finger closure velocity control (hold value if tracking lost)
+    if left_track and left_pkt and "thumbstick" in left_pkt:
         sy = app.xr_stick_y_l
         if sy < -app.xr_stick_deadband:
             app.hand_closure_l = min(1.0, app.hand_closure_l + abs(sy) * app.xr_closure_rate * dt_pkt)
@@ -138,7 +143,7 @@ def handle_xr_controllers_input(app, cmd: dict):
             app.hand_closure_l = max(0.0, app.hand_closure_l - abs(sy) * app.xr_closure_rate * dt_pkt)
 
     # Left Thumbstick click: Panic Open
-    if app.xr_thumb_click_l:
+    if left_track and app.xr_thumb_click_l:
         if not app.xr_thumb_click_prev_l:
             app.hand_closure_l = 0.0
             app._log_xr_event("L Thumb click -> PANIC OPEN")
@@ -147,20 +152,23 @@ def handle_xr_controllers_input(app, cmd: dict):
         app.xr_thumb_click_prev_l = False
 
     # Left Thumbstick X: cycle grasp type
-    if left_pkt and "thumbstick" in left_pkt:
+    if left_track and left_pkt and "thumbstick" in left_pkt:
         sx = app.xr_stick_x_l
+        sy = app.xr_stick_y_l
         g_list = AgibotHandRetargeting.GRASP_TYPES
-        if sx > app.xr_stick_x_deadband and app.stick_x_state_l != 1:
-            idx = g_list.index(app.grasp_type_l) if app.grasp_type_l in g_list else 0
-            app.grasp_type_l = g_list[(idx + 1) % len(g_list)]
-            app.stick_x_state_l = 1
-            app._log_xr_event(f"L Grasp: {app.grasp_type_l}")
-        elif sx < -app.xr_stick_x_deadband and app.stick_x_state_l != -1:
-            idx = g_list.index(app.grasp_type_l) if app.grasp_type_l in g_list else 0
-            app.grasp_type_l = g_list[(idx - 1) % len(g_list)]
-            app.stick_x_state_l = -1
-            app._log_xr_event(f"L Grasp: {app.grasp_type_l}")
-        elif abs(sx) < app.xr_stick_x_deadband * 0.7:
+        y_neutral = abs(sy) < app.xr_stick_deadband
+        if y_neutral and abs(sx) > abs(sy):
+            if sx > app.xr_stick_x_deadband and app.stick_x_state_l != 1:
+                idx = g_list.index(app.grasp_type_l) if app.grasp_type_l in g_list else 0
+                app.grasp_type_l = g_list[(idx + 1) % len(g_list)]
+                app.stick_x_state_l = 1
+                app._log_xr_event(f"L Grasp: {app.grasp_type_l}")
+            elif sx < -app.xr_stick_x_deadband and app.stick_x_state_l != -1:
+                idx = g_list.index(app.grasp_type_l) if app.grasp_type_l in g_list else 0
+                app.grasp_type_l = g_list[(idx - 1) % len(g_list)]
+                app.stick_x_state_l = -1
+                app._log_xr_event(f"L Grasp: {app.grasp_type_l}")
+        if abs(sx) < app.xr_stick_x_deadband * 0.7:
             app.stick_x_state_l = 0
 
     if not getattr(app, "direct_hand_override_l", False) and not app.hand_sweep_active:
@@ -169,7 +177,7 @@ def handle_xr_controllers_input(app, cmd: dict):
         app.target_pinch_l = pinch_l
 
     # Right Thumbstick Y
-    if right_pkt and "thumbstick" in right_pkt:
+    if right_track and right_pkt and "thumbstick" in right_pkt:
         sy = app.xr_stick_y_r
         if sy < -app.xr_stick_deadband:
             app.hand_closure_r = min(1.0, app.hand_closure_r + abs(sy) * app.xr_closure_rate * dt_pkt)
@@ -177,7 +185,7 @@ def handle_xr_controllers_input(app, cmd: dict):
             app.hand_closure_r = max(0.0, app.hand_closure_r - abs(sy) * app.xr_closure_rate * dt_pkt)
 
     # Right Thumbstick click: Panic Open
-    if app.xr_thumb_click_r:
+    if right_track and app.xr_thumb_click_r:
         if not app.xr_thumb_click_prev_r:
             app.hand_closure_r = 0.0
             app._log_xr_event("R Thumb click -> PANIC OPEN")
@@ -186,20 +194,23 @@ def handle_xr_controllers_input(app, cmd: dict):
         app.xr_thumb_click_prev_r = False
 
     # Right Thumbstick X: cycle grasp type
-    if right_pkt and "thumbstick" in right_pkt:
+    if right_track and right_pkt and "thumbstick" in right_pkt:
         sx = app.xr_stick_x_r
+        sy = app.xr_stick_y_r
         g_list = AgibotHandRetargeting.GRASP_TYPES
-        if sx > app.xr_stick_x_deadband and app.stick_x_state_r != 1:
-            idx = g_list.index(app.grasp_type_r) if app.grasp_type_r in g_list else 0
-            app.grasp_type_r = g_list[(idx + 1) % len(g_list)]
-            app.stick_x_state_r = 1
-            app._log_xr_event(f"R Grasp: {app.grasp_type_r}")
-        elif sx < -app.xr_stick_x_deadband and app.stick_x_state_r != -1:
-            idx = g_list.index(app.grasp_type_r) if app.grasp_type_r in g_list else 0
-            app.grasp_type_r = g_list[(idx - 1) % len(g_list)]
-            app.stick_x_state_r = -1
-            app._log_xr_event(f"R Grasp: {app.grasp_type_r}")
-        elif abs(sx) < app.xr_stick_x_deadband * 0.7:
+        y_neutral = abs(sy) < app.xr_stick_deadband
+        if y_neutral and abs(sx) > abs(sy):
+            if sx > app.xr_stick_x_deadband and app.stick_x_state_r != 1:
+                idx = g_list.index(app.grasp_type_r) if app.grasp_type_r in g_list else 0
+                app.grasp_type_r = g_list[(idx + 1) % len(g_list)]
+                app.stick_x_state_r = 1
+                app._log_xr_event(f"R Grasp: {app.grasp_type_r}")
+            elif sx < -app.xr_stick_x_deadband and app.stick_x_state_r != -1:
+                idx = g_list.index(app.grasp_type_r) if app.grasp_type_r in g_list else 0
+                app.grasp_type_r = g_list[(idx - 1) % len(g_list)]
+                app.stick_x_state_r = -1
+                app._log_xr_event(f"R Grasp: {app.grasp_type_r}")
+        if abs(sx) < app.xr_stick_x_deadband * 0.7:
             app.stick_x_state_r = 0
 
     if not getattr(app, "direct_hand_override_r", False) and not app.hand_sweep_active:

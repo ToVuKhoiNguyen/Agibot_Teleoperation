@@ -69,6 +69,7 @@ def build_status_packet(app) -> dict:
         "qpos_l": [float(x) for x in app.last_arm_cmd_left],
         "qpos_r": [float(x) for x in app.last_arm_cmd_right],
         "walking": bool(app.walking_demo_active),
+        "loop_hz": float(getattr(app, "loop_hz", 200.0)),
         "cmd_rate_hz": float(app.cmd_rate_hz),
         "last_cmd_name": str(app.last_cmd_name),
         "last_cmd_time": float(app.last_cmd_time),

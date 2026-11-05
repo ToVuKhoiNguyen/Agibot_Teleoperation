@@ -79,7 +79,7 @@ def init_state(app, project_root: Path):
     app.xr_deadband = float(app.quest_cfg.get("deadband_m", 0.002))
     app.xr_grip_thresh = float(app.quest_cfg.get("grip_threshold", 0.25))
     app.xr_trigger_thresh = float(app.quest_cfg.get("trigger_threshold", 0.25))
-    app.xr_timeout = float(app.quest_cfg.get("tracking_timeout_s", 0.35))
+    app.xr_timeout = float(app.quest_cfg.get("tracking_timeout_s", 0.30))
     app.xr_estop_hold_thresh = float(app.quest_cfg.get("estop_combo_hold_s", 0.5))
     app.xr_home_hold_s = float(app.quest_cfg.get("home_hold_s", 1.5))
     app.xr_precision_scale_factor = float(app.quest_cfg.get("precision_scale_factor", 0.3))
@@ -87,6 +87,11 @@ def init_state(app, project_root: Path):
     app.xr_closure_rate = float(app.quest_cfg.get("finger_closure_rate", 1.0))
     app.xr_stick_deadband = float(app.quest_cfg.get("thumbstick_deadband", 0.15))
     app.xr_stick_x_deadband = float(app.quest_cfg.get("thumbstick_x_deadband", 0.40))
+    app.xr_rig_yaw = 0.0
+    app.xr_tracking_lost_l = False
+    app.xr_tracking_lost_r = False
+    app.xr_reengage_required_l = False
+    app.xr_reengage_required_r = False
 
     app.xr_input_active = False
     app.xr_last_packet_time = 0.0

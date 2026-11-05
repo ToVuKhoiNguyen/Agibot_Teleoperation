@@ -1,29 +1,79 @@
 
-// Zero-delay direct pose application + fast exponential smoothing (tau ~ 25 ms)
+const _tmpQ2 = new THREE.Quaternion();
+
+// 1-frame buffer linear interpolation for smooth 60 Hz streaming without teleporting
 function applyLatestMovingPoses(dtSec) {
-  if (!latestMovingPoses) return;
-  const factor = Math.min(1.0, dtSec / 0.025); // fast convergence
+  if (typeof poseBuffer === 'undefined' || poseBuffer.length === 0) {
+    if (!latestMovingPoses) return;
+    for (let i = 0; i < MOVING_GEOM_IDS.length; i++) {
+      const obj = geomObjectMap[MOVING_GEOM_IDS[i]];
+      const tgt = latestMovingPoses[i];
+      if (obj && tgt) {
+        obj.position.set(tgt.x, tgt.y, tgt.z);
+        obj.quaternion.set(tgt.qx, tgt.qy, tgt.qz, tgt.qw);
+      }
+    }
+    return;
+  }
+
+  // Buffer delay: 1 frame at 60 Hz = 16.7 ms
+  const renderTime = performance.now() - 16.7;
+
+  if (poseBuffer.length === 1 || renderTime <= poseBuffer[0].t) {
+    const poses = poseBuffer[0].poses;
+    for (let i = 0; i < MOVING_GEOM_IDS.length; i++) {
+      const obj = geomObjectMap[MOVING_GEOM_IDS[i]];
+      const tgt = poses[i];
+      if (obj && tgt) {
+        obj.position.set(tgt.x, tgt.y, tgt.z);
+        obj.quaternion.set(tgt.qx, tgt.qy, tgt.qz, tgt.qw);
+      }
+    }
+    return;
+  }
+
+  const lastIdx = poseBuffer.length - 1;
+  if (renderTime >= poseBuffer[lastIdx].t) {
+    const poses = poseBuffer[lastIdx].poses;
+    for (let i = 0; i < MOVING_GEOM_IDS.length; i++) {
+      const obj = geomObjectMap[MOVING_GEOM_IDS[i]];
+      const tgt = poses[i];
+      if (obj && tgt) {
+        obj.position.set(tgt.x, tgt.y, tgt.z);
+        obj.quaternion.set(tgt.qx, tgt.qy, tgt.qz, tgt.qw);
+      }
+    }
+    return;
+  }
+
+  // Find spanning interval [s0, s1]
+  let s0 = poseBuffer[0];
+  let s1 = poseBuffer[1];
+  for (let i = 0; i < lastIdx; i++) {
+    if (poseBuffer[i].t <= renderTime && renderTime <= poseBuffer[i + 1].t) {
+      s0 = poseBuffer[i];
+      s1 = poseBuffer[i + 1];
+      break;
+    }
+  }
+
+  const span = Math.max(1e-3, s1.t - s0.t);
+  const alpha = Math.max(0.0, Math.min(1.0, (renderTime - s0.t) / span));
 
   for (let i = 0; i < MOVING_GEOM_IDS.length; i++) {
-    const gid = MOVING_GEOM_IDS[i];
-    const obj = geomObjectMap[gid];
+    const obj = geomObjectMap[MOVING_GEOM_IDS[i]];
     if (!obj) continue;
+    const p0 = s0.poses[i];
+    const p1 = s1.poses[i];
+    if (!p0 || !p1) continue;
 
-    const tgt = latestMovingPoses[i];
-    if (!tgt) continue;
+    obj.position.x = p0.x + (p1.x - p0.x) * alpha;
+    obj.position.y = p0.y + (p1.y - p0.y) * alpha;
+    obj.position.z = p0.z + (p1.z - p0.z) * alpha;
 
-    if (factor >= 0.95) {
-      obj.position.set(tgt.x, tgt.y, tgt.z);
-      obj.quaternion.set(tgt.qx, tgt.qy, tgt.qz, tgt.qw);
-    } else {
-      // Lerp position toward latest target
-      obj.position.x += (tgt.x - obj.position.x) * factor;
-      obj.position.y += (tgt.y - obj.position.y) * factor;
-      obj.position.z += (tgt.z - obj.position.z) * factor;
-      // Slerp quaternion toward latest target
-      _tmpQ.set(tgt.qx, tgt.qy, tgt.qz, tgt.qw);
-      obj.quaternion.slerp(_tmpQ, factor);
-    }
+    _tmpQ.set(p0.qx, p0.qy, p0.qz, p0.qw);
+    _tmpQ2.set(p1.qx, p1.qy, p1.qz, p1.qw);
+    obj.quaternion.copy(_tmpQ).slerp(_tmpQ2, alpha);
   }
 }
 
@@ -31,12 +81,21 @@ let lastRenderTime = performance.now();
 let renderFrameCount = 0;
 let lastFpsUpdateTime = performance.now();
 let lastFrameDurationMs = 0;
+let frameGapsLast5s = [];
 
 function animate(currentTime) {
   if (inXRSession) return; // In XR session, onXRFrame handles rendering
   requestAnimationFrame(animate);
 
-  const dtSec = Math.min(0.05, Math.max(0.001, (currentTime - lastRenderTime) / 1000.0));
+  const frameDeltaMs = currentTime - lastRenderTime;
+  if (frameDeltaMs > 50 && lastRenderTime > 0) {
+    frameGapsLast5s.push(currentTime);
+  }
+  while (frameGapsLast5s.length > 0 && currentTime - frameGapsLast5s[0] > 5000) {
+    frameGapsLast5s.shift();
+  }
+
+  const dtSec = Math.min(0.05, Math.max(0.001, frameDeltaMs / 1000.0));
   lastRenderTime = currentTime;
 
   // Apply latest poses with zero buffer delay
@@ -71,11 +130,17 @@ function animate(currentTime) {
       const dprEl = document.getElementById('dbg-dpr');
       const rateEl = document.getElementById('dbg-rate');
       const ageEl = document.getElementById('dbg-age');
+      const gapsEl = document.getElementById('dbg-gaps');
+      const loopEl = document.getElementById('dbg-loop-hz');
       if (fpsEl) fpsEl.innerText = currentFps;
+      if (gapsEl) gapsEl.innerText = frameGapsLast5s.length;
       if (timeEl) timeEl.innerText = lastFrameDurationMs.toFixed(1);
       if (callsEl) callsEl.innerText = renderer.info.render.calls;
       if (trisEl) trisEl.innerText = renderer.info.render.triangles.toLocaleString();
       if (dprEl) dprEl.innerText = renderer.getPixelRatio().toFixed(1);
+      if (loopEl && typeof latestStatusData !== 'undefined' && latestStatusData.loop_hz) {
+        loopEl.innerText = Math.round(latestStatusData.loop_hz);
+      }
       if (rateEl) rateEl.innerText = measuredStateRateHz.toFixed(0);
       if (ageEl) ageEl.innerText = lastMessageAgeMs.toFixed(0);
     }

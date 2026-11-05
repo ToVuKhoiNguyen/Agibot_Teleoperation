@@ -123,6 +123,8 @@ let lastF32Snapshot = null;
 let msgCounter = 0;
 let lastRateCalcTime = performance.now();
 let measuredStateRateHz = 0;
+let minClockSkew = 999999.0;
+let poseBuffer = [];
 
 // Receive binary float32 buffer for moving links: 48 * 7 float32
 function handleBinaryPoses(buffer) {
@@ -145,7 +147,11 @@ function handleBinaryPoses(buffer) {
     serverTs = dv.getFloat64(4, true);
     offset = 12;
     const nowWall = Date.now() / 1000.0;
-    lastMessageAgeMs = Math.max(0, (nowWall - serverTs) * 1000.0);
+    const rawDiff = nowWall - serverTs;
+    if (rawDiff < minClockSkew) {
+      minClockSkew = rawDiff;
+    }
+    lastMessageAgeMs = Math.max(0, (rawDiff - minClockSkew) * 1000.0);
   }
 
   const count = dv.getUint8(2);
@@ -178,6 +184,10 @@ function handleBinaryPoses(buffer) {
       });
     }
     latestMovingPoses = poses;
+    poseBuffer.push({ t: nowPerf, poses: poses });
+    if (poseBuffer.length > 8) {
+      poseBuffer.shift();
+    }
     lastMovementTime = performance.now();
     sceneNeedsRender = true;
   }

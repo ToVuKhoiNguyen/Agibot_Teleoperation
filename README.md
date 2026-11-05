@@ -108,9 +108,9 @@ Chỉ cần **cắm cáp USB-C hỗ trợ truyền dữ liệu (data cable)**, b
 
 | Nút / Thao tác | Chức năng điều khiển |
 | :--- | :--- |
-| **Cò hông (Grip)** | Chỉ tịnh tiến (X,Y,Z theo clutch delta, xoay khóa) |
-| **Cò trước (Trigger)** | Chỉ xoay (roll/pitch/yaw từ anchor, vị trí khóa) |
-| **Cả hai (Grip + Trigger)** | 6D đầy đủ (vừa tịnh tiến vừa xoay cổ tay) |
+| **Cò trước (Trigger)** | Chỉ tịnh tiến (X,Y,Z theo clutch delta, xoay khóa) |
+| **Cò hông (Grip)** | Chỉ xoay (roll/pitch/yaw từ anchor, vị trí khóa) |
+| **Cả hai (Trigger + Grip)** | 6D đầy đủ (vừa tịnh tiến vừa xoay cổ tay) |
 | **Không bóp cò** | Khóa cứng cánh tay; tự động cập nhật lại anchor từ tư thế thực tế hiện tại (không nhảy bước) |
 | **Analog Trigger** | Điều khiển độ khép mở của 5 ngón tay OmniHand |
 | **Joystick Y (trục dọc)** | Nắm/xòe ngón tay theo vận tốc (đẩy = nắm, kéo = xòe, thả = giữ) |

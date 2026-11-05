@@ -14,6 +14,13 @@ from aiohttp import web
 async def handle_ws_impl(server, request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
+    try:
+        sock = request.transport.get_extra_info("socket")
+        if sock is not None:
+            import socket
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except Exception:
+        pass
     server.ws_clients.add(ws)
 
     # Immediately send static robot manifest to initialize 3D scene
@@ -91,19 +98,46 @@ def broadcast_poses_impl(server, poses_dict: dict):
         server._latest_moving_binary = bin_payload
         server._latest_full_poses_dict = poses_dict
         if full_json:
+            server._pending_full_json = full_json
             server._latest_full_json = full_json
         elif server._latest_full_json is None:
             server._latest_full_json = json.dumps({"type": "poses", "poses": poses_dict})
 
-    if server.loop is not None and len(server.ws_clients) > 0:
-        server.loop.call_soon_threadsafe(server._dispatch_immediate_stream, bin_payload, full_json)
+
+async def pose_stream_worker_impl(server):
+    """Broadcasts latest binary poses at a steady 60 Hz independent of control loop."""
+    interval = 1.0 / 60.0
+    while True:
+        t0 = asyncio.get_event_loop().time()
+        try:
+            if len(server.ws_clients) > 0:
+                with server.status_lock:
+                    bin_payload = getattr(server, "_latest_moving_binary", None)
+                    full_json = getattr(server, "_pending_full_json", None)
+                    server._pending_full_json = None
+                if bin_payload is not None:
+                    for ws in list(server.ws_clients):
+                        if not ws.closed:
+                            transport = ws._req.transport if hasattr(ws, "_req") and ws._req else None
+                            if transport and hasattr(transport, "get_write_buffer_size") and transport.get_write_buffer_size() > 0:
+                                continue  # Drop stale frame on write backlog
+                            try:
+                                if full_json:
+                                    asyncio.ensure_future(ws.send_str(full_json), loop=server.loop)
+                                asyncio.ensure_future(ws.send_bytes(bin_payload), loop=server.loop)
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+        elapsed = asyncio.get_event_loop().time() - t0
+        await asyncio.sleep(max(0.001, interval - elapsed))
 
 
 def dispatch_immediate_stream_impl(server, bin_data, full_json):
     for ws in list(server.ws_clients):
         if not ws.closed:
             transport = ws._req.transport if hasattr(ws, "_req") and ws._req else None
-            if transport and hasattr(transport, "get_write_buffer_size") and transport.get_write_buffer_size() > 65536:
+            if transport and hasattr(transport, "get_write_buffer_size") and transport.get_write_buffer_size() > 0:
                 continue
             try:
                 if full_json:

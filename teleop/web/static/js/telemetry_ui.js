@@ -28,12 +28,12 @@ function updateTelemetryUI(s) {
       const barGripL = document.getElementById('xr_bar_grip_l');
       if (barGripL) barGripL.style.width = Math.round((l.grip_val || 0) * 100) + '%';
       const valGripL = document.getElementById('xr_val_grip_l');
-      if (valGripL) valGripL.innerText = Math.round((l.grip_val || 0) * 100) + '%';
+      if (valGripL) valGripL.innerText = (typeof l.grip_val === 'number' ? l.grip_val : 0).toFixed(2);
 
       const barTrigL = document.getElementById('xr_bar_trig_l');
       if (barTrigL) barTrigL.style.width = Math.round((l.trigger_val || 0) * 100) + '%';
       const valTrigL = document.getElementById('xr_val_trig_l');
-      if (valTrigL) valTrigL.innerText = Math.round((l.trigger_val || 0) * 100) + '%';
+      if (valTrigL) valTrigL.innerText = (typeof l.trigger_val === 'number' ? l.trigger_val : 0).toFixed(2);
 
       const btnX = document.getElementById('xr_btn_x');
       if (btnX) btnX.classList.toggle('active', Boolean(l.btn_primary));
@@ -73,12 +73,12 @@ function updateTelemetryUI(s) {
       const barGripR = document.getElementById('xr_bar_grip_r');
       if (barGripR) barGripR.style.width = Math.round((r.grip_val || 0) * 100) + '%';
       const valGripR = document.getElementById('xr_val_grip_r');
-      if (valGripR) valGripR.innerText = Math.round((r.grip_val || 0) * 100) + '%';
+      if (valGripR) valGripR.innerText = (typeof r.grip_val === 'number' ? r.grip_val : 0).toFixed(2);
 
       const barTrigR = document.getElementById('xr_bar_trig_r');
       if (barTrigR) barTrigR.style.width = Math.round((r.trigger_val || 0) * 100) + '%';
       const valTrigR = document.getElementById('xr_val_trig_r');
-      if (valTrigR) valTrigR.innerText = Math.round((r.trigger_val || 0) * 100) + '%';
+      if (valTrigR) valTrigR.innerText = (typeof r.trigger_val === 'number' ? r.trigger_val : 0).toFixed(2);
 
       const btnA = document.getElementById('xr_btn_a');
       if (btnA) btnA.classList.toggle('active', Boolean(r.btn_primary));

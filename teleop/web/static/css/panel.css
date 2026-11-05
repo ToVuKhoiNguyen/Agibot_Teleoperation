@@ -180,3 +180,44 @@
   .badge-clutch { font-weight: bold; text-transform: uppercase; }
   .tab-btn { background: #1a2330; border: 1px solid #2a3b50; color: #90a4ae; padding: 4px; border-radius: 3px; cursor: pointer; }
   .tab-btn.active-tab { background: #1565c0; color: #fff; border-color: #42a5f5; font-weight: bold; }
+
+  /* VR Corner Button: min 160x56px, font >=22px, high contrast, pulsing outline */
+  .vr-corner-btn {
+    min-width: 160px;
+    min-height: 56px;
+    padding: 12px 24px;
+    background: #00ff66;
+    color: #0a0e17;
+    border: 3px solid #00ff66;
+    border-radius: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(0, 255, 102, 0.4);
+    animation: vrPulse 2s infinite;
+    transition: transform 0.15s ease, background 0.2s ease;
+  }
+  .vr-corner-btn:hover {
+    background: #26ff7d;
+    transform: scale(1.03);
+  }
+  @keyframes vrPulse {
+    0% { box-shadow: 0 0 0 0 rgba(0, 255, 102, 0.7); }
+    70% { box-shadow: 0 0 0 14px rgba(0, 255, 102, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 255, 102, 0); }
+  }
+  .vr-error-overlay {
+    display: none;
+    padding: 8px 14px;
+    background: rgba(220, 38, 38, 0.95);
+    color: #ffffff;
+    border: 1px solid #ef4444;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    max-width: 320px;
+    word-break: break-all;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }

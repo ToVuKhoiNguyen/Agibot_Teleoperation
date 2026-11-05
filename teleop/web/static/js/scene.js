@@ -14,7 +14,7 @@ let transformControlsR_trans, transformControlsR_rot;
 let transformControlsL, transformControlsR; // Backwards-compatible aliases
 let showGizmoL = true;
 let showGizmoR = true;
-let robotGroup;
+let vrRig, robotGroup;
 let geomObjectMap = {}; // geom_id -> THREE.Mesh
 let bodyObjectMap = {}; // bname -> THREE.Group
 let meshGeomCache = {}; // filename -> THREE.BufferGeometry
@@ -203,9 +203,13 @@ function init3D() {
   wsBox.position.set(0.325, 0.0, 1.10);
   scene.add(wsBox);
 
+  // VR Rig Group (contains robot + wrist markers)
+  vrRig = new THREE.Group();
+  scene.add(vrRig);
+
   // Robot Root Group
   robotGroup = new THREE.Group();
-  scene.add(robotGroup);
+  vrRig.add(robotGroup);
 
   // Orbit Controls
   orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
