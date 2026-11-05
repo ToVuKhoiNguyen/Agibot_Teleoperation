@@ -32,21 +32,8 @@ class AgibotSimEnv:
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
 
-        # Categorize joints & actuators via env_discovery
-        jdata = discover_joints(self.model)
-        self.left_arm_joints = jdata["left_arm_joints"]
-        self.right_arm_joints = jdata["right_arm_joints"]
-        self.left_hand_active_joints = jdata["left_hand_active_joints"]
-        self.right_hand_active_joints = jdata["right_hand_active_joints"]
-        self.left_hand_mimic_joints = jdata["left_hand_mimic_joints"]
-        self.right_hand_mimic_joints = jdata["right_hand_mimic_joints"]
-        self.leg_joints = jdata["leg_joints"]
-        self.head_joints = jdata["head_joints"]
-        self.joint_limits = jdata["joint_limits"]
-        self.joint_id_map = jdata["joint_id_map"]
-        self.qpos_idx_map = jdata["qpos_idx_map"]
-        self.qvel_idx_map = jdata["qvel_idx_map"]
-
+        for k, v in discover_joints(self.model).items():
+            setattr(self, k, v)
         self.actuator_map = discover_actuators(self.model)
 
         # End effector sites / bodies
@@ -55,13 +42,8 @@ class AgibotSimEnv:
         self.left_ee_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "left_hand")
         self.right_ee_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "right_hand")
 
-        # Discover visual geoms and bodies for accurate 3D world pose streaming
-        vdata = precompute_visual_geoms(self.model)
-        self.visual_geom_ids = vdata["visual_geom_ids"]
-        self.visual_mesh_ids = vdata["visual_mesh_ids"]
-        self.visual_geom_precomp = vdata["visual_geom_precomp"]
-        self.visual_body_names = vdata["visual_body_names"]
-        self.visual_body_ids = vdata["visual_body_ids"]
+        for k, v in precompute_visual_geoms(self.model).items():
+            setattr(self, k, v)
 
         # Physics options for held standing base
         self.model.opt.iterations = 25
@@ -81,10 +63,10 @@ class AgibotSimEnv:
             self.arm_qpos_indices.append(self.qpos_idx_map[jname])
             self.arm_dof_indices.append(self.qvel_idx_map[jname])
 
+        self.viewer = None
+
         # Reset to home keyframe at startup
         self.reset()
-
-        self.viewer = None
         if self.render_gui and mjviewer is not None:
             has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
             if has_display:
@@ -217,20 +199,39 @@ class AgibotSimEnv:
         )
 
     def step(self, num_substeps: int = 5, hold_arms: bool = False, hold_left_qpos: np.ndarray = None, hold_right_qpos: np.ndarray = None):
-        """Advances physics simulation with standing legs held fixed."""
-        for _ in range(num_substeps):
-            if hasattr(self, "cached_home_qpos"):
-                self.data.qpos[self.non_manip_qpos_indices] = self.cached_home_qpos[self.non_manip_qpos_indices]
-                self.data.qvel[self.non_manip_qvel_indices] = 0.0
+        """Steps dynamic simulation forward while holding non-manipulation joints at home.
+        If hold_arms is True, rigidly freezes arm joint positions to prevent sagging under gravity."""
+        if hold_arms:
+            if hold_left_qpos is not None:
+                self.set_left_arm_qpos(hold_left_qpos)
+            if hold_right_qpos is not None:
+                self.set_right_arm_qpos(hold_right_qpos)
+            for jname in self.left_arm_joints + self.right_arm_joints:
+                if jname in self.actuator_map:
+                    self.data.ctrl[self.actuator_map[jname]] = self.data.qpos[self.qpos_idx_map[jname]]
+                self.data.qvel[self.qvel_idx_map[jname]] = 0.0
 
-            if hold_arms:
-                if hold_left_qpos is not None:
-                    self.set_left_arm_qpos(hold_left_qpos)
-                if hold_right_qpos is not None:
-                    self.set_right_arm_qpos(hold_right_qpos)
-                self.data.qvel[self.arm_dof_indices] = 0.0
+            if hasattr(self, "non_manip_qpos_indices"):
+                self.data.qpos[self.non_manip_qpos_indices] = 0.0
+                self.data.qvel[self.non_manip_qvel_indices] = 0.0
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None and self.viewer.is_running():
+                self.viewer.sync()
+            return
+
+        for _ in range(num_substeps):
+            if hasattr(self, "non_manip_qpos_indices"):
+                self.data.qpos[self.non_manip_qpos_indices] = 0.0
+                self.data.qvel[self.non_manip_qvel_indices] = 0.0
+            for jname in self.leg_joints + self.head_joints:
+                if jname in self.actuator_map:
+                    self.data.ctrl[self.actuator_map[jname]] = 0.0
 
             mujoco.mj_step(self.model, self.data)
+
+            if hasattr(self, "non_manip_qpos_indices"):
+                self.data.qpos[self.non_manip_qpos_indices] = 0.0
+                self.data.qvel[self.non_manip_qvel_indices] = 0.0
 
         if self.viewer is not None and self.viewer.is_running():
             self.viewer.sync()
