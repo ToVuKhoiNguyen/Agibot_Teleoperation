@@ -49,3 +49,4 @@ def save_session_log(app) -> str:
 
     print(f"[INFO] Session log written to {filepath}")
     return str(filepath)
+

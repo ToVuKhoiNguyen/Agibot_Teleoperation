@@ -48,3 +48,4 @@ After testing, bundle session metrics, test results, and git revision:
 python scripts/make_report.py
 ```
 Output is saved to `reports/report_<timestamp>.md`.
+
