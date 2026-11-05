@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>AGIBOT A2 Ultra - 3D Interactive Teleop Panel</title>
+<link rel="stylesheet" href="/static/css/panel.css?v=1730773000">
+<script src="/static/js/three.min.js"></script>
+<script src="/static/js/OrbitControls.js"></script>
+<script src="/static/js/TransformControls.js"></script>
+<script src="/static/js/STLLoader.js"></script>
+</head>
+<body>
+
+<div id="app-container">
+  <!-- 3D VIEWPORT -->
+  <div id="viewport-container">
+    <div class="viewport-overlay">
+      <div class="viewport-title">
+        <span>🤖 AGIBOT A2 Ultra - 3D Digital Twin</span>
+        <span id="sync-badge" class="tag tag-warn">SYNCING</span>
+      </div>
+      <div class="viewport-sub">MuJoCo Source of Truth • 25 Hz Stream • Drag Markers or Click Hands</div>
+    </div>
+    
+    <div class="viewport-controls-hud" id="viewport-hud">
+      <span style="font-size:0.75rem; color:#8fa0be; font-weight:bold;">Gizmo:</span>
+      <button id="gizmo-mode-both" class="active" onclick="setGizmoMode('both')" title="Shortcut: R">Both (R)</button>
+      <button id="gizmo-mode-trans" onclick="setGizmoMode('translate')" title="Shortcut: W">Translate (W)</button>
+      <button id="gizmo-mode-rot" onclick="setGizmoMode('rotate')" title="Shortcut: E">Rotate (E)</button>
+      <button id="gizmo-space-btn" onclick="toggleGizmoSpace()" title="Shortcut: Q">Space: World (Q)</button>
+      <button onclick="adjustGizmoSize(-0.05)" title="Decrease gizmo size">- Size</button>
+      <button onclick="adjustGizmoSize(0.05)" title="Increase gizmo size">+ Size</button>
+      <span style="color:#3c4b69;">|</span>
+      <button id="btn-toggle-gizmo-l" class="active" onclick="toggleActiveGizmo('left')">Left Marker</button>
+      <button id="btn-toggle-gizmo-r" class="active" onclick="toggleActiveGizmo('right')">Right Marker</button>
+      <button onclick="resetMarkerToWrist('left')" title="Snap left marker to actual wrist">Reset L</button>
+      <button onclick="resetMarkerToWrist('right')" title="Snap right marker to actual wrist">Reset R</button>
+      <label style="font-size:0.75rem; color:#8fa0be; display:flex; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" id="chk-follow-wrist" onchange="toggleFollowWrist(this.checked)"> Follow actual
+      </label>
+      <label style="font-size:0.75rem; color:#8fa0be; display:flex; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" id="chk-xr-rot" checked onchange="toggleXRRotation(this.checked)"> XR 6D Rot
+      </label>
+      <button onclick="resetCameraView()">Reset Cam</button>
+      <button id="btn-enter-vr" style="display:none;" onclick="enterVRDirectly()">Enter VR (Quest)</button>
+      <div id="gizmo-feedback" class="hud-badge" style="display:none; color:#ffb74d;"></div>
+    </div>
+    
+    <!-- DEBUG OVERLAY (?debug=1) -->
+    <div id="debug-overlay" style="display:none; position:absolute; top:48px; left:12px; z-index:99; background:rgba(10,14,23,0.88); border:1px solid #223048; border-radius:6px; padding:6px 10px; font-family:monospace; font-size:11px; color:#00e5ff; line-height:1.45; pointer-events:none; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+      <div>FPS: <b id="dbg-fps" style="color:#fff;">0</b> (<span id="dbg-frametime">0</span> ms)</div>
+      <div>Calls: <b id="dbg-calls" style="color:#fff;">0</b> | Tris: <b id="dbg-tris" style="color:#fff;">0</b></div>
+      <div>DPR: <b id="dbg-dpr" style="color:#fff;">1.0</b> | Quality: <b id="dbg-quality" style="color:#fff;">low</b></div>
+      <div>Stream: <b id="dbg-rate" style="color:#fff;">0</b> Hz | Age: <b id="dbg-age" style="color:#fff;">0</b> ms</div>
+    </div>
+
+    <!-- CORNER VR BUTTON (Shown only if immersive-vr supported) -->
+    <button id="btn-vr-corner" style="display:none; position:absolute; bottom:16px; right:16px; z-index:100; padding:8px 18px; background:#00c853; color:#fff; border:1px solid #00e676; border-radius:6px; font-weight:bold; font-size:14px; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.5);" onclick="enterVRDirectly()">VR</button>
+    <div id="vr-error-overlay" style="display:none; position:absolute; bottom:56px; right:16px; z-index:100; padding:6px 10px; background:rgba(211,47,47,0.9); color:#fff; border-radius:4px; font-size:12px; max-width:280px; word-break:break-all;"></div>
+
+    <div id="mesh-progress-bar-container">
+      <div id="mesh-progress-bar"></div>
+    </div>
+    <canvas id="canvas3d"></canvas>
+  </div>
+
+  <!-- RIGHT CONTROL SIDEBAR -->
+  <div id="sidebar">
+    <div class="panel-header">
+      <span style="font-weight: bold; font-size: 0.95rem; color: #00d2ff;">Control Interface</span>
+      <div style="display:flex; gap:4px; align-items:center;">
+        <span id="input-src-tag" class="tag tag-ok">INPUT: MOUSE</span>
+        <span id="sim-tag" class="tag tag-ok">SIM: OK</span>
+        <span id="xr-tag" class="tag tag-warn">XR: IDLE</span>
+        <span id="estop-tag" class="tag tag-ok">ESTOP: OFF</span>
+        <span id="conn-tag" class="tag tag-warn">Connecting...</span>
+      </div>
+    </div>
+
+    <!-- PRESETS & SAFETY -->
+    <div class="card">
+      <h2>Preset Motions & Demos</h2>
+      <button class="btn-estop" id="btn_estop" onclick="sendCmd({cmd:'estop'})">EMERGENCY STOP</button>
+      <button class="btn-clear" id="btn_clear_estop" onclick="sendCmd({cmd:'clear_estop'})">Clear E-STOP / Resume</button>
+      <div style="display:flex; gap:6px; margin-top:6px; margin-bottom:8px;">
+        <button style="flex:1;" onclick="sendCmd({cmd:'hold_toggle'})">Toggle Hold</button>
+        <button style="flex:1;" onclick="sendCmd({cmd:'reset'})">Reset (instant)</button>
+        <button style="flex:1; background:#1b4d3e; border-color:#2e7d32;" onclick="sendCmd({cmd:'preset', pose:'home'})">Go Home (smooth)</button>
+      </div>
+      <div class="btn-grid">
+        <button onclick="sendCmd({cmd:'preset', pose:'home'})">Home</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'forward'})">Arms Fwd</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'up'})">Arms Up</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'tpose'})">T-Pose</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'wave'})">Wave (3s)</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'circle'})">Arms Circle</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'grasp'})">Grasp Demo</button>
+        <button onclick="sendCmd({cmd:'walk_demo'})" style="background:#284332;border-color:#4caf50;">Walk Demo</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'stop'})" style="background:#522828;">Stop Seq</button>
+      </div>
+    </div>
+
+    <!-- LEFT ARM & HAND -->
+    <div class="card">
+      <h2>Left Arm & Hand</h2>
+      <div class="slider-row">
+        <span>XYZ Step:</span>
+        <input type="range" id="step_xyz_l" min="1" max="10" value="2">
+        <span id="step_xyz_l_val">2 cm</span>
+      </div>
+      <div class="btn-grid">
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"x","dir":1}'>+X (Fwd)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"y","dir":1}'>+Y (Left)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"z","dir":1}'>+Z (Up)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"x","dir":-1}'>-X (Back)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"y","dir":-1}'>-Y (Right)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"z","dir":-1}'>-Z (Down)</button>
+      </div>
+      <div class="slider-row">
+        <span>RPY Step:</span>
+        <input type="range" id="step_rpy_l" min="1" max="15" value="5">
+        <span id="step_rpy_l_val">5°</span>
+      </div>
+      <div class="btn-grid">
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"roll","dir":1}'>+Roll</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"pitch","dir":1}'>+Pitch</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"yaw","dir":1}'>+Yaw</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"roll","dir":-1}'>-Roll</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"pitch","dir":-1}'>-Pitch</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"left","axis":"yaw","dir":-1}'>-Yaw</button>
+      </div>
+      <div class="btn-grid" style="margin-top:6px;">
+        <button onclick="sendCmd({cmd:'hand','arm':'left','action':'open'})">Open</button>
+        <button onclick="sendCmd({cmd:'hand','arm':'left','action':'close'})">Close</button>
+        <button onclick="sendCmd({cmd:'hand','arm':'left','action':'pinch'})">Pinch</button>
+      </div>
+      <div class="slider-row">
+        <span>Hand Close:</span>
+        <input type="range" id="slider_hand_l" min="0" max="100" value="0">
+        <span id="slider_hand_l_val">0%</span>
+      </div>
+    </div>
+
+    <!-- RIGHT ARM & HAND -->
+    <div class="card">
+      <h2>Right Arm & Hand</h2>
+      <div class="slider-row">
+        <span>XYZ Step:</span>
+        <input type="range" id="step_xyz_r" min="1" max="10" value="2">
+        <span id="step_xyz_r_val">2 cm</span>
+      </div>
+      <div class="btn-grid">
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"x","dir":1}'>+X (Fwd)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"y","dir":1}'>+Y (Left)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"z","dir":1}'>+Z (Up)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"x","dir":-1}'>-X (Back)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"y","dir":-1}'>-Y (Right)</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"z","dir":-1}'>-Z (Down)</button>
+      </div>
+      <div class="slider-row">
+        <span>RPY Step:</span>
+        <input type="range" id="step_rpy_r" min="1" max="15" value="5">
+        <span id="step_rpy_r_val">5°</span>
+      </div>
+      <div class="btn-grid">
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"roll","dir":1}'>+Roll</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"pitch","dir":1}'>+Pitch</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"yaw","dir":1}'>+Yaw</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"roll","dir":-1}'>-Roll</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"pitch","dir":-1}'>-Pitch</button>
+        <button class="repeatable" data-cmd='{"cmd":"arm_jog","arm":"right","axis":"yaw","dir":-1}'>-Yaw</button>
+      </div>
+      <div class="btn-grid" style="margin-top:6px;">
+        <button onclick="sendCmd({cmd:'hand','arm':'right','action':'open'})">Open</button>
+        <button onclick="sendCmd({cmd:'hand','arm':'right','action':'close'})">Close</button>
+        <button onclick="sendCmd({cmd:'hand','arm':'right','action':'pinch'})">Pinch</button>
+      </div>
+      <div class="slider-row">
+        <span>Hand Close:</span>
+        <input type="range" id="slider_hand_r" min="0" max="100" value="0">
+        <span id="slider_hand_r_val">0%</span>
+      </div>
+    </div>
+
+    <!-- QUEST CONTROLLER STATUS -->
+    <div class="card" id="card-quest-status">
+      <h2>🎮 Controller Status</h2>
+      <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:6px; color:#90a4ae;">
+        <span>Packets: <b id="xr_pkt_cnt" style="color:#fff;">0</b></span>
+        <span>Rate: <b id="xr_rate" style="color:#fff;">0 Hz</b></span>
+        <span>Age: <b id="xr_age" style="color:#4caf50;">0 ms</b></span>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; font-size:10px;">
+        <!-- Left Controller -->
+        <div style="background:#101722; padding:5px; border-radius:4px; border:1px solid #1e3a5f;">
+          <div style="font-weight:bold; color:#64b5f6; display:flex; justify-content:space-between; align-items:center;">
+            <span>LEFT</span>
+            <span id="xr_clutch_l" class="badge-clutch" style="background:#37474f; color:#eceff1; padding:1px 4px; border-radius:3px; font-size:9px;">LOCKED</span>
+          </div>
+          <div style="margin-top:3px; font-size:9px;">Grasp: <b id="xr_grasp_l" style="color:#ffb74d;">CYLINDER</b></div>
+          <div style="display:flex; align-items:center; gap:3px; margin-top:2px;">
+            <span style="width:24px;">Grip:</span>
+            <div style="flex:1; background:#1c2533; height:6px; border-radius:3px; overflow:hidden;">
+              <div id="xr_bar_grip_l" style="width:0%; height:100%; background:#2196f3;"></div>
+            </div>
+            <span id="xr_val_grip_l" style="width:22px; text-align:right;">0%</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:3px; margin-top:2px;">
+            <span style="width:24px;">Trig:</span>
+            <div style="flex:1; background:#1c2533; height:6px; border-radius:3px; overflow:hidden;">
+              <div id="xr_bar_trig_l" style="width:0%; height:100%; background:#00bcd4;"></div>
+            </div>
+            <span id="xr_val_trig_l" style="width:22px; text-align:right;">0%</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:3px;">
+            <div style="display:flex; gap:2px;">
+              <span id="xr_btn_x" class="btn-ind">X</span>
+              <span id="xr_btn_y" class="btn-ind">Y</span>
+              <span id="xr_btn_menul" class="btn-ind" title="Menu button (may be system reserved)">M</span>
+            </div>
+            <span id="xr_prec_l" style="display:none; font-size:8px; background:#00838f; color:#fff; padding:1px 2px; border-radius:2px;">PREC 0.3x</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-top:3px; font-size:9px;">
+            <span>Close: <b id="xr_close_l">0%</b></span>
+            <span>Stick: <b id="xr_stick_l">0, 0</b></span>
+          </div>
+          <div id="xr_home_box_l" style="display:none; margin-top:3px;">
+            <div style="font-size:9px; color:#ff9800;">Hold Home:</div>
+            <div style="background:#1c2533; height:4px; border-radius:2px; overflow:hidden;">
+              <div id="xr_home_bar_l" style="width:0%; height:100%; background:#ff9800;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Controller -->
+        <div style="background:#101722; padding:5px; border-radius:4px; border:1px solid #1e3a5f;">
+          <div style="font-weight:bold; color:#81c784; display:flex; justify-content:space-between; align-items:center;">
+            <span>RIGHT</span>
+            <span id="xr_clutch_r" class="badge-clutch" style="background:#37474f; color:#eceff1; padding:1px 4px; border-radius:3px; font-size:9px;">LOCKED</span>
+          </div>
+          <div style="margin-top:3px; font-size:9px;">Grasp: <b id="xr_grasp_r" style="color:#ffb74d;">CYLINDER</b></div>
+          <div style="display:flex; align-items:center; gap:3px; margin-top:2px;">
+            <span style="width:24px;">Grip:</span>
+            <div style="flex:1; background:#1c2533; height:6px; border-radius:3px; overflow:hidden;">
+              <div id="xr_bar_grip_r" style="width:0%; height:100%; background:#4caf50;"></div>
+            </div>
+            <span id="xr_val_grip_r" style="width:22px; text-align:right;">0%</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:3px; margin-top:2px;">
+            <span style="width:24px;">Trig:</span>
+            <div style="flex:1; background:#1c2533; height:6px; border-radius:3px; overflow:hidden;">
+              <div id="xr_bar_trig_r" style="width:0%; height:100%; background:#8bc34a;"></div>
+            </div>
+            <span id="xr_val_trig_r" style="width:22px; text-align:right;">0%</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:3px;">
+            <div style="display:flex; gap:2px;">
+              <span id="xr_btn_a" class="btn-ind">A</span>
+              <span id="xr_btn_b" class="btn-ind">B</span>
+              <span id="xr_btn_menur" class="btn-ind" title="Menu button (may be system reserved)">M</span>
+            </div>
+            <span id="xr_prec_r" style="display:none; font-size:8px; background:#00838f; color:#fff; padding:1px 2px; border-radius:2px;">PREC 0.3x</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-top:3px; font-size:9px;">
+            <span>Close: <b id="xr_close_r">0%</b></span>
+            <span>Stick: <b id="xr_stick_r">0, 0</b></span>
+          </div>
+          <div id="xr_home_box_r" style="display:none; margin-top:3px;">
+            <div style="font-size:9px; color:#ff9800;">Hold Home:</div>
+            <div style="background:#1c2533; height:4px; border-radius:2px; overflow:hidden;">
+              <div id="xr_home_bar_r" style="width:0%; height:100%; background:#ff9800;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Last 8 Events Log -->
+      <div style="margin-top:5px;">
+        <div style="font-size:9px; color:#78909c; margin-bottom:2px;">Last Events:</div>
+        <div id="xr_events_log" style="background:#070a0e; border:1px solid #1a2533; border-radius:3px; padding:3px 5px; font-family:monospace; font-size:9px; height:50px; overflow-y:auto; color:#90a4ae;">
+          <div>-- Ready --</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HAND / FINGER TEST -->
+    <div class="card" id="card-hand-test">
+      <h2>✋ Hand / Finger Test</h2>
+      <div style="display:flex; gap:4px; margin-bottom:6px;">
+        <button id="hand_tab_l" class="tab-btn active-tab" onclick="selectHandTab('left')" style="flex:1;">Left Hand</button>
+        <button id="hand_tab_r" class="tab-btn" onclick="selectHandTab('right')" style="flex:1;">Right Hand</button>
+      </div>
+
+      <!-- Grasp Presets -->
+      <div style="font-size:10px; color:#90a4ae; margin-bottom:3px;">Grasp Presets:</div>
+      <div class="btn-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom:5px;">
+        <button onclick="sendHandGrasp('open')">Open</button>
+        <button onclick="sendHandGrasp('cylinder')">Close (Fist)</button>
+        <button onclick="sendHandGrasp('pinch')">Pinch</button>
+        <button onclick="sendHandGrasp('tripod')">Tripod</button>
+        <button onclick="sendHandGrasp('point')">Point</button>
+        <button onclick="sendHandGrasp('thumbs_up')">Thumbs-up</button>
+      </div>
+
+      <div class="slider-row">
+        <span>Closure:</span>
+        <input type="range" id="test_closure_slider" min="0" max="100" value="0" oninput="onHandClosureSlider(this.value)">
+        <span id="test_closure_val">0%</span>
+      </div>
+
+      <!-- Per-Finger Curls (0..1) -->
+      <div style="font-size:10px; color:#90a4ae; margin-top:5px; margin-bottom:2px;">Per-Finger Curls (0..1):</div>
+      <div id="finger_sliders_container" style="display:grid; grid-template-columns:1fr 1fr; gap:3px; font-size:10px;">
+        <div style="display:flex; align-items:center; gap:2px;"><span>Th:</span><input type="range" id="fcurl_thumb" min="0" max="100" value="0" oninput="onFingerCurlChange()"><span id="fcurl_thumb_val" style="width:20px;">0</span></div>
+        <div style="display:flex; align-items:center; gap:2px;"><span>Ix:</span><input type="range" id="fcurl_index" min="0" max="100" value="0" oninput="onFingerCurlChange()"><span id="fcurl_index_val" style="width:20px;">0</span></div>
+        <div style="display:flex; align-items:center; gap:2px;"><span>Md:</span><input type="range" id="fcurl_mid" min="0" max="100" value="0" oninput="onFingerCurlChange()"><span id="fcurl_mid_val" style="width:20px;">0</span></div>
+        <div style="display:flex; align-items:center; gap:2px;"><span>Rg:</span><input type="range" id="fcurl_ring" min="0" max="100" value="0" oninput="onFingerCurlChange()"><span id="fcurl_ring_val" style="width:20px;">0</span></div>
+        <div style="display:flex; align-items:center; gap:2px; grid-column:span 2;"><span>Pk:</span><input type="range" id="fcurl_pinky" min="0" max="100" value="0" oninput="onFingerCurlChange()"><span id="fcurl_pinky_val" style="width:20px;">0</span></div>
+      </div>
+
+      <!-- Per-Joint Active Sliders (6 active) -->
+      <div style="font-size:10px; color:#90a4ae; margin-top:6px; margin-bottom:2px;">Direct Joint Control (Safety Clamped):</div>
+      <div id="joint_sliders_container" style="font-size:9px; background:#0b1118; padding:4px; border-radius:3px; border:1px solid #1a2330;">
+        <!-- Populated dynamically via JS -->
+      </div>
+
+      <!-- Mimic Coupled Joints -->
+      <div style="font-size:10px; color:#90a4ae; margin-top:5px; margin-bottom:2px;">Coupled Mimic Joints (Read-Only):</div>
+      <div id="mimic_joints_container" style="display:grid; grid-template-columns:1fr 1fr; gap:2px; font-size:9px; background:#090d12; padding:3px; border-radius:3px; color:#80deea;">
+        <!-- thumb_2, thumb_3, index_2, middle_2, ring_2, pinky_2 -->
+      </div>
+
+      <!-- Sweep Test Controls -->
+      <div style="font-size:10px; color:#90a4ae; margin-top:6px; margin-bottom:3px;">Sweep Tests:</div>
+      <div style="display:flex; gap:3px; margin-bottom:4px;">
+        <button style="flex:2; font-size:9px; padding:4px;" onclick="sendCmd({cmd:'hand_sweep', mode:'single_joints', side:currentHandTab})">Sweep Joints (1s)</button>
+        <button style="flex:2; font-size:9px; padding:4px;" onclick="sendCmd({cmd:'hand_sweep', mode:'all_fingers', side:currentHandTab})">Sweep All (3x)</button>
+        <button style="flex:1; background:#522828; font-size:9px; padding:4px;" onclick="sendCmd({cmd:'hand_stop'})">Stop</button>
+      </div>
+      <div id="sweep_status_area" style="font-size:9px; color:#80cbc4; background:#002422; padding:3px 5px; border-radius:3px; border:1px solid #004d40;">
+        Ready
+      </div>
+    </div>
+
+
+  </div>
+</div>
+
+
+<script src="/static/js/scene.js?v=1730773000"></script>
+<script src="/static/js/gizmo.js?v=1730773000"></script>
+<script src="/static/js/raycaster.js?v=1730773000"></script>
+<script src="/static/js/robot_mesh.js?v=1730773000"></script>
+<script src="/static/js/render_stream.js?v=1730773000"></script>
+<script src="/static/js/webxr_session.js?v=1730773000"></script>
+<script src="/static/js/webxr_controllers.js?v=1730773000"></script>
+<script src="/static/js/telemetry_stream.js?v=1730773000"></script>
+<script src="/static/js/telemetry_ui.js?v=1730773000"></script>
+<script src="/static/js/panel_ui.js?v=1730773000"></script>
+</body>
+</html>

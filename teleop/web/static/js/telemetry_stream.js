@@ -1,0 +1,185 @@
+
+// ==========================================
+// 2. WEBSOCKET TELEMETRY & COMMAND PIPELINE
+// ==========================================
+let ws = null;
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${location.host}/ws_panel`;
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    document.getElementById('conn-tag').innerText = 'Connected';
+    document.getElementById('conn-tag').className = 'tag tag-ok';
+  };
+
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      handleBinaryPoses(event.data);
+      return;
+    }
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'manifest') {
+        buildRobotHierarchy(data);
+      } else if (data.type === 'poses') {
+        applyMuJoCoPoses(data.poses);
+      } else if (data.type === 'status') {
+        updateUIStatus(data.status);
+      } else if (data.ee_l) {
+        updateUIStatus(data);
+      }
+    } catch(e) {}
+  };
+
+  ws.onclose = () => {
+    document.getElementById('conn-tag').innerText = 'Disconnected';
+    document.getElementById('conn-tag').className = 'tag tag-danger';
+    document.getElementById('sync-badge').innerText = 'DISCONNECTED (RECONNECTING...)';
+    document.getElementById('sync-badge').className = 'tag tag-danger';
+    setTimeout(connectWS, 1000);
+  };
+}
+
+function sendCmd(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  } else {
+    fetch('/api/command', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(obj)
+    }).catch(e => console.error(e));
+  }
+}
+
+function updateUIStatus(s) {
+  latestStatusData = s;
+  lastLeftClosure = s.hand_closure_l;
+  lastRightClosure = s.hand_closure_r;
+
+  // Update badges
+  const inputSrcTag = document.getElementById('input-src-tag');
+  if (inputSrcTag) {
+    const isXR = s.input_source === 'QUEST VR' || s.xr_controllers_active;
+    inputSrcTag.innerText = isXR ? 'INPUT: QUEST VR' : 'INPUT: MOUSE';
+    inputSrcTag.className = isXR ? 'tag tag-warn' : 'tag tag-ok';
+  }
+  const simTag = document.getElementById('sim-tag');
+  if (simTag) {
+    simTag.innerText = s.sim_running !== false ? 'SIM: OK' : 'SIM: STOPPED';
+    simTag.className = s.sim_running !== false ? 'tag tag-ok' : 'tag tag-danger';
+  }
+  const xrTag = document.getElementById('xr-tag');
+  if (xrTag) {
+    xrTag.innerText = s.xr_active ? 'XR: ACTIVE' : 'XR: IDLE';
+    xrTag.className = s.xr_active ? 'tag tag-ok' : 'tag tag-warn';
+  }
+  const estopTagEl = document.getElementById('estop-tag');
+  if (estopTagEl) {
+    estopTagEl.innerText = s.estop ? 'ESTOP: ACTIVE' : 'ESTOP: OFF';
+    estopTagEl.className = s.estop ? 'tag tag-danger' : 'tag tag-ok';
+  }
+
+  // Sync actual spheres
+  if (actualSphereL && s.ee_l) actualSphereL.position.set(s.ee_l[0], s.ee_l[1], s.ee_l[2]);
+  if (actualSphereR && s.ee_r) actualSphereR.position.set(s.ee_r[0], s.ee_r[1], s.ee_r[2]);
+
+  // Sync target marker positions when not dragging
+  if (!isDraggingGizmo) {
+    const clutchedL = Boolean(s.xr_grip_l || s.held);
+    const clutchedR = Boolean(s.xr_grip_r || s.held);
+
+    if (targetSphereL) {
+      const pL = (clutchedL || !followActualWrist) ? (s.tgt_l || s.ee_l) : (s.ee_l || s.tgt_l);
+      if (pL) targetSphereL.position.set(pL[0], pL[1], pL[2]);
+      const rL = (clutchedL && s.tgt_rot_l) ? s.tgt_rot_l : (s.rot_l || s.tgt_rot_l);
+      if (rL && gizmoMode !== 'rotate') {
+        const m = new THREE.Matrix4();
+        m.set(
+          rL[0][0], rL[0][1], rL[0][2], 0,
+          rL[1][0], rL[1][1], rL[1][2], 0,
+          rL[2][0], rL[2][1], rL[2][2], 0,
+          0, 0, 0, 1
+        );
+        targetSphereL.quaternion.setFromRotationMatrix(m);
+      }
+    }
+
+    if (targetSphereR) {
+      const pR = (clutchedR || !followActualWrist) ? (s.tgt_r || s.ee_r) : (s.ee_r || s.tgt_r);
+      if (pR) targetSphereR.position.set(pR[0], pR[1], pR[2]);
+      const rR = (clutchedR && s.tgt_rot_r) ? s.tgt_rot_r : (s.rot_r || s.tgt_rot_r);
+      if (rR && gizmoMode !== 'rotate') {
+        const m = new THREE.Matrix4();
+        m.set(
+          rR[0][0], rR[0][1], rR[0][2], 0,
+          rR[1][0], rR[1][1], rR[1][2], 0,
+          rR[2][0], rR[2][1], rR[2][2], 0,
+          0, 0, 0, 1
+        );
+        targetSphereR.quaternion.setFromRotationMatrix(m);
+      }
+    }
+  }
+
+  // Update HUD gizmo feedback pill (IK Error + Clamping + Collision)
+  const hudFeedback = document.getElementById('gizmo-feedback');
+  if (hudFeedback) {
+    const ikErr = (activeGizmoArm === 'left') ? (s.ik_err_l || 0.0) : (s.ik_err_r || 0.0);
+    let txt = `${activeGizmoArm.toUpperCase()} IK Err: ${ikErr.toFixed(1)} mm`;
+    if (s.collision_blocked) {
+      txt = `⚠️ Self-collision blocked (${(s.min_distance_mm || 0.0).toFixed(1)} mm)`;
+      hudFeedback.style.color = '#ff1744';
+      hudFeedback.style.borderColor = '#ff1744';
+      hudFeedback.style.backgroundColor = 'rgba(255, 23, 68, 0.2)';
+    } else if (s.hand_collision_blocked) {
+      txt = `⚠️ Hand collision blocked (${(s.min_hand_distance_mm || 0.0).toFixed(1)} mm)`;
+      hudFeedback.style.color = '#ff9100';
+      hudFeedback.style.borderColor = '#ff9100';
+      hudFeedback.style.backgroundColor = 'rgba(255, 145, 0, 0.2)';
+    } else if (s.warning && s.warning.toLowerCase().includes('clamp')) {
+      txt += ` ⚠️ CLAMPED`;
+      hudFeedback.style.color = '#ff5252';
+      hudFeedback.style.borderColor = '#ff5252';
+      hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';
+    } else {
+      hudFeedback.style.color = ikErr > 15.0 ? '#ffb74d' : '#81c784';
+      hudFeedback.style.borderColor = '#32415d';
+      hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';
+    }
+    hudFeedback.innerText = txt;
+    hudFeedback.style.display = 'inline-block';
+  }
+
+  // Tint blocked wrist marker red if collision blocked
+  if (s.collision_blocked) {
+    if (activeGizmoArm === 'left' && targetSphereL) {
+      targetSphereL.material.color.setHex(0xff1744);
+      targetSphereL.material.emissive.setHex(0xb71c1c);
+    } else if (activeGizmoArm === 'right' && targetSphereR) {
+      targetSphereR.material.color.setHex(0xff1744);
+      targetSphereR.material.emissive.setHex(0xb71c1c);
+    }
+  } else {
+    if (targetSphereL) {
+      targetSphereL.material.color.setHex(0x00e676);
+      targetSphereL.material.emissive.setHex(0x00a844);
+    }
+    if (targetSphereR) {
+      targetSphereR.material.color.setHex(0x2979ff);
+      targetSphereR.material.emissive.setHex(0x1565c0);
+    }
+  }
+
+
+  // Sync sliders
+  document.getElementById('slider_hand_l').value = Math.round(s.hand_closure_l * 100);
+  document.getElementById('slider_hand_l_val').innerText = Math.round(s.hand_closure_l * 100) + '%';
+  document.getElementById('slider_hand_r').value = Math.round(s.hand_closure_r * 100);
+  document.getElementById('slider_hand_r_val').innerText = Math.round(s.hand_closure_r * 100) + '%';
+
+  if (typeof updateTelemetryUI === 'function') updateTelemetryUI(s);
+};

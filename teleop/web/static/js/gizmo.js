@@ -1,0 +1,229 @@
+function initGizmos() {
+  // Target Markers (Spheres) - mesh is transparent anchor; origin grey sphere is rendered by gizmo
+  const sphereGeo = new THREE.SphereGeometry(0.005, 8, 8);
+  const sphereMatL = new THREE.MeshStandardMaterial({ color: 0x00e676, emissive: 0x00a844, roughness: 0.3, transparent: true, opacity: 0.0, depthTest: false, visible: false });
+  targetSphereL = new THREE.Mesh(sphereGeo, sphereMatL);
+  targetSphereL.position.set(0.23457, 0.50362, 1.25004);
+  targetSphereL.quaternion.set(-0.24176, 0.81643, 0.51972, -0.06989);
+  targetSphereL.userData = { isMarker: true, side: 'left' };
+  targetSphereL.renderOrder = 900;
+  scene.add(targetSphereL);
+
+  labelSpriteL = createTextSprite('L', '#00c853');
+  labelSpriteL.position.set(0, 0, 0.025 * HANDLE_SCALE);
+  labelSpriteL.raycast = function() {};
+  targetSphereL.add(labelSpriteL);
+
+  const sphereMatR = new THREE.MeshStandardMaterial({ color: 0x2979ff, emissive: 0x1565c0, roughness: 0.3, transparent: true, opacity: 0.0, depthTest: false, visible: false });
+  targetSphereR = new THREE.Mesh(sphereGeo, sphereMatR);
+  targetSphereR.position.set(0.23457, -0.50362, 1.25004);
+  targetSphereR.quaternion.set(0.81771, -0.16138, 0.05290, 0.55001);
+  targetSphereR.userData = { isMarker: true, side: 'right' };
+  targetSphereR.renderOrder = 900;
+  scene.add(targetSphereR);
+
+  labelSpriteR = createTextSprite('R', '#1565c0');
+  labelSpriteR.position.set(0, 0, 0.025 * HANDLE_SCALE);
+  labelSpriteR.raycast = function() {};
+  targetSphereR.add(labelSpriteR);
+
+  // Actual EE feedback spheres (small translucent)
+  const actualGeo = new THREE.SphereGeometry(0.008, 12, 12);
+  const actualMatL = new THREE.MeshBasicMaterial({ color: 0x69f0ae, wireframe: true });
+  actualSphereL = new THREE.Mesh(actualGeo, actualMatL);
+  scene.add(actualSphereL);
+
+  const actualMatR = new THREE.MeshBasicMaterial({ color: 0x82b1ff, wireframe: true });
+  actualSphereR = new THREE.Mesh(actualGeo, actualMatR);
+  scene.add(actualSphereR);
+
+  // Setup Combined TransformControls with unified GIZMO_SIZE
+  // Left Marker Controls
+  transformControlsL_trans = new THREE.TransformControls(camera, renderer.domElement);
+  transformControlsL_trans.size = GIZMO_SIZE;
+  transformControlsL_trans.space = gizmoSpace;
+  transformControlsL_trans.setMode('translate');
+  transformControlsL_trans.attach(targetSphereL);
+
+  transformControlsL_rot = new THREE.TransformControls(camera, renderer.domElement);
+  transformControlsL_rot.size = GIZMO_SIZE;
+  transformControlsL_rot.space = gizmoSpace;
+  transformControlsL_rot.setMode('rotate');
+  transformControlsL_rot.attach(targetSphereL);
+
+  setupGizmoPair(transformControlsL_trans, transformControlsL_rot, targetSphereL, 'left');
+  addGizmoToScene(transformControlsL_trans);
+  addGizmoToScene(transformControlsL_rot);
+
+  // Right Marker Controls
+  transformControlsR_trans = new THREE.TransformControls(camera, renderer.domElement);
+  transformControlsR_trans.size = GIZMO_SIZE;
+  transformControlsR_trans.space = gizmoSpace;
+  transformControlsR_trans.setMode('translate');
+  transformControlsR_trans.attach(targetSphereR);
+
+  transformControlsR_rot = new THREE.TransformControls(camera, renderer.domElement);
+  transformControlsR_rot.size = GIZMO_SIZE;
+  transformControlsR_rot.space = gizmoSpace;
+  transformControlsR_rot.setMode('rotate');
+  transformControlsR_rot.attach(targetSphereR);
+
+  setupGizmoPair(transformControlsR_trans, transformControlsR_rot, targetSphereR, 'right');
+  addGizmoToScene(transformControlsR_trans);
+  addGizmoToScene(transformControlsR_rot);
+
+  // Backwards-compatible aliases
+  transformControlsL = transformControlsL_trans;
+  transformControlsR = transformControlsR_trans;
+
+  // Initial visibility update according to default mode ('both')
+  updateGizmoVisibility();
+
+  // Hand click & marker selection raycaster
+  renderer.domElement.addEventListener('pointerdown', onCanvasPointerDown);
+
+  // Keyboard shortcuts: W = translate, E = rotate, R = both (default), Q = toggle local/world
+  window.addEventListener('keydown', onKeyDown);
+
+  window.addEventListener('resize', onWindowResize);
+  animate();
+}
+
+
+
+function setupGizmoPair(transCtrl, rotCtrl, targetObj, arm) {
+  configureGizmo(transCtrl);
+  configureGizmo(rotCtrl);
+
+  renderer.domElement.addEventListener('pointerdown', function(e) {
+    if (transCtrl.axis && rotCtrl.axis) {
+      if ((transCtrl.intersectDistance || 0) <= (rotCtrl.intersectDistance || 0)) {
+        rotCtrl.axis = null;
+      } else {
+        transCtrl.axis = null;
+      }
+    }
+  }, true);
+
+  transCtrl.addEventListener('dragging-changed', function(e) {
+    orbitControls.enabled = !e.value;
+    rotCtrl.enabled = !e.value;
+    isDraggingGizmo = e.value;
+    if (e.value) activeGizmoArm = arm;
+    if (!e.value) flushTargetUpdates();
+  });
+
+  rotCtrl.addEventListener('dragging-changed', function(e) {
+    orbitControls.enabled = !e.value;
+    transCtrl.enabled = !e.value;
+    isDraggingGizmo = e.value;
+    if (e.value) activeGizmoArm = arm;
+    if (!e.value) flushTargetUpdates();
+  });
+
+  transCtrl.addEventListener('objectChange', function() {
+    queueTargetUpdate(arm, targetObj.position, targetObj.quaternion);
+  });
+
+  rotCtrl.addEventListener('objectChange', function() {
+    queueTargetUpdate(arm, targetObj.position, targetObj.quaternion);
+  });
+}
+
+function configureGizmo(ctrl) {
+  ctrl.renderOrder = 950;
+  ctrl.traverse(function(child) {
+    if (child.material) {
+      child.material.depthTest = false;
+      child.material.depthWrite = false;
+      child.material.transparent = true;
+      child.renderOrder = 950;
+    }
+  });
+}
+
+function addGizmoToScene(ctrl) {
+  if (typeof ctrl.getHelper === 'function') {
+    scene.add(ctrl.getHelper());
+  }
+  scene.add(ctrl);
+}
+
+function onKeyDown(event) {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+  const key = event.key.toUpperCase();
+  if (key === 'W') {
+    setGizmoMode('translate');
+  } else if (key === 'E') {
+    setGizmoMode('rotate');
+  } else if (key === 'R') {
+    setGizmoMode('both');
+  } else if (key === 'Q') {
+    toggleGizmoSpace();
+  }
+}
+
+function resetCameraView() {
+  camera.position.set(1.8, -1.8, 1.4);
+  orbitControls.target.set(0.2, 0.0, 1.0);
+  orbitControls.update();
+}
+
+function setGizmoMode(mode) {
+  gizmoMode = mode; // 'both' | 'translate' | 'rotate'
+  updateGizmoVisibility();
+  const bBoth = document.getElementById('gizmo-mode-both');
+  const bTrans = document.getElementById('gizmo-mode-trans');
+  const bRot = document.getElementById('gizmo-mode-rot');
+  if (bBoth) bBoth.classList.toggle('active', mode === 'both');
+  if (bTrans) bTrans.classList.toggle('active', mode === 'translate');
+  if (bRot) bRot.classList.toggle('active', mode === 'rotate');
+}
+
+function updateGizmoVisibility() {
+  const showTrans = (gizmoMode === 'both' || gizmoMode === 'translate');
+  const showRot = (gizmoMode === 'both' || gizmoMode === 'rotate');
+
+  const visL = (showGizmoL !== false);
+  const visR = (showGizmoR !== false);
+
+  if (transformControlsL_trans) {
+    transformControlsL_trans.visible = showTrans && visL;
+    transformControlsL_trans.enabled = showTrans && visL;
+  }
+  if (transformControlsL_rot) {
+    transformControlsL_rot.visible = showRot && visL;
+    transformControlsL_rot.enabled = showRot && visL;
+  }
+  if (transformControlsR_trans) {
+    transformControlsR_trans.visible = showTrans && visR;
+    transformControlsR_trans.enabled = showTrans && visR;
+  }
+  if (transformControlsR_rot) {
+    transformControlsR_rot.visible = showRot && visR;
+    transformControlsR_rot.enabled = showRot && visR;
+  }
+}
+
+function toggleGizmoSpace() {
+  gizmoSpace = (gizmoSpace === 'world') ? 'local' : 'world';
+  if (transformControlsL_trans) transformControlsL_trans.setSpace(gizmoSpace);
+  if (transformControlsL_rot) transformControlsL_rot.setSpace(gizmoSpace);
+  if (transformControlsR_trans) transformControlsR_trans.setSpace(gizmoSpace);
+  if (transformControlsR_rot) transformControlsR_rot.setSpace(gizmoSpace);
+  const btn = document.getElementById('gizmo-space-btn');
+  if (btn) {
+    btn.innerText = `Space: ${gizmoSpace.charAt(0).toUpperCase() + gizmoSpace.slice(1)} (Q)`;
+    btn.classList.toggle('active', gizmoSpace === 'local');
+  }
+  sceneNeedsRender = true;
+}
+
+function adjustGizmoSize(delta) {
+  GIZMO_SIZE = Math.max(0.15, Math.min(1.2, GIZMO_SIZE + delta));
+  if (transformControlsL_trans) transformControlsL_trans.size = GIZMO_SIZE;
+  if (transformControlsL_rot) transformControlsL_rot.size = GIZMO_SIZE;
+  if (transformControlsR_trans) transformControlsR_trans.size = GIZMO_SIZE;
+  if (transformControlsR_rot) transformControlsR_rot.size = GIZMO_SIZE;
+  sceneNeedsRender = true;
+}
