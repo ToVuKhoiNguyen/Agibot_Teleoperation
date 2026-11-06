@@ -6,8 +6,10 @@ let activeJointSlidersCreatedFor = '';
 
 function selectHandTab(side) {
   currentHandTab = side;
-  document.getElementById('hand_tab_l').className = side === 'left' ? 'tab-btn active-tab' : 'tab-btn';
-  document.getElementById('hand_tab_r').className = side === 'right' ? 'tab-btn active-tab' : 'tab-btn';
+  const tabL = document.getElementById('hand_tab_l');
+  if (tabL) tabL.className = side === 'left' ? 'tab-btn active-tab' : 'tab-btn';
+  const tabR = document.getElementById('hand_tab_r');
+  if (tabR) tabR.className = side === 'right' ? 'tab-btn active-tab' : 'tab-btn';
   activeJointSlidersCreatedFor = '';
   if (latestStatusData && latestStatusData.hand_status) {
     const sideHs = latestStatusData.hand_status[side];
@@ -18,27 +20,34 @@ function selectHandTab(side) {
 
 function sendHandGrasp(type) {
   currentGraspType = type;
-  const closure = parseFloat(document.getElementById('test_closure_slider').value) / 100.0;
+  const slider = document.getElementById('test_closure_slider');
+  const closure = slider ? parseFloat(slider.value) / 100.0 : 0.0;
   sendCmd({ cmd: 'hand_grasp', side: currentHandTab, grasp: type, closure: closure });
 }
 
 function onHandClosureSlider(val) {
-  document.getElementById('test_closure_val').innerText = val + '%';
+  const out = document.getElementById('test_closure_val');
+  if (out) out.innerText = val + '%';
   const closure = parseFloat(val) / 100.0;
   sendCmd({ cmd: 'hand_grasp', side: currentHandTab, grasp: currentGraspType, closure: closure });
 }
 
 function onFingerCurlChange() {
-  const cThumb = parseFloat(document.getElementById('fcurl_thumb').value) / 100.0;
-  const cIndex = parseFloat(document.getElementById('fcurl_index').value) / 100.0;
-  const cMid = parseFloat(document.getElementById('fcurl_mid').value) / 100.0;
-  const cRing = parseFloat(document.getElementById('fcurl_ring').value) / 100.0;
-  const cPinky = parseFloat(document.getElementById('fcurl_pinky').value) / 100.0;
-  document.getElementById('fcurl_thumb_val').innerText = Math.round(cThumb * 100);
-  document.getElementById('fcurl_index_val').innerText = Math.round(cIndex * 100);
-  document.getElementById('fcurl_mid_val').innerText = Math.round(cMid * 100);
-  document.getElementById('fcurl_ring_val').innerText = Math.round(cRing * 100);
-  document.getElementById('fcurl_pinky_val').innerText = Math.round(cPinky * 100);
+  const elT = document.getElementById('fcurl_thumb');
+  const elI = document.getElementById('fcurl_index');
+  const elM = document.getElementById('fcurl_mid');
+  const elR = document.getElementById('fcurl_ring');
+  const elP = document.getElementById('fcurl_pinky');
+  const cThumb = elT ? parseFloat(elT.value) / 100.0 : 0.0;
+  const cIndex = elI ? parseFloat(elI.value) / 100.0 : 0.0;
+  const cMid = elM ? parseFloat(elM.value) / 100.0 : 0.0;
+  const cRing = elR ? parseFloat(elR.value) / 100.0 : 0.0;
+  const cPinky = elP ? parseFloat(elP.value) / 100.0 : 0.0;
+  const outT = document.getElementById('fcurl_thumb_val'); if (outT) outT.innerText = Math.round(cThumb * 100);
+  const outI = document.getElementById('fcurl_index_val'); if (outI) outI.innerText = Math.round(cIndex * 100);
+  const outM = document.getElementById('fcurl_mid_val'); if (outM) outM.innerText = Math.round(cMid * 100);
+  const outR = document.getElementById('fcurl_ring_val'); if (outR) outR.innerText = Math.round(cRing * 100);
+  const outP = document.getElementById('fcurl_pinky_val'); if (outP) outP.innerText = Math.round(cPinky * 100);
   sendCmd({ cmd: 'hand_curls', side: currentHandTab, curls: [cThumb, cIndex, cMid, cRing, cPinky], pinch: 0.0 });
 }
 
@@ -89,20 +98,26 @@ function updateMimicJointsUI(sideHs) {
 ['step_xyz_l', 'step_xyz_r'].forEach(id => {
   const el = document.getElementById(id);
   const out = document.getElementById(id + '_val');
-  el.addEventListener('input', () => { out.innerText = el.value + ' cm'; });
+  if (el && out) el.addEventListener('input', () => { out.innerText = el.value + ' cm'; });
 });
 ['step_rpy_l', 'step_rpy_r'].forEach(id => {
   const el = document.getElementById(id);
   const out = document.getElementById(id + '_val');
-  el.addEventListener('input', () => { out.innerText = el.value + '°'; });
+  if (el && out) el.addEventListener('input', () => { out.innerText = el.value + '°'; });
 });
 
-document.getElementById('slider_hand_l').addEventListener('input', (e) => {
-  sendCmd({cmd: 'hand', arm: 'left', action: 'slider', value: e.target.value / 100.0});
-});
-document.getElementById('slider_hand_r').addEventListener('input', (e) => {
-  sendCmd({cmd: 'hand', arm: 'right', action: 'slider', value: e.target.value / 100.0});
-});
+const sliderHandL = document.getElementById('slider_hand_l');
+if (sliderHandL) {
+  sliderHandL.addEventListener('input', (e) => {
+    sendCmd({cmd: 'hand', arm: 'left', action: 'slider', value: e.target.value / 100.0});
+  });
+}
+const sliderHandR = document.getElementById('slider_hand_r');
+if (sliderHandR) {
+  sliderHandR.addEventListener('input', (e) => {
+    sendCmd({cmd: 'hand', arm: 'right', action: 'slider', value: e.target.value / 100.0});
+  });
+}
 
 // Hold-to-repeat buttons
 let repeatTimer = null;

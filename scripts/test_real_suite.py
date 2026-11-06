@@ -103,7 +103,7 @@ def test_single_joint_motion():
     t_spin = threading.Thread(target=executor.spin, daemon=True)
     t_spin.start()
 
-    time.sleep(0.3)
+    time.sleep(1.0)
 
     # Run sign check on joint 3 (Left Arm J4 Elbow) non-interactively
     vpy = str(PROJECT_ROOT / "venv" / "bin" / "python")
@@ -189,8 +189,13 @@ def test_fault_banner_and_screenshot():
     shot_path = shots_dir / "fault.png"
 
     try:
-        # Wait for server ready
-        time.sleep(2.5)
+        t0 = time.time()
+        while time.time() - t0 < 8.0:
+            try:
+                import urllib.request
+                with urllib.request.urlopen(f"https://127.0.0.1:{port}/health", context=ssl._create_unverified_context(), timeout=0.5) as r:
+                    if r.status == 200: break
+            except Exception: time.sleep(0.3)
 
         # Trigger simulated hardware fault on running server via python command injection
         # or simulate in web page

@@ -23,6 +23,9 @@ TESTS=(
   "scripts/test_web_sync.py"
   "scripts/test_panel_api.py"
   "scripts/test_xr_controllers.py"
+  "scripts/test_handtracking.py"
+  "scripts/test_xr_inputsources.py"
+  "scripts/test_fault_diagnosis.py"
 )
 
 TOTAL=${#TESTS[@]}
@@ -40,6 +43,9 @@ echo "==========================================================================
 
 for test in "${TESTS[@]}"; do
   test_name=$(basename "$test")
+  pkill -9 -f "python.*main.py" 2>/dev/null || true
+  fuser -k 8012/tcp >/dev/null 2>&1 || true
+  sleep 1.5
   echo -e "\n>>> RUNNING: $test_name ..."
   t_start=$(date +%s%N)
   
@@ -55,6 +61,7 @@ for test in "${TESTS[@]}"; do
   elapsed_ms=$(( (t_end - t_start) / 1000000 ))
   elapsed_s=$(awk -v ms="$elapsed_ms" 'BEGIN { printf "%.2f", ms / 1000 }')
   TIMES["$test_name"]="${elapsed_s}s"
+  sleep 1
 done
 
 echo ""
@@ -72,7 +79,7 @@ for test in "${TESTS[@]}"; do
 done
 
 echo "+--------------------------------+------------+--------------+"
-echo "Summary: $PASSED / $TOTAL passed ($FAILED failed)"
+echo "Summary: $PASSED / $TOTAL passed, failed: $FAILED"
 echo "================================================================================"
 
 if [ "$FAILED" -eq 0 ]; then

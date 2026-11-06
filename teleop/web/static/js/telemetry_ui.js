@@ -1,4 +1,8 @@
 function updateTelemetryUI(s) {
+  if (s.input_mode) {
+    window.confirmedInputMode = s.input_mode;
+    if (typeof updateModeBannerUI === 'function') updateModeBannerUI();
+  }
 
   // Controller Status Updates
   if (s.xr_status) {
@@ -132,6 +136,23 @@ function updateTelemetryUI(s) {
     }
   }
 
+  // Hand-Tracking Overlay UI
+  if (s.xr_handtrack && s.xr_handtrack.active) {
+    const ht = s.xr_handtrack;
+    const clL = document.getElementById('xr_clutch_l');
+    if (clL && ht.left) {
+      clL.innerText = ht.left.clutch ? 'ENGAGED' : 'RELEASED';
+      clL.style.background = ht.left.clutch ? '#388e3c' : '#37474f';
+    }
+    const clR = document.getElementById('xr_clutch_r');
+    if (clR && ht.right) {
+      clR.innerText = ht.right.clutch ? 'ENGAGED' : 'RELEASED';
+      clR.style.background = ht.right.clutch ? '#388e3c' : '#37474f';
+    }
+    const rateEl = document.getElementById('xr_rate');
+    if (rateEl && ht.rate_hz) rateEl.innerText = `${ht.rate_hz} Hz`;
+  }
+
   // Hand / Finger Test updates
   if (s.hand_status) {
     const hs = s.hand_status;
@@ -143,4 +164,65 @@ function updateTelemetryUI(s) {
     updateMimicJointsUI(sideHs);
   }
 
+  // Live finger panel updates (Raw -> Commanded -> Actual)
+  if (s.handtrack_live) {
+    const badge = document.getElementById('hand_limit_badge');
+    if (badge) {
+      if (s.limit_indicator) {
+        badge.innerText = s.limit_indicator;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+    const barsContainer = document.getElementById('hand_live_bars');
+    const data = s.handtrack_live.right || s.handtrack_live.left;
+    if (barsContainer && data && data.raw) {
+      const names = ['Th', 'Ix', 'Mid', 'Rg', 'Pk'];
+      let html = '';
+      for (let i = 0; i < 5; i++) {
+        const rPct = Math.min(100, Math.max(0, Math.round((data.raw[i] || 0) * 100)));
+        const cPct = Math.min(100, Math.max(0, Math.round((data.cmd[i] || 0) * 100)));
+        const aPct = Math.min(100, Math.max(0, Math.round((data.act[i] || 0) * 100)));
+        html += `<div style="display:flex; align-items:center; gap:3px;">` +
+          `<span style="width:16px; color:#90a4ae;">${names[i]}:</span>` +
+          `<div style="flex:1; background:#101722; height:4px; border-radius:2px; overflow:hidden;" title="Raw: ${rPct}%"><div style="width:${rPct}%; height:100%; background:#42a5f5;"></div></div>` +
+          `<div style="flex:1; background:#101722; height:4px; border-radius:2px; overflow:hidden;" title="Cmd: ${cPct}%"><div style="width:${cPct}%; height:100%; background:#ffa726;"></div></div>` +
+          `<div style="flex:1; background:#101722; height:4px; border-radius:2px; overflow:hidden;" title="Act: ${aPct}%"><div style="width:${aPct}%; height:100%; background:#66bb6a;"></div></div>` +
+          `</div>`;
+      }
+      barsContainer.innerHTML = html;
+    }
+  }
+
+  // Live 2 Hz Hand Diagnostic Line
+  if (s.hand_diag) {
+    ['left', 'right'].forEach(side => {
+      const d = s.hand_diag[side];
+      const el = document.getElementById(side === 'left' ? 'hand_diag_l' : 'hand_diag_r');
+      if (el && d && d.mode) {
+        el.innerText = `${side[0].toUpperCase()}: mode=${d.mode} valid=${d.valid ? 'T' : 'F'} conf=${(d.conf||0).toFixed(2)} src=${d.src||'hand'} clutch=${d.clutch} palm=[${(d.palm||[0,0,0]).join(',')}] nz=${d.nz||0} flex=${(d.flex||0).toFixed(2)} upd=${d.upd ? 'T' : 'F'}`;
+      }
+    });
+  }
+
 }
+
+function recordHandDataAction() {
+  const btn = document.getElementById('btn-rec-hand');
+  if (btn) btn.innerText = 'Saving...';
+  fetch('/api/handrec', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (btn) btn.innerText = 'Saved!';
+      setTimeout(() => { if (btn) btn.innerText = 'Record Hand Data'; }, 2000);
+      console.log(`[HANDREC] Recording saved: ${data.path}`);
+    })
+    .catch(e => {
+      if (btn) btn.innerText = 'Error';
+      setTimeout(() => { if (btn) btn.innerText = 'Record Hand Data'; }, 2000);
+      console.error(`[HANDREC] Error saving hand recording: ${e}`);
+    });
+}
+window.recordHandDataAction = recordHandDataAction;
+

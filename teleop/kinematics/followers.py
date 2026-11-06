@@ -122,7 +122,7 @@ class CriticallyDampedFollower:
         self.x = np.copy(x_init) if x_init is not None else None
         self.v = np.zeros_like(self.x) if self.x is not None else None
 
-    def update(self, target: np.ndarray, dt: float = None) -> np.ndarray:
+    def update(self, target: np.ndarray, dt: float = None, target_vel: np.ndarray = None) -> np.ndarray:
         target = np.asarray(target, dtype=np.float64)
         if self.x is None:
             self.reset(target)
@@ -132,12 +132,12 @@ class CriticallyDampedFollower:
         if h <= 1e-6:
             h = 0.01
 
-        # Analytical critically damped step: zero overshoot (zeta=1.0)
+        tgt_eff = target + (2.0 / self.omega) * target_vel if target_vel is not None else target
         exp_wt = math.exp(-self.omega * h)
-        diff = self.x - target
+        diff = self.x - tgt_eff
         c1 = diff
         c2 = self.v + self.omega * diff
-        new_x = target + (c1 + c2 * h) * exp_wt
+        new_x = tgt_eff + (c1 + c2 * h) * exp_wt
         new_v = (self.v - (c1 * self.omega * self.omega + c2 * self.omega * h) * h) * exp_wt
         self.x = new_x
         self.v = new_v

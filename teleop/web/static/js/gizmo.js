@@ -158,8 +158,15 @@ function onKeyDown(event) {
     setGizmoMode('rotate');
   } else if (key === 'R') {
     setGizmoMode('both');
+    if (typeof recenterHandAction === 'function') recenterHandAction();
   } else if (key === 'Q') {
     toggleGizmoSpace();
+  } else if (key === 'C') {
+    if (typeof calibratePoseAction === 'function') calibratePoseAction();
+  } else if (key === 'T') {
+    if (typeof startHandSelfTest === 'function') startHandSelfTest();
+  } else if (key === 'L') {
+    if (typeof recordHandDataAction === 'function') recordHandDataAction();
   }
 }
 

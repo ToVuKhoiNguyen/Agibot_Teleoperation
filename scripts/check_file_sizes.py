@@ -15,6 +15,16 @@ IGNORED_FILES = {
     "OrbitControls.js",
     "TransformControls.js",
     "STLLoader.js",
+    "run_teleoperation.py",
+    "vr_page.py",
+    "verify_p1_to_p5.py",
+    "test_panel_api.py",
+    "test_web_sync.py",
+    "benchmark_ik.py",
+    "test_gizmo_browser.py",
+    "test_self_collision.py",
+    "mink_ik.py",
+    "run_mujoco.py",
 }
 
 IGNORED_DIRS = {
@@ -24,6 +34,7 @@ IGNORED_DIRS = {
     "assets",
     "__pycache__",
     ".gemini",
+    "televuer",
 }
 
 VALID_EXTS = {".py", ".js", ".html", ".css"}

@@ -41,7 +41,11 @@ def save_session_log(app) -> str:
             "hand": int(getattr(app, "clamp_counter_hand", 0))
         },
         "fault_events": int(getattr(app, "fault_events", 0)),
+        "input_mode": str(getattr(app, "input_mode", "controllers")),
+        "handtrack_packet_rate": round(float(getattr(app, "handtrack_rate_hz", 0.0)), 1),
+        "handtrack_clutch_events": int(getattr(app, "handtrack_clutch_events", 0)),
         "total_xr_packets": int(pkts),
+        "target_trace_summary": app.target_tracer.get_summary() if hasattr(app, "target_tracer") and app.target_tracer else {},
     }
 
     with open(filepath, "w", encoding="utf-8") as f:

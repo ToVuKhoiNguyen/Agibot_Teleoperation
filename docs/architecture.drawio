@@ -1,0 +1,115 @@
+<mxfile host="65bd71144e">
+    <diagram id="agibot_teleop_arch" name="AGIBOT_A2_Ultra_Architecture">
+        <mxGraphModel dx="1694" dy="1000" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" background="#ffffff" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="col_cockpit" value="" style="rounded=1;arcSize=4;dashed=1;dashPattern=6 6;strokeColor=#6c8ebf;strokeWidth=2;fillColor=#f8faff;opacity=60;whiteSpace=wrap;html=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="50" width="340" height="730" as="geometry"/>
+                </mxCell>
+                <mxCell id="col_cockpit_lbl" value="&lt;b style=&quot;font-size: 15px; color: rgb(28, 61, 90); letter-spacing: 0.8px;&quot;&gt;1. OPERATOR COCKPIT&lt;/b&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;align=center;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="65" width="310" height="42" as="geometry"/>
+                </mxCell>
+                <mxCell id="c1_quest_vr" value="&lt;b style=&quot;font-size: 15px; color: rgb(28, 61, 90);&quot;&gt;Meta Quest 3S (WebXR)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(44, 82, 130);&quot;&gt;• Dual Controllers (Trigger=Trans, Grip=Rot, 6D=Both)&lt;br&gt;• 1:1 Absolute Hand Tracking (25 XRHand Joints)&lt;br&gt;• Head Pose Tracking (Yaw/Pitch Neck Mapping)&lt;br&gt;• HUD Status, Perf Overlay &amp;amp; Panic Open&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontColor=#1c3d5a;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="130" width="310" height="290" as="geometry"/>
+                </mxCell>
+                <mxCell id="c1_pc_panel" value="&lt;b style=&quot;font-size: 15px; color: rgb(28, 61, 90);&quot;&gt;PC Web Browser (Three.js)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(44, 82, 130);&quot;&gt;• HTTPS://localhost:8012 3D Viewport&lt;br&gt;• Unified 6D PivotControls Gizmo (L/R Hand Sites)&lt;br&gt;• E-STOP, Mode Card, Presets &amp;amp; Motion Demos&lt;br&gt;• Live Hand Curvature Bars &amp;amp; Joint Diagnostics&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontColor=#1c3d5a;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="450" width="310" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="col_teleop" value="" style="rounded=1;arcSize=4;dashed=1;dashPattern=6 6;strokeColor=#b85450;strokeWidth=2;fillColor=#fff8f8;opacity=60;whiteSpace=wrap;html=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="50" width="340" height="730" as="geometry"/>
+                </mxCell>
+                <mxCell id="col_teleop_lbl" value="&lt;b style=&quot;font-size: 15px; color: rgb(127, 29, 29); letter-spacing: 0.8px;&quot;&gt;2. WEB CONTROL &amp;amp; TELEOP CORE&lt;/b&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;align=center;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="435" y="65" width="310" height="42" as="geometry"/>
+                </mxCell>
+                <mxCell id="c2_web_server" value="&lt;b style=&quot;font-size: 15px; color: rgb(127, 29, 29);&quot;&gt;HTTPS &amp;amp; WSS Server (:8012)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(153, 27, 27);&quot;&gt;Aiohttp Engine + TLS Self-Signed Certs&lt;br&gt;JSON-RPC Commands &amp;amp; Broadcast State (50Hz)&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontColor=#7f1d1d;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="435" y="130" width="310" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="c2_input_filter" value="&lt;b style=&quot;font-size: 15px; color: rgb(127, 29, 29);&quot;&gt;Input Pipeline &amp;amp; Filters&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(153, 27, 27);&quot;&gt;OneEuro Tremor Filter (Lag &amp;lt; 60ms, RMS &amp;lt; 1mm)&lt;br&gt;Deadband &amp;amp; Coordinate Alignment (XR → Robot)&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontColor=#7f1d1d;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="435" y="270" width="310" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="c2_clutch_state" value="&lt;b style=&quot;font-size: 15px; color: rgb(127, 29, 29);&quot;&gt;4-State Smart Clutch Machine&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(153, 27, 27);&quot;&gt;LOCKED | TRANSLATE | ROTATE | 6D&lt;br&gt;Zero-Jump Re-engagement &amp;amp; Precision Mode (0.3x)&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontColor=#7f1d1d;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="435" y="410" width="310" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="2" style="edgeStyle=none;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="c2_hand_retarget" target="c2_clutch_state">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="c2_hand_retarget" value="&lt;b style=&quot;font-size: 15px; color: rgb(127, 29, 29);&quot;&gt;Hand Retargeting (AgibotHand)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(153, 27, 27);&quot;&gt;6-DoF per Hand: Thumb, Index, Mid, Ring, Pinky, Swing&lt;br&gt;Raw Command Range [0..2000] &amp;amp; Grasp Presets&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontColor=#7f1d1d;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="435" y="550" width="310" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="col_safety" value="" style="rounded=1;arcSize=4;dashed=1;dashPattern=6 6;strokeColor=#529881;strokeWidth=2;fillColor=#f4faf8;opacity=60;whiteSpace=wrap;html=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="50" width="340" height="730" as="geometry"/>
+                </mxCell>
+                <mxCell id="col_safety_lbl" value="&lt;b style=&quot;font-size: 15px; color: rgb(19, 78, 74); letter-spacing: 0.8px;&quot;&gt;3. KINEMATICS &amp;amp; SAFETY LAYER&lt;/b&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#b4e4d4;strokeColor=#529881;strokeWidth=2;align=center;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="815" y="65" width="310" height="42" as="geometry"/>
+                </mxCell>
+                <mxCell id="c3_ik_solver" value="&lt;b style=&quot;font-size: 15px; color: rgb(19, 78, 74);&quot;&gt;Dual-Arm IK Solver&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(30, 102, 90);&quot;&gt;• MINK (Damped Levenberg-Marquardt with Limits)&lt;br&gt;• DLS &amp;amp; Pyroki Analytical Fallback&lt;br&gt;• SE(3) Target Poses → 14 DoF Arm Joint Angles&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#b4e4d4;strokeColor=#529881;strokeWidth=2;fontColor=#134e4a;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="815" y="130" width="310" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="c3_safety_layer" value="&lt;b style=&quot;font-size: 15px; color: rgb(19, 78, 74);&quot;&gt;SafetyLayer (5 Hardware Locks)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(30, 102, 90);&quot;&gt;🔒 L1: Joint Limits (Wrist pitch ±0.45, yaw ±0.35)&lt;br&gt;🔒 L2: Velocity Cap (0.3 rad/s, step &amp;le; max_vel·dt)&lt;br&gt;🔒 L3: 300 ms Deadman Watchdog (Auto-trip on silence)&lt;br&gt;🔒 L4: Position Deviation Gate (&amp;gt;0.05 rad for &amp;gt;200 ms)&lt;br&gt;🔒 L5: Fault Latch (Requires typed confirmation clear)&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#b4e4d4;strokeColor=#529881;strokeWidth=2;fontColor=#134e4a;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="815" y="320" width="310" height="230" as="geometry"/>
+                </mxCell>
+                <mxCell id="c3_collision_guard" value="&lt;b style=&quot;font-size: 15px; color: rgb(19, 78, 74);&quot;&gt;Self-Collision Checker&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(30, 102, 90);&quot;&gt;Capsule-Capsule Distance Check&lt;br&gt;Left Arm ↔ Right Arm &amp;amp; Arm ↔ Torso/Legs&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#b4e4d4;strokeColor=#529881;strokeWidth=2;fontColor=#134e4a;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="815" y="580" width="310" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="col_backends" value="" style="rounded=1;arcSize=4;dashed=1;dashPattern=6 6;strokeColor=#8265a6;strokeWidth=2;fillColor=#faf7fc;opacity=60;whiteSpace=wrap;html=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1180" y="50" width="370" height="730" as="geometry"/>
+                </mxCell>
+                <mxCell id="col_backends_lbl" value="&lt;b style=&quot;font-size: 15px; color: rgb(88, 28, 135); letter-spacing: 0.8px;&quot;&gt;4. BACKENDS &amp;amp; HARDWARE&lt;/b&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#d9c8e8;strokeColor=#8265a6;strokeWidth=2;align=center;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="1195" y="65" width="340" height="42" as="geometry"/>
+                </mxCell>
+                <mxCell id="c4_sim_backend" value="&lt;b style=&quot;font-size: 15px; color: rgb(88, 28, 135);&quot;&gt;MuJoCo Physics Simulation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(107, 33, 168);&quot;&gt;• 72 Visual Geoms World BBox Sync (&amp;lt; 1 mm)&lt;br&gt;• Home Keyframe Reset &amp;amp; Free-Floating Torso&lt;br&gt;• Streamed Link Poses for WebGL Digital Twin&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#d9c8e8;strokeColor=#8265a6;strokeWidth=2;fontColor=#581c87;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1195" y="130" width="340" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="c4_dryrun_backend" value="&lt;b style=&quot;font-size: 15px; color: rgb(88, 28, 135);&quot;&gt;Virtual Backends (DryRun / Replay)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(107, 33, 168);&quot;&gt;• DryRunBackend: CLI Rate/Payload Print (No HW)&lt;br&gt;• Ros2DryBackend: Zero-Actuation ROS 2 Topics&lt;br&gt;• ReplayBackend: Playback Pre-recorded Trajectory&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#d9c8e8;strokeColor=#8265a6;strokeWidth=2;fontColor=#581c87;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1195" y="310" width="340" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="c4_real_robot" value="&lt;b style=&quot;font-size: 15px; color: #b91c1c;&quot;&gt;AGIBOT A2 Ultra Real Hardware (LOCKED)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: rgb(127, 29, 29);&quot;&gt;• ROS 2 Jazzy (/motion/control/arm_*, hand_*)&lt;br&gt;• Dedicated Physical DDS Domain ID (Non-77)&lt;br&gt;• Gantry Tensioned &amp;amp; 2nd Spotter Hardware E-STOP&lt;br&gt;• Strict Typed Confirmation Required: scripts/run_real.sh&lt;/font&gt;" style="rounded=1;arcSize=10;fillColor=#fee2e2;strokeColor=#b91c1c;strokeWidth=2;fontColor=#7f1d1d;align=center;html=1;whiteSpace=wrap;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1195" y="490" width="340" height="230" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" value="WebXR State / Pos" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=2.5;fontSize=13;fontStyle=1;fontColor=#1c3d5a;fillColor=#6c8ebf;labelBackgroundColor=#ffffff;" parent="1" source="c1_quest_vr" target="c2_web_server" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" value="WebSocket Commands" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=2.5;fontSize=13;fontStyle=1;fontColor=#1c3d5a;fillColor=#6c8ebf;labelBackgroundColor=#ffffff;" parent="1" source="c1_pc_panel" target="c2_web_server" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="784" y="719"/>
+                            <mxPoint x="784" y="185"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e3" value="SE(3) Target Poses" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;strokeWidth=2.5;fontSize=13;fontStyle=1;fontColor=#7f1d1d;fillColor=#b85450;labelBackgroundColor=#fff8f8;" parent="1" source="c2_clutch_state" target="c3_ik_solver" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="590" y="759"/>
+                            <mxPoint x="1132" y="759"/>
+                            <mxPoint x="1132" y="205"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e4" value="14-DoF Joint Angles" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#529881;strokeWidth=2.5;fontSize=13;fontStyle=1;fontColor=#134e4a;fillColor=#529881;labelBackgroundColor=#f4faf8;" parent="1" source="c3_ik_solver" target="c3_safety_layer" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" value="Simulated Poses" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8265a6;strokeWidth=2.5;fontSize=13;fontStyle=1;fontColor=#581c87;fillColor=#8265a6;labelBackgroundColor=#ffffff;" parent="1" source="c3_safety_layer" target="c4_sim_backend" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" value="Verified Trajectory" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8265a6;strokeWidth=2.5;fontSize=13;fontStyle=1;fontColor=#581c87;fillColor=#8265a6;labelBackgroundColor=#ffffff;" parent="1" source="c3_safety_layer" target="c4_dryrun_backend" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e7" value="Hardware Command (LOCKED)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b91c1c;strokeWidth=2.5;fontSize=13;fontStyle=1;fontColor=#991b1b;fillColor=#fee2e2;labelBackgroundColor=#ffffff;" parent="1" source="c3_safety_layer" target="c4_real_robot" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e8" value="Digital Twin Mesh Stream (50 Hz)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8265a6;strokeWidth=2.5;fontSize=13;fontStyle=1;fontColor=#581c87;fillColor=#8265a6;labelBackgroundColor=#ffffff;" parent="1" source="c4_sim_backend" target="c1_pc_panel" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1580" y="200"/>
+                            <mxPoint x="1580" y="800"/>
+                            <mxPoint x="20" y="800"/>
+                            <mxPoint x="20" y="600"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

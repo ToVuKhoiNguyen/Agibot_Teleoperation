@@ -44,11 +44,13 @@ class OneEuroFilter:
         self.x_filt = LowPassFilter()
         self.dx_filt = LowPassFilter()
         self.last_time = None
+        self.last_x = None
 
     def reset(self):
         self.x_filt.reset()
         self.dx_filt.reset()
         self.last_time = None
+        self.last_x = None
 
     def _alpha(self, cutoff: float, dt: float) -> float:
         tau = 1.0 / (2.0 * math.pi * cutoff)
@@ -59,8 +61,9 @@ class OneEuroFilter:
         if timestamp is None:
             timestamp = time.perf_counter()
 
-        if self.last_time is None:
+        if self.last_time is None or self.last_x is None:
             self.last_time = timestamp
+            self.last_x = np.copy(x)
             self.x_filt.filter(x, 1.0)
             return x
 
@@ -69,9 +72,9 @@ class OneEuroFilter:
         if dt <= 1e-5:
             dt = 1e-4
 
-        # Compute derivative
-        prev_x = self.x_filt.y
-        dx = (x - prev_x) / dt
+        # Compute derivative of raw signal (Casiez et al.)
+        dx = (x - self.last_x) / dt
+        self.last_x = np.copy(x)
         edx = self.dx_filt.filter(dx, self._alpha(self.d_cutoff, dt))
 
         # Adaptive cutoff
@@ -106,6 +109,49 @@ class QuaternionFilter:
         interp_r = slerp([self.alpha])[0]
         self.current_rot = interp_r
         return interp_r.as_matrix()
+
+
+class OneEuroQuaternionFilter:
+    """Quaternion-aware One-Euro filter using SLERP in relative-rotation space."""
+
+    def __init__(self, min_cutoff: float = 1.5, beta: float = 0.05, d_cutoff: float = 1.0):
+        self.min_cutoff, self.beta, self.d_cutoff = float(min_cutoff), float(beta), float(d_cutoff)
+        self.current_rot, self.last_time = None, None
+        self.d_rot_filter = LowPassFilter()
+
+    def reset(self):
+        self.current_rot, self.last_time = None, None
+        self.d_rot_filter.reset()
+
+    def _alpha(self, cutoff: float, dt: float) -> float:
+        tau = 1.0 / (2.0 * math.pi * max(1e-4, cutoff))
+        return 1.0 / (1.0 + tau / max(1e-4, dt))
+
+    def filter(self, rot_mat: np.ndarray, timestamp: float = None) -> np.ndarray:
+        target_r = R.from_matrix(rot_mat)
+        now_t = timestamp if timestamp is not None else time.perf_counter()
+        if self.current_rot is None or self.last_time is None:
+            self.current_rot, self.last_time = target_r, now_t
+            return rot_mat.copy()
+
+        dt = max(1e-4, min(0.1, now_t - self.last_time))
+        self.last_time = now_t
+        q_cur, q_tgt = self.current_rot.as_quat(), target_r.as_quat()
+
+        dot = float(np.dot(q_cur, q_tgt))
+        if dot < 0.0:
+            q_tgt, dot = -q_tgt, -dot
+
+        delta_angle = 2.0 * math.acos(min(1.0, max(-1.0, dot)))
+        ang_vel = delta_angle / dt
+        d_alpha = self._alpha(self.d_cutoff, dt)
+        edx = float(self.d_rot_filter.filter(np.array([ang_vel]), d_alpha)[0])
+
+        cutoff = self.min_cutoff + self.beta * edx
+        alpha = self._alpha(cutoff, dt)
+        slerp = Slerp([0.0, 1.0], R.from_quat([q_cur, q_tgt]))
+        self.current_rot = slerp([alpha])[0]
+        return self.current_rot.as_matrix()
 
 
 class InputFilterPipeline:

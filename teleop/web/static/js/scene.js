@@ -113,31 +113,39 @@ function flushTargetUpdates() {
 }
 
 function createTextSprite(text, bgColor) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = bgColor;
-  ctx.beginPath();
-  ctx.arc(64, 64, 56, 0, 2 * Math.PI);
-  ctx.fill();
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = '#ffffff';
-  ctx.stroke();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 64px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  const canvas = document.createElement('canvas'); canvas.width = 128; canvas.height = 128;
+  const ctx = canvas.getContext('2d'); ctx.fillStyle = bgColor;
+  ctx.beginPath(); ctx.arc(64, 64, 56, 0, 2 * Math.PI); ctx.fill();
+  ctx.lineWidth = 8; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 64px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(text, 64, 66);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false });
-  const sprite = new THREE.Sprite(spriteMat);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false, depthWrite: false }));
   sprite.scale.set(0.03 * HANDLE_SCALE, 0.03 * HANDLE_SCALE, 0.03 * HANDLE_SCALE);
   sprite.renderOrder = 999;
   return sprite;
 }
+
+function updateSpriteText(sprite, text, bgColor) {
+  if (!sprite || !sprite.material) return;
+  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = bgColor || '#00e5ff';
+  if (ctx.roundRect) ctx.roundRect(4, 4, 504, 120, 12);
+  else ctx.rect(4, 4, 504, 120);
+  ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const lines = (text || '').split('\n');
+  if (lines.length === 1) { ctx.fillText(lines[0], 256, 64); }
+  else {
+    const startY = 64 - (lines.length - 1) * 14;
+    lines.forEach((l, i) => ctx.fillText(l, 256, startY + i * 28));
+  }
+  if (sprite.material.map) sprite.material.map.dispose();
+  sprite.material.map = new THREE.CanvasTexture(canvas);
+  sprite.material.needsUpdate = true;
+  sprite.scale.set(0.6, 0.15, 1.0);
+}
+window.updateSpriteText = updateSpriteText;
 
 const urlParams = new URLSearchParams(window.location.search);
 const isDebug = urlParams.get('debug') === '1';

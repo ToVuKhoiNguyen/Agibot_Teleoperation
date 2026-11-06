@@ -1,51 +1,46 @@
-# AGIBOT A2 Ultra Teleoperation Testing Guide
+# Hướng Dẫn Bộ Kiểm Thử Tự Động (Automated Testing Guide)
 
-## 1. Automated Acceptance Tests
-Run the complete acceptance suite (isolated domain 77, localhost only):
+Toàn bộ hệ thống kiểm thử được thiết kế chạy trên môi trường cục bộ hoàn toàn độc lập, sử dụng ROS 2 Domain 77 và chế độ `ROS_LOCALHOST_ONLY=1` để không bao giờ phát tán gói tin ra mạng ngoài.
+
+---
+
+## 1. Khởi Chạy Toàn Bộ Bộ Kiểm Thử (8/8 Suites)
+Chạy script tự động tổng hợp:
 ```bash
-./scripts/test_all.sh
+./scripts/run.sh test
+# hoặc
+bash scripts/test_all.sh
 ```
-All 7 test suites must report `PASS`.
 
-## 2. Interactive Simulation & Web Panel Testing
-1. Launch app: `python main.py`
-2. Open `https://localhost:8012/` in browser:
-   - **Gizmo Translation/Rotation:** Drag wrist gizmos (W/E/R). Confirm robot follows within <2 mm.
-   - **Preset Motions:** Click 'Home', 'Arms Fwd', 'Wave'. Check visual sync.
-   - **Hand Closure:** Drag 'Hand Close' slider. Confirm 5 fingers close without mesh interpenetration.
-   - **Emergency Stop:** Click 'EMERGENCY STOP'. All motion freezes immediately.
+---
 
-## 3. Meta Quest 3S VR Teleoperation Testing
-Connect headset via ADB (`adb reverse tcp:8012 tcp:8012`) and open `https://localhost:8012/`:
-1. **ENTER VR Button:** Click large green button (>=160x56 px). Verify front-facing initial view.
-2. **Translation Only:** Press and hold Index Trigger (front). Move controller; position follows, rotation locked.
-3. **Rotation Only:** Press and hold Side Grip (squeeze). Rotate controller; wrist rotates, position locked.
-4. **Full 6D Clutch:** Hold both Trigger + Grip. Verify full SE(3) tracking with zero transition jump.
-5. **Finger Flexion & Hold:** Push Thumbstick Y forward to close hand (>=60% range). Hold for 10 s; verify stable grip.
-6. **Pinch vs Close:** Cycle grasp with Thumbstick X to PINCH (only thumb + index flex).
-7. **Panic Open & Home:** Click thumbstick for instant open; hold A/X 1.5 s for smooth homing.
-8. **View Mode:** Hold both thumbstick clicks for 0.5 s. Use Right Stick X (orbit) & Y (distance).
-9. **Tracking Loss:** Cover controller tracking sensors with hand. Verify clutch releases, robot holds, and HUD shows `TRACKING LOST`. Re-clutch requires releasing both buttons.
+## 2. Chi Tiết Từng Bộ Kiểm Thử & Tiêu Chí Định Lượng
 
-## 4. Virtual Dry-Run Check
-Test locked backend without hardware:
+| Kịch bản kiểm thử | Mục tiêu kiểm định | Ngưỡng sai số định lượng |
+| :--- | :--- | :--- |
+| `test_mapping.py` | Kiểm tra thứ tự 14 DoF tay và 12 DoF ngón, URDF sign alignment | Cả 12 khớp mở $=0$; đóng $[1815..1877]$ raw; sai số $=0$ |
+| `test_ros2_backend.py` | Kiểm định độ tinh khiết không-ROS khi import, 4 cổng khóa bảo vệ | Tần số $45-55\text{ Hz}$, độ chính xác $10^{-6}$, watchdog ngắt an toàn |
+| `test_robot_safety.py` | Kiểm tra 5 tầng khóa an toàn: clamp giới hạn, vận tốc, watchdog | Cổ tay pitch $\pm 0.45$, yaw $\pm 0.35$; bước góc $\le v_{max}\cdot dt$ |
+| `test_real_suite.py` | Kiểm tra cô lập chuyển động đơn khớp, giới hạn lực đóng bàn tay | Góc dịch chuyển tối đa $\le 0.05\text{ rad}$; lực tay $\le 800$ raw |
+| `test_web_sync.py` | Đồng bộ vị trí thực tế MuJoCo và Streamed Link Poses | Sai số BBox 72 visual geoms $< 1.0\text{ mm}$; sai số link $< 1.0\text{ mm}$ |
+| `test_panel_api.py` | Kiểm tra toàn diện REST API: Jog, Preset, E-STOP, Gizmo Yaw | Sai số jog $< 2.0\%$; sai số góc $< 3.0^\circ$; dừng tức thời $0\text{ mm}$ |
+| `test_xr_controllers.py` | Kiểm tra 10 tính năng tay cầm Quest: 4-state clutch, panic open | Sai số dịch chuyển chuyển trạng thái $< 2.0\text{ mm}$, góc $< 0.5^\circ$ |
+| `test_handtracking.py` | Kiểm định theo dõi bàn tay 1:1, bộ lọc OneEuro, head yaw/pitch | Độ trễ $\le 60\text{ ms}$; nhiễu RMS $\le 1.0\text{ mm}$; giật phục hồi $< 2\text{ mm}$ |
+
+---
+
+## 3. Kiểm Thử Giao Diện Đồ Họa Headless (Playwright)
+Để kiểm tra giao diện Web 3D và các chỉ số đo lường hiệu năng FPS/Draw Calls mà không cần mở trình duyệt thật:
 ```bash
-python main.py --backend dryrun
+python scripts/test_handtracking.py
 ```
-Verify terminal prints live 50 Hz ASCII command tables with joint values and rates.
+Kịch bản tự động kích hoạt Playwright headless kết nối tới `https://localhost:8012/` (bỏ qua cảnh báo chứng chỉ SSL tự ký) và ghi nhận ảnh chụp màn hình kiểm định vào `/tmp/shots/`.
 
-## 5. Real Robot Testing (Runbook S0–S8)
-*Requires operator authorization and hardware risk unlock.*
-Follow [FIRST_CONTACT_RUNBOOK.md](file:///home/nguyen/a2_ws/docs/FIRST_CONTACT_RUNBOOK.md):
-- **S0–S2:** Physical e-stop tethered, domain 77 loopback test, zero robot network sockets (`ss -tan`).
-- **S3–S4:** Preflight script (`python scripts/preflight.py`) and home position diff check (`python scripts/ros2_compare_home.py`).
-- **S5–S6:** Single-joint direction check (`python scripts/ros2_sign_check.py`) with 0.05 rad delta cap.
-- **S7–S8:** 5-gate unlocked run (`./scripts/run_real.sh`) with 0.3 rad/s speed cap and 800 raw hand limit.
+---
 
-## 6. Generating Session Reports
-After testing, bundle session metrics, test results, and git revision:
+## 4. Tạo Báo Cáo Kết Quả Tự Động
+Để xuất báo cáo markdown tổng hợp kết quả chạy kiểm thử, độ trễ và mã băm commit Git:
 ```bash
-python scripts/make_report.py
+./scripts/run.sh report
 ```
-Output is saved to `reports/report_<timestamp>.md`.
-
+Báo cáo được lưu tự động tại thư mục `reports/report_<timestamp>.md`.

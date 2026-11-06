@@ -61,6 +61,7 @@ class UnifiedTeleopApp:
         i_accept_higher_speed: bool = False,
         hand_raw_max: int = 800,
         enable_thumb_swing: bool = False,
+        allow_handtracking_real: bool = False,
     ):
         init_subsystems(
             self,
@@ -83,6 +84,7 @@ class UnifiedTeleopApp:
             i_accept_higher_speed=i_accept_higher_speed,
             hand_raw_max=hand_raw_max,
             enable_thumb_swing=enable_thumb_swing,
+            allow_handtracking_real=allow_handtracking_real,
         )
         init_state(self, project_root=PROJECT_ROOT)
 
@@ -123,7 +125,14 @@ class UnifiedTeleopApp:
             return
 
         if name == "xr_controllers":
+            if getattr(self, "input_mode", "controllers") == "hands":
+                return  # STRICT ISOLATION: hands mode completely ignores controller/grip/trigger packets
             handle_xr_controllers_input(self, cmd)
+            return
+
+        if name in ("xr_handtrack", "xr_hands"):
+            from teleop.app.handtrack_cmd import handle_xr_handtrack_input
+            handle_xr_handtrack_input(self, cmd)
             return
 
         if handle_hand_cmd(self, name, cmd):
@@ -190,6 +199,7 @@ def main():
     parser.add_argument("--collision-avoidance", action="store_true", help="Enable mink self-collision avoidance limit")
     parser.add_argument("--no-adb", action="store_true", help="Disable automatic ADB detection and port reversal")
     parser.add_argument("--no-quest-launch", action="store_true", help="Do not automatically launch Quest browser on headset")
+    parser.add_argument("--allow-handtracking-real", action="store_true", default=False, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.headless or args.no_viewer:
@@ -219,6 +229,7 @@ def main():
         i_accept_higher_speed=args.i_accept_higher_speed,
         hand_raw_max=args.hand_raw_max,
         enable_thumb_swing=args.enable_thumb_swing,
+        allow_handtracking_real=getattr(args, "allow_handtracking_real", False),
     )
     app.run()
 

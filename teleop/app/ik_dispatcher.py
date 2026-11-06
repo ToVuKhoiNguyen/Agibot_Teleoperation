@@ -18,15 +18,19 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
     slid_blocked_l = False
     slid_blocked_r = False
 
+    is_hands = getattr(app, "input_mode", "") == "hands"
+
     if arm in ("left", "both"):
-        follow_pos_l = app.gizmo_follower_l.update(app.cur_target_pos_l, app.control_dt)
+        vel_l = getattr(app, "handtrack_vel_l", None) if is_hands else None
+        follow_pos_l = app.gizmo_follower_l.update(app.cur_target_pos_l, app.control_dt, target_vel=vel_l)
         follow_rot_l = app.gizmo_rot_follower_l.update(app.cur_target_rot_l, app.control_dt)
         slid_pos_l, slid_blocked_l = app.collision_checker.project_target_tangent(
             ee_poses["left"]["pos"], follow_pos_l, app.env.data
         )
         warm_q_l = getattr(app, "last_ik_sol_left", app.env.get_left_arm_qpos())
-        kwargs_l = {"elbow_hint": posture_hint_l} if (posture_hint_l is not None and hasattr(app.ik_left, "set_elbow_hint")) else {}
-        q_sol_l, _, _, _, _ = app.ik_left.solve(
+        hint_l = posture_hint_l if posture_hint_l is not None else (warm_q_l if is_hands else None)
+        kwargs_l = {"elbow_hint": hint_l} if (hint_l is not None and hasattr(app.ik_left, "set_elbow_hint")) else {}
+        q_sol_l, _, pos_err_l, _, _ = app.ik_left.solve(
             target_pos=slid_pos_l,
             target_rot=follow_rot_l,
             init_qpos=warm_q_l,
@@ -34,20 +38,23 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
             pos_tol=0.001, rot_tol=0.035,
             **kwargs_l
         )
+        app.last_ik_residual_l = float(pos_err_l)
         app.last_ik_sol_left = q_sol_l.copy()
-        cand_left = app.output_filter_left_gizmo.filter(q_sol_l)
+        cand_left = q_sol_l if is_hands else app.output_filter_left_gizmo.filter(q_sol_l)
     else:
         cand_left = app.last_arm_cmd_left.copy()
 
     if arm in ("right", "both"):
-        follow_pos_r = app.gizmo_follower_r.update(app.cur_target_pos_r, app.control_dt)
+        vel_r = getattr(app, "handtrack_vel_r", None) if is_hands else None
+        follow_pos_r = app.gizmo_follower_r.update(app.cur_target_pos_r, app.control_dt, target_vel=vel_r)
         follow_rot_r = app.gizmo_rot_follower_r.update(app.cur_target_rot_r, app.control_dt)
         slid_pos_r, slid_blocked_r = app.collision_checker.project_target_tangent(
             ee_poses["right"]["pos"], follow_pos_r, app.env.data
         )
         warm_q_r = getattr(app, "last_ik_sol_right", app.env.get_right_arm_qpos())
-        kwargs_r = {"elbow_hint": posture_hint_r} if (posture_hint_r is not None and hasattr(app.ik_right, "set_elbow_hint")) else {}
-        q_sol_r, _, _, _, _ = app.ik_right.solve(
+        hint_r = posture_hint_r if posture_hint_r is not None else (warm_q_r if is_hands else None)
+        kwargs_r = {"elbow_hint": hint_r} if (hint_r is not None and hasattr(app.ik_right, "set_elbow_hint")) else {}
+        q_sol_r, _, pos_err_r, _, _ = app.ik_right.solve(
             target_pos=slid_pos_r,
             target_rot=follow_rot_r,
             init_qpos=warm_q_r,
@@ -55,8 +62,9 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
             pos_tol=0.001, rot_tol=0.035,
             **kwargs_r
         )
+        app.last_ik_residual_r = float(pos_err_r)
         app.last_ik_sol_right = q_sol_r.copy()
-        cand_right = app.output_filter_right_gizmo.filter(q_sol_r)
+        cand_right = q_sol_r if is_hands else app.output_filter_right_gizmo.filter(q_sol_r)
     else:
         cand_right = app.last_arm_cmd_right.copy()
 

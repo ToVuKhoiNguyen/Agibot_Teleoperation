@@ -57,6 +57,7 @@ function sendCmd(obj) {
 
 function updateUIStatus(s) {
   latestStatusData = s;
+  window.latestTelemetry = s;
   lastLeftClosure = s.hand_closure_l;
   lastRightClosure = s.hand_closure_r;
 
@@ -176,10 +177,14 @@ function updateUIStatus(s) {
 
 
   // Sync sliders
-  document.getElementById('slider_hand_l').value = Math.round(s.hand_closure_l * 100);
-  document.getElementById('slider_hand_l_val').innerText = Math.round(s.hand_closure_l * 100) + '%';
-  document.getElementById('slider_hand_r').value = Math.round(s.hand_closure_r * 100);
-  document.getElementById('slider_hand_r_val').innerText = Math.round(s.hand_closure_r * 100) + '%';
+  const sL = document.getElementById('slider_hand_l');
+  if (sL) sL.value = Math.round(s.hand_closure_l * 100);
+  const sLv = document.getElementById('slider_hand_l_val');
+  if (sLv) sLv.innerText = Math.round(s.hand_closure_l * 100) + '%';
+  const sR = document.getElementById('slider_hand_r');
+  if (sR) sR.value = Math.round(s.hand_closure_r * 100);
+  const sRv = document.getElementById('slider_hand_r_val');
+  if (sRv) sRv.innerText = Math.round(s.hand_closure_r * 100) + '%';
 
   // Update persistent Hardware Fault Banner
   const faultBanner = document.getElementById('fault-banner');

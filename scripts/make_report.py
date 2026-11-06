@@ -73,6 +73,57 @@ def get_log_excerpt() -> list[str]:
     return lines[:20]
 
 
+def get_handrec_summary() -> dict:
+    rec_files = sorted(glob.glob(str(PROJECT_ROOT / "logs" / "handrec_*.json")), reverse=True)
+    if rec_files:
+        try:
+            with open(rec_files[0], "r", encoding="utf-8") as f:
+                d = json.load(f)
+                meta = d.get("metadata", {})
+                frames = d.get("frames", [])
+                clutched = sum(1 for fr in frames if fr.get("clutch"))
+                return {
+                    "file": Path(rec_files[0]).name,
+                    "samples": len(frames),
+                    "duration_s": meta.get("duration_seconds", 0.0),
+                    "clutch_samples": clutched,
+                }
+        except Exception:
+            pass
+    return {}
+
+
+def get_handtest_summary() -> dict:
+    test_files = sorted(glob.glob(str(PROJECT_ROOT / "logs" / "handtest_*.json")), reverse=True)
+    if test_files:
+        try:
+            with open(test_files[0], "r", encoding="utf-8") as f:
+                d = json.load(f)
+                return {
+                    "file": Path(test_files[0]).name,
+                    "overall_pass": d.get("overall_pass", False),
+                    "arm_open_ok": d.get("arm_open_ok", False),
+                    "arm_fist_ok": d.get("arm_fist_ok", False),
+                    "lag_ms": d.get("lag_ms", 0.0),
+                    "jumps_rejected": d.get("jumps_rejected", 0)
+                }
+        except Exception:
+            pass
+    return {}
+
+
+def get_fault_trace_summary() -> dict:
+    trace_files = sorted(glob.glob(str(PROJECT_ROOT / "logs" / "fault_trace_*.json")), reverse=True)
+    if trace_files:
+        try:
+            with open(trace_files[0], "r", encoding="utf-8") as f:
+                d = json.load(f)
+                return d.get("trip_event", {})
+        except Exception:
+            pass
+    return {}
+
+
 def main():
     reports_dir = PROJECT_ROOT / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -82,6 +133,9 @@ def main():
     git_rev, git_branch = get_git_info()
     sess = get_latest_session()
     logs = get_log_excerpt()
+    handrec = get_handrec_summary()
+    handtest = get_handtest_summary()
+    fault_trace = get_fault_trace_summary()
 
     report_lines = [
         f"# AGIBOT A2 Ultra Teleoperation Test Report",
@@ -93,8 +147,26 @@ def main():
         f"- **Latency p95:** {sess.get('msg_age_p95_ms', 0.0)} ms | **Frame Gaps (>50ms):** {sess.get('frame_gaps', 0)}",
         f"- **Controller Pkt Rate:** Left {sess.get('controller_packet_rate_per_hand', {}).get('left', 0.0)} Hz | Right {sess.get('controller_packet_rate_per_hand', {}).get('right', 0.0)} Hz",
         f"- **Tracking Loss Events:** {sess.get('tracking_loss_events', 0)}",
+        f"- **Hand Tracking:** Mode: `{sess.get('input_mode', 'controllers')}` | Rate: {sess.get('handtrack_packet_rate', 0.0)} Hz | Clutches: {sess.get('handtrack_clutch_events', 0)}",
+    ]
+    tgt_trace = sess.get("target_trace_summary", {})
+    if tgt_trace and tgt_trace.get("samples", 0) > 0:
+        l_info = tgt_trace.get("left", {})
+        r_info = tgt_trace.get("right", {})
+        report_lines.append(
+            f"- **Target Tracer ({tgt_trace.get('samples')} samples):** "
+            f"L Max Speed: {l_info.get('max_speed_mm_s', 0.0)} mm/s (Sources: {l_info.get('sources', [])}) | "
+            f"R Max Speed: {r_info.get('max_speed_mm_s', 0.0)} mm/s (Sources: {r_info.get('sources', [])})"
+        )
+    if handrec:
+        report_lines.append(f"- **Hand Recorder:** `{handrec.get('file')}` ({handrec.get('samples')} samples, {handrec.get('duration_s')}s, {handrec.get('clutch_samples')} clutched)")
+    if handtest:
+        report_lines.append(f"- **Hand In-VR Self-Test:** `{handtest.get('file')}` (Pass: {handtest.get('overall_pass')}, Arm Open: {handtest.get('arm_open_ok')}, Arm Fist: {handtest.get('arm_fist_ok')}, Lag: {handtest.get('lag_ms')}ms, Jumps: {handtest.get('jumps_rejected')})")
+
+    report_lines.extend([
         f"- **Clamping Events:** Arm {sess.get('clamp_counters', {}).get('arm', 0)} | Hand {sess.get('clamp_counters', {}).get('hand', 0)}",
         f"- **Hardware Fault Events:** {sess.get('fault_events', 0)}",
+        f"- **Latest Fault Trace:** {fault_trace.get('reason', 'None (0 trips recorded)')}",
         f"",
         f"## 2. Safety Verification Status",
         f"- Hardware Risk Lock: ACTIVE (`AGIBOT_ALLOW_REAL` required)",
@@ -105,7 +177,7 @@ def main():
         f"",
         f"## 3. Initial Log Excerpt (First 20 Lines)",
         f"```text"
-    ]
+    ])
     for l in logs:
         report_lines.append(l)
     report_lines.append("```")

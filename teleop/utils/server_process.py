@@ -59,6 +59,10 @@ def ensure_server_running(timeout_s: float = 20.0):
         time.sleep(0.5)
 
     proc.terminate()
+    try:
+        proc.wait(timeout=2.0)
+    except Exception:
+        proc.kill()
     raise TimeoutError(f"Server did not become healthy within {timeout_s} seconds.")
 
 def stop_spawned_server(proc):

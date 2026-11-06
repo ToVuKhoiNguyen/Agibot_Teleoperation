@@ -54,12 +54,14 @@ def init_subsystems(
     i_accept_higher_speed: bool = False,
     hand_raw_max: int = 800,
     enable_thumb_swing: bool = False,
+    allow_handtracking_real: bool = False,
 ):
     app.port = port
     app.render_viewer = render_viewer
     app.use_controller = use_controller
     app.xr_view = xr_view
     app.backend = backend
+    app.allow_handtracking_real = bool(allow_handtracking_real)
     app.speed_scale = speed_scale
     app.ik_solver_type = ik_solver_type.lower()
     app.self_collision = self_collision
@@ -121,8 +123,9 @@ def init_subsystems(
     else:
         app.robot_backend = SimBackend(app.env)
 
-    max_vel = real_max_vel if backend_key in ("real", "ros2") else 1.0
-    app.robot_safety = SafetyLayer(app.robot_backend, max_velocity_rad_s=max_vel)
+    max_vel = real_max_vel if backend_key in ("real", "ros2") else 3.0
+    max_acc = 3.0 if backend_key in ("real", "ros2") else 15.0
+    app.robot_safety = SafetyLayer(app.robot_backend, max_velocity_rad_s=max_vel, max_accel_rad_s2=max_acc)
     try:
         app.robot_safety.connect()
     except Exception as e:
@@ -182,6 +185,10 @@ def init_subsystems(
     app.gizmo_active_l = False
     app.gizmo_active_r = False
     app.step_counter = 0
+    from teleop.app.target_tracer import TargetSourceTracer
+    app.target_tracer = TargetSourceTracer()
+    app.last_ik_residual_l = 0.0
+    app.last_ik_residual_r = 0.0
 
     # Self-Collision Checker
     app.collision_checker = CollisionChecker(app.env.model, enabled=app.self_collision)

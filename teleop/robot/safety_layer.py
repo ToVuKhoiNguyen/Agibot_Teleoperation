@@ -6,24 +6,14 @@ SafetyLayer wrapping any RobotInterface: kinematic limits, rate clamping, watchd
 import time
 import numpy as np
 from teleop.robot.interface import RobotInterface
+from teleop.robot.aimdk_map import ARM_JOINT_NAMES_AIMDK
+from teleop.robot.fault_tracer import FaultTracer
 
 # 14-DoF physical bounds: [L0..L6, R0..R6]
-ARM_LOWER_14 = np.array([
-    -2.91, -0.46, -2.91, -2.00, -2.88, -0.45, -0.35,  # Left
-    -2.91, -1.60, -2.91,  0.03, -2.88, -0.45, -0.35   # Right
-], dtype=np.float64)
-
-ARM_UPPER_14 = np.array([
-    2.91,  1.60,  2.91, -0.03,  2.88,  0.45,  0.35,   # Left
-    2.91,  0.46,  2.91,  2.00,  2.88,  0.45,  0.35    # Right
-], dtype=np.float64)
-
+ARM_LOWER_14 = np.array([-2.91, -0.46, -2.91, -2.00, -2.88, -0.45, -0.35, -2.91, -1.60, -2.91, 0.03, -2.88, -0.45, -0.35], dtype=np.float64)
+ARM_UPPER_14 = np.array([2.91, 1.60, 2.91, -0.03, 2.88, 0.45, 0.35, 2.91, 0.46, 2.91, 2.00, 2.88, 0.45, 0.35], dtype=np.float64)
 HAND_LOWER_12 = np.zeros(12, dtype=np.float64)
-# Max physical joint limits in radians [thumb_swing, thumb_1, index_1, middle_1, ring_1, pinky_1] x 2
-HAND_UPPER_12 = np.array([
-    2.286, 0.780, 1.700, 1.700, 1.700, 1.700,
-    2.286, 0.780, 1.700, 1.700, 1.700, 1.700,
-], dtype=np.float64)
+HAND_UPPER_12 = np.array([2.286, 0.78, 1.7, 1.7, 1.7, 1.7, 2.286, 0.78, 1.7, 1.7, 1.7, 1.7], dtype=np.float64)
 
 
 class SafetyLayer:
@@ -50,6 +40,8 @@ class SafetyLayer:
         self.hold_active = False
         self.fault_latched = False
         self.fault_reason = ""
+        self.fault_tracer = FaultTracer()
+        self.context = {"input_mode": "mouse", "collision_gate": False}
 
         self._last_cmd_t = None
         self._last_cmd_q14 = None
@@ -67,16 +59,16 @@ class SafetyLayer:
             "first_command_ramps": 0,
         }
 
+    def _resync_state(self) -> None:
+        q_act, h_act, _ = self.backend.read_state()
+        self._last_cmd_q14, self._last_cmd_h12 = q_act.copy(), h_act.copy()
+        self._last_cmd_vel = np.zeros(14, dtype=np.float64)
+        self._last_cmd_t = time.time()
+
     def connect(self) -> None:
         self.backend.connect()
-        self.is_connected = True
-        self.estop_active = False
-        self.hold_active = False
-        self._last_cmd_t = time.time()
-        q_act, h_act, _ = self.backend.read_state()
-        self._last_cmd_q14 = q_act.copy()
-        self._last_cmd_h12 = h_act.copy()
-        self._last_cmd_vel = np.zeros(14, dtype=np.float64)
+        self.is_connected, self.estop_active, self.hold_active = True, False, False
+        self._resync_state()
 
     def disconnect(self) -> None:
         self.backend.disconnect()
@@ -88,11 +80,7 @@ class SafetyLayer:
 
     def clear_estop(self) -> None:
         self.estop_active = False
-        q_act, h_act, _ = self.backend.read_state()
-        self._last_cmd_q14 = q_act.copy()
-        self._last_cmd_h12 = h_act.copy()
-        self._last_cmd_vel = np.zeros(14, dtype=np.float64)
-        self._last_cmd_t = time.time()
+        self._resync_state()
 
     def hold(self) -> None:
         self.hold_active = True
@@ -100,10 +88,7 @@ class SafetyLayer:
 
     def clear_hold(self) -> None:
         self.hold_active = False
-        q_act, h_act, _ = self.backend.read_state()
-        self._last_cmd_q14 = q_act.copy()
-        self._last_cmd_h12 = h_act.copy()
-        self._last_cmd_t = time.time()
+        self._resync_state()
 
     def clear_fault(self, confirm: bool = False) -> bool:
         """Requires explicit operator confirmation to clear a latched hardware fault."""
@@ -159,12 +144,19 @@ class SafetyLayer:
             self._last_cmd_vel = np.zeros(14, dtype=np.float64)
 
         target_q = q.copy()
+        active_clamps = ["none"] * 14
 
-        # 1. Joint limit clamp
-        clamped_q = np.clip(target_q, ARM_LOWER_14, ARM_UPPER_14)
-        if not np.allclose(clamped_q, target_q):
-            self.stats["joint_limit_clamps"] += 1
-            target_q = clamped_q
+        # 1. Joint limit clamp & collision hold
+        if self.context.get("collision_gate", False):
+            target_q = self._last_cmd_q14.copy()
+            active_clamps = ["collision"] * 14
+        else:
+            clamped_q = np.clip(target_q, ARM_LOWER_14, ARM_UPPER_14)
+            for i in range(14):
+                if not np.isclose(clamped_q[i], target_q[i]): active_clamps[i] = "limit"
+            if not np.allclose(clamped_q, target_q):
+                self.stats["joint_limit_clamps"] += 1
+                target_q = clamped_q
 
         # 2. First-command jump ramp
         step_disp = target_q - self._last_cmd_q14
@@ -172,11 +164,15 @@ class SafetyLayer:
         if np.max(np.abs(step_disp)) > max_first_step and (self.stats["first_command_ramps"] == 0 or self.hold_active):
             target_q = self._last_cmd_q14 + np.clip(step_disp, -max_first_step, max_first_step)
             self.stats["first_command_ramps"] += 1
+            for i in range(14):
+                if active_clamps[i] == "none": active_clamps[i] = "ramp"
 
         # 3. Velocity cap
         max_vel_step = self.max_velocity * dt_eff
         raw_delta = target_q - self._last_cmd_q14
         vel_clamped_delta = np.clip(raw_delta, -max_vel_step, max_vel_step)
+        for i in range(14):
+            if not np.isclose(raw_delta[i], vel_clamped_delta[i]): active_clamps[i] = "velocity"
         if not np.allclose(raw_delta, vel_clamped_delta):
             self.stats["velocity_clamps"] += 1
             target_q = self._last_cmd_q14 + vel_clamped_delta
@@ -185,24 +181,48 @@ class SafetyLayer:
         inst_vel = (target_q - self._last_cmd_q14) / dt_eff
         max_acc_step = self.max_accel * dt_eff
         acc_clamped_vel = self._last_cmd_vel + np.clip(inst_vel - self._last_cmd_vel, -max_acc_step, max_acc_step)
+        for i in range(14):
+            if not np.isclose(inst_vel[i], acc_clamped_vel[i]): active_clamps[i] = "accel"
         if not np.allclose(inst_vel, acc_clamped_vel):
             self.stats["accel_clamps"] += 1
             target_q = self._last_cmd_q14 + acc_clamped_vel * dt_eff
 
+        # Enforce physical bounds so accel filter never pushes past joint limits
+        target_q = np.clip(target_q, ARM_LOWER_14, ARM_UPPER_14)
+
         # 5. Deviation gate check (sim vs real / read-back)
+        is_real = getattr(self.backend, "__class__", type(self.backend)).__name__ in ("Ros2Backend", "RealBackend")
+        eff_thresh = np.full(14, self.deviation_thresh_rad) if is_real else np.clip(
+            self.deviation_thresh_rad + 0.05 * np.abs(self._last_cmd_vel), 0.05, 0.10
+        )
         q_act, _, _ = self.backend.read_state()
-        err = np.abs(target_q - q_act)
-        if np.any(err > self.deviation_thresh_rad):
+        cmd_cmp = target_q if is_real else q
+        err = np.abs(cmd_cmp - q_act)
+        tripped_idx = np.where(err > eff_thresh)[0]
+        if len(tripped_idx) > 0:
             if self._deviation_start_t is None:
                 self._deviation_start_t = t_now
             elif (t_now - self._deviation_start_t) > self.deviation_timeout_s:
                 self.stats["deviation_trips"] += 1
                 self.fault_latched = True
-                self.fault_reason = f"Position deviation >0.05 rad (>200ms) on joint {int(np.argmax(err))}"
+                j = int(np.argmax(err))
+                self.fault_reason, ev = self.fault_tracer.format_trip(
+                    j, float(err[j]), float(eff_thresh[j]), target_q, q_act,
+                    ARM_LOWER_14, ARM_UPPER_14, active_clamps[j],
+                    self.backend.__class__.__name__, self.context, t_now
+                )
+                self.fault_tracer.record_trip(ev)
                 self.hold()
                 return False
         else:
             self._deviation_start_t = None
+
+        lim_pairs = [(float(ARM_LOWER_14[i]), float(ARM_UPPER_14[i])) for i in range(14)]
+        self.fault_tracer.sample(
+            self.backend.__class__.__name__, q, target_q, target_q, q_act, self._last_cmd_vel,
+            active_clamps, lim_pairs, abs(dt_eff - 0.005), self.context.get("input_mode", "mouse"),
+            self.context.get("collision_gate", False), int(np.argmax(err)), t_now=t_now
+        )
 
         self._last_cmd_vel = (target_q - self._last_cmd_q14) / dt_eff
         self._last_cmd_q14 = target_q.copy()

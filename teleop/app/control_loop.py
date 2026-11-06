@@ -60,6 +60,13 @@ def run_control_loop(app):
                     app._log_xr_event("Watchdog 350ms -> clutches released")
                 app.xr_input_active = False
 
+            if getattr(app, "input_mode", "") == "hands":
+                if (now_t - getattr(app, "handtrack_last_t", now_t)) > 0.150:
+                    app.gizmo_active_l = False
+                    app.gizmo_active_r = False
+                    app.handtrack_clutch_l = False
+                    app.handtrack_clutch_r = False
+
             if hasattr(app, "robot_safety") and app.robot_safety is not None:
                 app.robot_safety.check_watchdog(now=now_t)
 
@@ -120,7 +127,9 @@ def run_control_loop(app):
                 if hasattr(app, "robot_safety") and app.robot_safety is not None and getattr(app.robot_safety, "is_connected", False):
                     q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
                     h12 = np.concatenate([app.last_hand_cmd_left, app.last_hand_cmd_right])
-                    app.robot_safety.send_arm(q14, dt=app.control_dt)
+                    app.robot_safety.context["input_mode"] = getattr(app, "input_mode", "mouse")
+                    app.robot_safety.context["collision_gate"] = bool(getattr(app, "collision_blocked", False))
+                    ok = app.robot_safety.send_arm(q14, dt=app.control_dt)
                     app.robot_safety.send_hand(h12)
                 else:
                     app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
@@ -181,6 +190,8 @@ def run_control_loop(app):
                     app.status_warning = f"HARDWARE FAULT: {app.robot_safety.fault_reason}"
                 else:
                     app.status_warning = ""
+                if hasattr(app, "target_tracer") and app.target_tracer:
+                    app.target_tracer.tick(app)
 
             step += 1
             next_step_time += target_step_dt

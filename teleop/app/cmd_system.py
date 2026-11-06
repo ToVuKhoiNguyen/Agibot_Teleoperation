@@ -32,6 +32,58 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
     elif name == "hold_toggle":
         app.manual_held = not app.manual_held
         return True
+    elif name == "set_input_mode":
+        new_mode = str(cmd.get("mode", "controllers")).lower()
+        if new_mode != getattr(app, "input_mode", ""):
+            app.active_sequence = None
+            app.walking_demo_active = False
+            app.gizmo_active_l = app.gizmo_active_r = False
+            app.handtrack_clutch_l = app.handtrack_clutch_r = False
+            if hasattr(app, "robot_safety") and app.robot_safety:
+                app.robot_safety.hold()
+            app._log_xr_event(f"Switch mode to {new_mode} -> sequences stopped, targets held")
+        app.input_mode = new_mode
+        return True
+    elif name == "calibrate_hand":
+        if hasattr(app, "handtrack_retargeter_l") and hasattr(app, "handtrack_retargeter_r"):
+            cal_data = cmd.get("calibration", {})
+            if "left" in cal_data:
+                app.handtrack_retargeter_l.cal = cal_data["left"].copy()
+            if "right" in cal_data:
+                app.handtrack_retargeter_r.cal = cal_data["right"].copy()
+        app._log_xr_event("Hand calibration updated")
+        return True
+    elif name in ("recenter_hand", "recenter"):
+        app.handtrack_anchor_w_l, app.handtrack_anchor_w_r = None, None
+        app.cal_head_pos = getattr(app, "last_head_pos", np.array([0.0, 1.5, 0.0])).copy()
+        app.cal_head_yaw = float(getattr(app, "last_head_yaw", 0.0))
+        app._log_xr_event("Hand tracking recentered (head & anchors refreshed)")
+        return True
+    elif name == "clear_target_trace":
+        if hasattr(app, "target_tracer"):
+            app.target_tracer.clear()
+        return True
+    elif name in ("calibrate_pose", "calibrate_hand_pose"):
+        app.cal_head_pos = getattr(app, "last_head_pos", np.array([0.0, 1.5, 0.0])).copy()
+        app.cal_head_yaw = float(getattr(app, "last_head_yaw", 0.0))
+        if hasattr(app, "save_pose_calibration"):
+            app.save_pose_calibration()
+        app._log_xr_event("Hand pose calibrated (forward/palms down)")
+        return True
+    elif name == "set_hand_follow_mode":
+        mode = str(cmd.get("mode", "absolute")).lower()
+        if mode == "always": mode = "relative"
+        app.hand_follow_mode = mode
+        app._log_xr_event(f"Hand follow mode set to {app.hand_follow_mode}")
+        return True
+    elif name == "set_hand_filter_config":
+        if "min_cutoff" in cmd: app.hand_min_cutoff = float(cmd["min_cutoff"])
+        if "beta" in cmd: app.hand_beta = float(cmd["beta"])
+        if "lead_ms" in cmd: app.hand_lead_ms = float(cmd["lead_ms"])
+        if hasattr(app, "handtrack_filter_pos_l"):
+            app.handtrack_filter_pos_l.min_cutoff = app.handtrack_filter_pos_r.min_cutoff = getattr(app, "hand_min_cutoff", 1.5)
+            app.handtrack_filter_pos_l.beta = app.handtrack_filter_pos_r.beta = getattr(app, "hand_beta", 0.03)
+        return True
     elif name in ("walk_toggle", "walk_demo"):
         app.walking_demo_active = not app.walking_demo_active
         if not app.walking_demo_active:
@@ -89,6 +141,7 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
             new_t[2] = np.clip(new_t[2], 0.5, 1.8)
             app.cur_target_pos_l = new_t
             app.gizmo_active_l = True
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "mouse panel step")
             app._solve_arm_ik("left")
         else:
             new_t = app.cur_target_pos_r.copy()
@@ -98,6 +151,7 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
             new_t[2] = np.clip(new_t[2], 0.5, 1.8)
             app.cur_target_pos_r = new_t
             app.gizmo_active_r = True
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "mouse panel step")
             app._solve_arm_ik("right")
         return True
 

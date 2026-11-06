@@ -106,3 +106,41 @@ async def handle_dump_hand_log_impl(server, request):
     return web.json_response({"status": "ok", "path": "/tmp/hand_log.json"})
 
 
+async def handle_get_handrec_impl(server, request):
+    if hasattr(server, "teleop") and hasattr(server.teleop, "hand_recorder") and server.teleop.hand_recorder:
+        filepath = server.teleop.hand_recorder.save_to_file()
+        summary = server.teleop.hand_recorder.get_summary()
+        return web.json_response({"status": "ok", "path": filepath, "summary": summary})
+    return web.json_response({"status": "error", "message": "Recorder not available"}, status=404)
+
+
+async def handle_get_target_trace_impl(server, request):
+    if hasattr(server, "teleop") and hasattr(server.teleop, "target_tracer") and server.teleop.target_tracer:
+        tracer = server.teleop.target_tracer
+        return web.json_response({
+            "status": "ok",
+            "summary": tracer.get_summary(),
+            "count": len(tracer.ring_buffer),
+            "trace": list(tracer.ring_buffer),
+        })
+    return web.json_response({"status": "error", "message": "Target tracer not available"}, status=404)
+
+
+async def handle_get_fault_trace_impl(server, request):
+    safety = getattr(server.teleop, "robot_safety", None) if hasattr(server, "teleop") else None
+    tracer = getattr(safety, "fault_tracer", None) if safety else None
+    if tracer:
+        return web.json_response({
+            "status": "ok",
+            "fault_latched": bool(safety.fault_latched),
+            "fault_reason": str(safety.fault_reason),
+            "summary": tracer.get_summary(),
+            "count": len(tracer.ring_buffer),
+            "trace": list(tracer.ring_buffer),
+        })
+    return web.json_response({"status": "error", "message": "Fault tracer not available"}, status=404)
+
+
+
+
+

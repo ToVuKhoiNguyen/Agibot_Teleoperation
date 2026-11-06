@@ -93,6 +93,7 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
                     new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
                     app.cur_target_pos_l = new_pos
                     app.gizmo_active_l = True
+                    if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "controller clutch")
 
             if app.xr_clutch_state_l in ("ROTATE", "6D") and rot_enabled and q_ctrl_l is not None and len(q_ctrl_l) == 4 and app.xr_anchor_ctrl_rot_l is not None:
                 r_curr_ctrl = R.from_quat([q_ctrl_l[1], q_ctrl_l[2], q_ctrl_l[3], q_ctrl_l[0]]).as_matrix()
@@ -100,6 +101,7 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
                 r_rel_rob = axis_map @ r_rel_xr @ axis_map.T
                 app.cur_target_rot_l = r_rel_rob @ app.xr_anchor_marker_rot_l
                 app.gizmo_active_l = True
+                if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "controller clutch")
 
     app.xr_grip_active_l = (app.xr_clutch_state_l != "LOCKED")
 
@@ -176,6 +178,7 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
                     new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
                     app.cur_target_pos_r = new_pos
                     app.gizmo_active_r = True
+                    if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "controller clutch")
 
             if app.xr_clutch_state_r in ("ROTATE", "6D") and rot_enabled and q_ctrl_r is not None and len(q_ctrl_r) == 4 and app.xr_anchor_ctrl_rot_r is not None:
                 r_curr_ctrl = R.from_quat([q_ctrl_r[1], q_ctrl_r[2], q_ctrl_r[3], q_ctrl_r[0]]).as_matrix()
@@ -183,6 +186,7 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
                 r_rel_rob = axis_map @ r_rel_xr @ axis_map.T
                 app.cur_target_rot_r = r_rel_rob @ app.xr_anchor_marker_rot_r
                 app.gizmo_active_r = True
+                if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "controller clutch")
 
     app.xr_grip_active_r = (app.xr_clutch_state_r != "LOCKED")
 

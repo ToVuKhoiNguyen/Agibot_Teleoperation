@@ -24,6 +24,9 @@ from teleop.web.server.panel_routes import (
     handle_get_status_impl,
     handle_get_hand_log_impl,
     handle_dump_hand_log_impl,
+    handle_get_handrec_impl,
+    handle_get_target_trace_impl,
+    handle_get_fault_trace_impl,
 )
 from teleop.web.server.ws_broadcaster import (
     handle_ws_impl,
@@ -33,7 +36,7 @@ from teleop.web.server.ws_broadcaster import (
     dispatch_immediate_stream_impl,
     get_command_impl,
 )
-from teleop.web.server.html_builder import HTML_PANEL
+from teleop.web.server.html_builder import HTML_PANEL, load_panel_html, get_current_build_id
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 STATIC_DIR = os.path.join(PROJECT_ROOT, "teleop", "web", "static")
@@ -73,12 +76,17 @@ class WebPanelServer:
         self._latest_moving_binary = None
         self._xr_lock = threading.Lock()
         self._latest_xr_cmd = None
+        self.build_id = get_current_build_id()
 
         @web.middleware
         async def static_cache_middleware(request, handler):
             resp = await handler(request)
-            if request.path.startswith("/web_meshes/") or request.path.startswith("/static/"):
+            if request.path.startswith("/web_meshes/"):
                 resp.headers["Cache-Control"] = "public, max-age=86400"
+            elif request.path.startswith("/static/"):
+                resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                resp.headers["Pragma"] = "no-cache"
+                resp.headers["Expires"] = "0"
             return resp
 
         self.app = web.Application(middlewares=[static_cache_middleware])
@@ -89,8 +97,13 @@ class WebPanelServer:
         self.app.router.add_get("/bundle.bin", self.handle_bundle_bin)
         self.app.router.add_get("/ws_panel", self.handle_ws)
         self.app.router.add_get("/api/status", self.handle_get_status)
+        self.app.router.add_get("/api/target_trace", self.handle_get_target_trace)
+        self.app.router.add_get("/api/fault_trace", self.handle_get_fault_trace)
         self.app.router.add_get("/api/hand_log", self.handle_get_hand_log)
         self.app.router.add_post("/api/dump_hand_log", self.handle_dump_hand_log)
+        self.app.router.add_get("/api/handrec", self.handle_get_handrec)
+        self.app.router.add_post("/api/handrec", self.handle_get_handrec)
+        self.app.router.add_post("/api/handtest", self.handle_post_handtest)
         self.app.router.add_post("/api/command", self.handle_post_cmd)
         self.app.router.add_post("/api/launch_quest", self.handle_post_quest_launch)
         self.app.router.add_post("/api/quest/launch", self.handle_post_quest_launch)
@@ -120,7 +133,23 @@ class WebPanelServer:
         return await handle_health_impl(self, request)
 
     async def handle_panel(self, request):
-        return await handle_panel_page(HTML_PANEL, request)
+        html = load_panel_html(build_id=self.build_id)
+        resp = web.Response(text=html, content_type="text/html")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
+
+    async def handle_post_handtest(self, request):
+        try:
+            data = await request.json()
+            t_str = time.strftime("%Y%m%d_%H%M%S")
+            log_dir = Path(PROJECT_ROOT) / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / f"handtest_{t_str}.json"
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            return web.json_response({"status": "ok", "path": str(log_path)})
+        except Exception as e:
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_vr(self, request):
         return await handle_vr_page(HTML_PANEL, request)
@@ -143,6 +172,15 @@ class WebPanelServer:
 
     async def handle_dump_hand_log(self, request):
         return await handle_dump_hand_log_impl(self, request)
+
+    async def handle_get_handrec(self, request):
+        return await handle_get_handrec_impl(self, request)
+
+    async def handle_get_target_trace(self, request):
+        return await handle_get_target_trace_impl(self, request)
+
+    async def handle_get_fault_trace(self, request):
+        return await handle_get_fault_trace_impl(self, request)
 
     def set_status(self, status_dict: dict):
         set_status_impl(self, status_dict)

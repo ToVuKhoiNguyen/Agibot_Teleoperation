@@ -1,0 +1,14 @@
+{
+  "left": {
+    "open_angles": [0.15, 0.2, 0.2, 0.2, 0.2],
+    "closed_angles": [2.8, 4.4, 4.5, 4.4, 4.3],
+    "thumb_opp_open": 0.2,
+    "thumb_opp_closed": 1.55
+  },
+  "right": {
+    "open_angles": [0.15, 0.2, 0.2, 0.2, 0.2],
+    "closed_angles": [2.8, 4.4, 4.5, 4.4, 4.3],
+    "thumb_opp_open": 0.2,
+    "thumb_opp_closed": 1.55
+  }
+}

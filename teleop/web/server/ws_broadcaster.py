@@ -65,11 +65,17 @@ async def handle_ws_impl(server, request):
     return ws
 
 
+def _json_default(o):
+    if hasattr(o, "item"): return o.item()
+    if hasattr(o, "tolist"): return o.tolist()
+    return str(o)
+
+
 def set_status_impl(server, status_dict: dict):
     with server.status_lock:
         server.latest_status = status_dict.copy()
     if server.loop is not None and len(server.ws_clients) > 0:
-        msg = json.dumps({"type": "status", "status": status_dict})
+        msg = json.dumps({"type": "status", "status": status_dict}, default=_json_default)
         for ws in list(server.ws_clients):
             if not ws.closed:
                 asyncio.run_coroutine_threadsafe(ws.send_str(msg), server.loop)

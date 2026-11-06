@@ -28,6 +28,7 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
                     app.status_warning = "Left wrist target clamped to workspace"
                 app.cur_target_pos_l = p
                 app.gizmo_active_l = True
+                if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "gizmo")
                 if hasattr(app, "input_filter_left"):
                     app.input_filter_left.reset()
             else:
@@ -35,6 +36,7 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
                     app.status_warning = "Right wrist target clamped to workspace"
                 app.cur_target_pos_r = p
                 app.gizmo_active_r = True
+                if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "gizmo")
                 if hasattr(app, "input_filter_right"):
                     app.input_filter_right.reset()
 
@@ -44,9 +46,11 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
             if arm == "left":
                 app.cur_target_rot_l = rot_mat
                 app.gizmo_active_l = True
+                if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "gizmo")
             else:
                 app.cur_target_rot_r = rot_mat
                 app.gizmo_active_r = True
+                if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "gizmo")
 
         app._solve_arm_ik(arm)
         return True
@@ -118,6 +122,11 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
             app.env.reset()
             app.last_arm_cmd_left = app.env.get_left_arm_qpos()
             app.last_arm_cmd_right = app.env.get_right_arm_qpos()
+            if hasattr(app, "robot_safety") and app.robot_safety is not None:
+                q_home = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
+                app.robot_safety._last_cmd_q14 = q_home.copy()
+                app.robot_safety._last_cmd_vel = np.zeros(14)
+                app.robot_safety._deviation_start_t = None
             app.last_hand_cmd_left = np.zeros(6, dtype=np.float64)
             app.last_hand_cmd_right = np.zeros(6, dtype=np.float64)
             app.current_safe_hand_l = np.zeros(6, dtype=np.float64)
@@ -138,6 +147,7 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
             if hasattr(app, "gizmo_rot_follower_r"): app.gizmo_rot_follower_r.reset(app.cur_target_rot_r)
             if hasattr(app, "output_filter_left_gizmo"): app.output_filter_left_gizmo.reset(app.last_arm_cmd_left)
             if hasattr(app, "output_filter_right_gizmo"): app.output_filter_right_gizmo.reset(app.last_arm_cmd_right)
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "home/smooth-home")
             app.last_ik_sol_left = app.last_arm_cmd_left.copy()
             app.last_ik_sol_right = app.last_arm_cmd_right.copy()
             app.gizmo_active_l = False
@@ -155,34 +165,41 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
             app.xr_anchor_marker_rot_l = None
             app.xr_anchor_marker_rot_r = None
         elif pose == "home" or name in ("go_home", "home"):
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "home/smooth-home")
             app._start_smooth_homing("both")
         elif pose == "forward":
             app.active_sequence = None
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
             app.cur_target_pos_l = app.robot_home_pos_l + np.array([0.25, 0.0, 0.0])
             app.cur_target_pos_r = app.robot_home_pos_r + np.array([0.25, 0.0, 0.0])
             app._solve_arm_ik("both")
         elif pose == "up":
             app.active_sequence = None
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
             app.cur_target_pos_l = app.robot_home_pos_l + np.array([0.05, 0.0, 0.25])
             app.cur_target_pos_r = app.robot_home_pos_r + np.array([0.05, 0.0, 0.25])
             app._solve_arm_ik("both")
         elif pose == "tpose":
             app.active_sequence = None
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
             app.cur_target_pos_l = app.robot_home_pos_l + np.array([0.0, 0.20, 0.0])
             app.cur_target_pos_r = app.robot_home_pos_r + np.array([0.0, -0.20, 0.0])
             app._solve_arm_ik("both")
         elif pose == "wave":
             app.active_sequence = "wave"
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
             app.seq_start_time = time.time()
             app.seq_origin_r = app.cur_target_pos_r.copy()
             app.gizmo_active_r = True
         elif pose == "circle":
             app.active_sequence = "circle"
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
             app.seq_start_time = time.time()
             app.seq_origin_l = app.cur_target_pos_l.copy()
             app.seq_origin_r = app.cur_target_pos_r.copy()
         elif pose == "grasp":
             app.active_sequence = "grasp"
+            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
             app.seq_start_time = time.time()
         elif pose == "stop":
             app.active_sequence = None

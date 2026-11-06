@@ -100,6 +100,20 @@ def init_state(app, project_root: Path):
     app.xr_tracking_lost_r = False
     app.xr_reengage_required_l = False
     app.xr_reengage_required_r = False
+    app.input_mode = "controllers"
+    app.hand_follow_mode = "absolute"
+    app.hand_elbow_hint = False
+    app.cal_head_pos = np.array([0.0, 1.5, 0.0], dtype=np.float64)
+    app.cal_head_yaw = 0.0
+    app.handtrack_clutch_l = False
+    app.handtrack_clutch_r = False
+    app.xr_handtrack_status = None
+    app.handtrack_diag_status = {"left": {}, "right": {}}
+    app.fingers_follow_always = True
+    app.handtrack_live_bars = {"left": None, "right": None}
+    app.limit_indicator = None
+    from teleop.hand.recorder import HandRecorder
+    app.hand_recorder = HandRecorder()
 
     app.xr_input_active = False
     app.xr_last_packet_time = 0.0

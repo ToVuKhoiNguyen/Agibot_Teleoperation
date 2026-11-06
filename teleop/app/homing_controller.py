@@ -131,6 +131,7 @@ def update_homing(app, dt: float):
         app.cur_target_rot_r = slerp_quaternion(app.homing_start_rot_r, app.robot_home_rot_r, s)
         hint_r = app.robot_home_q_r if tau >= 1.0 else ((1.0 - s) * app.homing_start_q_r + s * app.robot_home_q_r)
 
+    if hasattr(app, "target_tracer"): app.target_tracer.record_target_source(app.homing_side, "home/smooth-home")
     app._solve_arm_ik(app.homing_side, posture_hint_l=hint_l, posture_hint_r=hint_r)
 
     if tau >= 1.0:
