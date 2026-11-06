@@ -62,6 +62,7 @@ class UnifiedTeleopApp:
         hand_raw_max: int = 800,
         enable_thumb_swing: bool = False,
         allow_handtracking_real: bool = False,
+        input_mode: str = "controllers",
     ):
         init_subsystems(
             self,
@@ -85,6 +86,7 @@ class UnifiedTeleopApp:
             hand_raw_max=hand_raw_max,
             enable_thumb_swing=enable_thumb_swing,
             allow_handtracking_real=allow_handtracking_real,
+            input_mode=input_mode,
         )
         init_state(self, project_root=PROJECT_ROOT)
 
@@ -125,12 +127,16 @@ class UnifiedTeleopApp:
             return
 
         if name == "xr_controllers":
-            if getattr(self, "input_mode", "controllers") == "hands":
-                return  # STRICT ISOLATION: hands mode completely ignores controller/grip/trigger packets
+            if getattr(self, "input_mode", "controllers") != "controllers":
+                self.rejected_other_mode = getattr(self, "rejected_other_mode", 0) + 1
+                return  # STRICT ISOLATION: hands mode drops controller packets
             handle_xr_controllers_input(self, cmd)
             return
 
         if name in ("xr_handtrack", "xr_hands"):
+            if getattr(self, "input_mode", "controllers") != "hands":
+                self.rejected_other_mode = getattr(self, "rejected_other_mode", 0) + 1
+                return  # STRICT ISOLATION: controllers mode drops hand tracking packets
             from teleop.app.handtrack_cmd import handle_xr_handtrack_input
             handle_xr_handtrack_input(self, cmd)
             return
@@ -199,6 +205,7 @@ def main():
     parser.add_argument("--collision-avoidance", action="store_true", help="Enable mink self-collision avoidance limit")
     parser.add_argument("--no-adb", action="store_true", help="Disable automatic ADB detection and port reversal")
     parser.add_argument("--no-quest-launch", action="store_true", help="Do not automatically launch Quest browser on headset")
+    parser.add_argument("--input", type=str, default=None, choices=["hands", "controllers"], help="Exclusive input mode: hands or controllers")
     parser.add_argument("--allow-handtracking-real", action="store_true", default=False, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
@@ -210,6 +217,7 @@ def main():
         render_viewer = has_display
 
     self_col_enabled = (args.self_collision.lower() == "on")
+    effective_input_mode = args.input if args.input is not None else ("controllers" if args.controller else "controllers")
 
     app = UnifiedTeleopApp(
         port=args.port,
@@ -230,6 +238,7 @@ def main():
         hand_raw_max=args.hand_raw_max,
         enable_thumb_swing=args.enable_thumb_swing,
         allow_handtracking_real=getattr(args, "allow_handtracking_real", False),
+        input_mode=effective_input_mode,
     )
     app.run()
 

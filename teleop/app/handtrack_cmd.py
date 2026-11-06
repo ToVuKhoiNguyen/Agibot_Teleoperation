@@ -8,7 +8,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 from teleop.hand.retarget import HandRetargeter, COMFORTABLE_LIMITS, resolve_joints_array
 from teleop.kinematics.signal_filters import OneEuroFilter, OneEuroQuaternionFilter
-from teleop.app.xr_clutch_mapper import get_effective_axis_map
+from teleop.app.xr_clutch_mapper import get_effective_axis_map, get_effective_rot_axis_map
 
 P_ROBOT_SHOULDER_L = np.array([-0.038, 0.191, 1.272], dtype=np.float64)
 P_ROBOT_SHOULDER_R = np.array([-0.038, -0.191, 1.272], dtype=np.float64)
@@ -20,10 +20,10 @@ def _ensure_handtrack_state(app):
     app.handtrack_filter_pos_l, app.handtrack_filter_pos_r = OneEuroFilter(mc, bv, dc), OneEuroFilter(mc, bv, dc)
     app.handtrack_filter_rot_l, app.handtrack_filter_rot_r = OneEuroQuaternionFilter(mc, bv, dc), OneEuroQuaternionFilter(mc, bv, dc)
     app.hand_follow_mode, app.hand_workspace_scale = getattr(app, "hand_follow_mode", "absolute"), float(getattr(app, "hand_workspace_scale", 1.0))
-    app.hand_origin_offset = np.array(getattr(app, "hand_origin_offset", [0.0, 0.0, 0.0]), dtype=np.float64)
-    app.hand_lead_ms, app.handtrack_clutch_l, app.handtrack_clutch_r = float(getattr(app, "hand_lead_ms", 20.0)), False, False
+    app.hand_origin_offset, app.hand_lead_ms = np.array(getattr(app, "hand_origin_offset", [0.0, 0.0, 0.0]), dtype=np.float64), float(getattr(app, "hand_lead_ms", 20.0))
+    app.handtrack_clutch_l = app.handtrack_clutch_r = False
     app.handtrack_anchor_w_l = app.handtrack_anchor_w_r = app.handtrack_anchor_r_l = app.handtrack_anchor_r_r = None
-    app.handtrack_rcal_l, app.handtrack_rcal_r = np.eye(3), np.eye(3)
+    app.handtrack_rcal_l, app.handtrack_rcal_r = getattr(app, "robot_home_rot_l", np.eye(3)).copy(), getattr(app, "robot_home_rot_r", np.eye(3)).copy()
     app.handtrack_prev_wrist_l = app.handtrack_prev_wrist_r = None
     app.handtrack_loss_start_l = app.handtrack_loss_start_r = app.handtrack_regain_t_l = app.handtrack_regain_t_r = 0.0
     app.handtrack_was_lost_l = app.handtrack_was_lost_r = False
@@ -55,7 +55,7 @@ def _apply_head_tracking(app, hd: dict, now_t: float):
         if len(d.qpos) > 51: d.qpos[50], d.qpos[51] = yaw, pitch
     except Exception: pass
 
-def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axis_map: np.ndarray) -> dict:
+def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axis_map: np.ndarray, rot_axis_map: np.ndarray = None) -> dict:
     mode = getattr(app, "hand_follow_mode", "absolute").lower()
     if mode == "always": mode = "relative"
     retargeter = app.handtrack_retargeter_l if side == "left" else app.handtrack_retargeter_r
@@ -160,9 +160,10 @@ def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axi
             raw_target, target_updating = anchor_r + app.hand_origin_offset + app.hand_workspace_scale * (axis_map @ (p_w_lead - anchor_w)), can_follow
 
     if len(raw_q) == 4 and target_updating:
+        r_map = rot_axis_map if rot_axis_map is not None else axis_map
         r_cal = getattr(app, f"handtrack_rcal_{side[0]}", np.eye(3))
         r_filt = filt_rot.filter(R.from_quat([raw_q[1], raw_q[2], raw_q[3], raw_q[0]]).as_matrix(), now_t)
-        rot_tgt = axis_map @ r_filt @ r_cal
+        rot_tgt = (r_map @ r_filt @ r_map.T) @ r_cal
         if side == "left": app.cur_target_rot_l = rot_tgt
         else: app.cur_target_rot_r = rot_tgt
 
@@ -230,9 +231,9 @@ def handle_xr_handtrack_input(app, cmd: dict):
         app.last_head_yaw = float(hd.get("yaw", 0.0))
         _apply_head_tracking(app, hd, now_t)
 
-    axis_map = get_effective_axis_map(app)
-    res_l = _process_single_hand(app, "left", cmd.get("left"), now_t, dt, axis_map)
-    res_r = _process_single_hand(app, "right", cmd.get("right"), now_t, dt, axis_map)
+    axis_map, rot_axis_map = get_effective_axis_map(app), get_effective_rot_axis_map(app)
+    res_l = _process_single_hand(app, "left", cmd.get("left"), now_t, dt, axis_map, rot_axis_map)
+    res_r = _process_single_hand(app, "right", cmd.get("right"), now_t, dt, axis_map, rot_axis_map)
 
     if res_l.get("is_open") and res_r.get("is_open") and res_l.get("vel", 1.0) < 0.08 and res_r.get("vel", 1.0) < 0.08:
         app.handtrack_recenter_hold += dt

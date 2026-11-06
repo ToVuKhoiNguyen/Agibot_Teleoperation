@@ -170,6 +170,17 @@ async def handle_get_client_errors_impl(server, request):
     })
 
 
+async def handle_get_config_impl(server, request):
+    mode = "controllers"
+    if hasattr(server, "latest_status"):
+        with server.status_lock:
+            mode = server.latest_status.get("input_mode", "controllers")
+    return web.json_response({
+        "status": "ok",
+        "input_mode": mode
+    })
+
+
 
 
 

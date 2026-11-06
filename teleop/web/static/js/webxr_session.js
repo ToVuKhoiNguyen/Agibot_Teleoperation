@@ -49,8 +49,12 @@ function enterVRDirectly() {
   if (errOverlay) errOverlay.style.display = 'none';
 
   // Synchronous requestSession maintaining user gesture
+  const sessionFeatures = ['local-floor'];
+  if (window.confirmedInputMode === 'hands' || window.currentInputMode === 'hands') {
+    sessionFeatures.push('hand-tracking');
+  }
   navigator.xr.requestSession('immersive-vr', {
-    optionalFeatures: ['local-floor', 'hand-tracking']
+    optionalFeatures: sessionFeatures
   }).then(session => {
     onXRSessionStarted(session, 'immersive-vr');
   }).catch(err => {

@@ -64,15 +64,15 @@ shift || true
 case "$CMD" in
     sim)
         print_url_and_adb "https://localhost:8012/"
-        exec "$PYTHON_BIN" main.py --backend sim "$@"
+        exec "$PYTHON_BIN" main.py --backend sim --input controllers "$@"
         ;;
     controllers)
         print_url_and_adb "https://localhost:8012/?input=controllers"
-        exec "$PYTHON_BIN" main.py --backend sim --controller "$@"
+        exec "$PYTHON_BIN" main.py --backend sim --controller --input controllers "$@"
         ;;
     hands)
         print_url_and_adb "https://localhost:8012/?input=hands"
-        exec "$PYTHON_BIN" main.py --backend sim "$@"
+        exec "$PYTHON_BIN" main.py --backend sim --input hands "$@"
         ;;
     dryrun)
         print_url_and_adb "https://localhost:8012/"

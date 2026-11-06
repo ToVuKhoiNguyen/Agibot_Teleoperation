@@ -121,14 +121,14 @@ function onXRFrame(time, frame) {
     }
 
     const inputSources = (typeof getInputSources === 'function') ? getInputSources(xrSession) : Array.from((xrSession && xrSession.inputSources) || []);
-    const anyHand = inputSources.some(s => Boolean(s && s.hand));
-    if (anyHand && window.currentInputMode !== 'hands' && typeof autoDetectInputMode === 'function') {
-      autoDetectInputMode(inputSources);
-    }
-    if (typeof processHandTrackingFrame === 'function' && (window.currentInputMode === 'hands' || anyHand)) {
-      processHandTrackingFrame(frame, xrRefSpace, inputSources, headPos, nowMs);
+    const mode = window.confirmedInputMode || window.currentInputMode;
+    if (mode === 'hands') {
+      if (typeof processHandTrackingFrame === 'function') {
+        processHandTrackingFrame(frame, xrRefSpace, inputSources, headPos, nowMs);
+      }
       return;
     }
+    // Controllers mode: ignore any hand tracking joints and only process gamepad controllers
     let leftSrc = null, rightSrc = null;
     for (let i = 0; i < inputSources.length; i++) {
       const s = inputSources[i];

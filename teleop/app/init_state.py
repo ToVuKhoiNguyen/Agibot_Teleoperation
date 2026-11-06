@@ -52,6 +52,7 @@ def init_state(app, project_root: Path):
     app.fault_events = 0
     app.frame_gaps = 0
     app.msg_ages_ms = []
+    app.rejected_other_mode = 0
 
     # Quest 3S WebXR Teleoperation Configuration & Clutch State
     app.quest_config_path = project_root / "config" / "quest3s.yaml"
@@ -82,6 +83,7 @@ def init_state(app, project_root: Path):
             print(f"[WARN] Failed to load quest3s.yaml: {e}")
 
     app.xr_axis_map = np.array(app.quest_cfg.get("controller_axis_map", [[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]), dtype=np.float64)
+    app.xr_rot_axis_map = np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
     app.xr_scale = float(app.quest_cfg.get("scale", 1.0))
     app.xr_rotation_enabled = bool(app.quest_cfg.get("rotation_enabled", True))
     app.xr_deadband = float(app.quest_cfg.get("deadband_m", 0.002))
@@ -100,7 +102,7 @@ def init_state(app, project_root: Path):
     app.xr_tracking_lost_r = False
     app.xr_reengage_required_l = False
     app.xr_reengage_required_r = False
-    app.input_mode = "controllers"
+    app.input_mode = getattr(app, "input_mode", "controllers")
     app.hand_follow_mode = "absolute"
     app.hand_elbow_hint = False
     app.cal_head_pos = np.array([0.0, 1.5, 0.0], dtype=np.float64)

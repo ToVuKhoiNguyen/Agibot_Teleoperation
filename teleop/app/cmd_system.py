@@ -33,16 +33,8 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
         app.manual_held = not app.manual_held
         return True
     elif name == "set_input_mode":
-        new_mode = str(cmd.get("mode", "controllers")).lower()
-        if new_mode != getattr(app, "input_mode", ""):
-            app.active_sequence = None
-            app.walking_demo_active = False
-            app.gizmo_active_l = app.gizmo_active_r = False
-            app.handtrack_clutch_l = app.handtrack_clutch_r = False
-            if hasattr(app, "robot_safety") and app.robot_safety:
-                app.robot_safety.hold()
-            app._log_xr_event(f"Switch mode to {new_mode} -> sequences stopped, targets held")
-        app.input_mode = new_mode
+        # Server stores launch-configured input mode as single source of truth; never auto-switches
+        app._log_xr_event(f"Ignored client mode request (server strict mode: {getattr(app, 'input_mode', 'controllers')})")
         return True
     elif name == "calibrate_hand":
         if hasattr(app, "handtrack_retargeter_l") and hasattr(app, "handtrack_retargeter_r"):
@@ -66,6 +58,8 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
     elif name in ("calibrate_pose", "calibrate_hand_pose"):
         app.cal_head_pos = getattr(app, "last_head_pos", np.array([0.0, 1.5, 0.0])).copy()
         app.cal_head_yaw = float(getattr(app, "last_head_yaw", 0.0))
+        app.handtrack_rcal_l = getattr(app, "robot_home_rot_l", getattr(app, "cur_target_rot_l", np.eye(3))).copy()
+        app.handtrack_rcal_r = getattr(app, "robot_home_rot_r", getattr(app, "cur_target_rot_r", np.eye(3))).copy()
         if hasattr(app, "save_pose_calibration"):
             app.save_pose_calibration()
         app._log_xr_event("Hand pose calibrated (forward/palms down)")

@@ -10,11 +10,6 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
     """Solves IK for requested arms, applies critically damped filtering and self-collision gating."""
     ee_poses = app.env.get_ee_poses()
 
-    if hasattr(app.ik_left, "conf") and app.ik_left.conf is not None:
-        app.ik_left.conf.data.qpos[:] = app.env.data.qpos
-    if hasattr(app.ik_right, "conf") and app.ik_right.conf is not None:
-        app.ik_right.conf.data.qpos[:] = app.env.data.qpos
-
     slid_blocked_l = False
     slid_blocked_r = False
 

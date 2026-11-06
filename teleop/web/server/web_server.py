@@ -32,6 +32,7 @@ from teleop.web.server.panel_routes import (
     handle_get_fault_trace_impl,
     handle_post_client_log_impl,
     handle_get_client_errors_impl,
+    handle_get_config_impl,
 )
 from teleop.web.server.ws_broadcaster import (
     handle_ws_impl,
@@ -113,6 +114,7 @@ class WebPanelServer:
         self.app.router.add_post("/api/command", self.handle_post_cmd)
         self.app.router.add_post("/api/client_log", self.handle_post_client_log)
         self.app.router.add_get("/api/client_errors", self.handle_get_client_errors)
+        self.app.router.add_get("/api/config", self.handle_get_config)
         self.app.router.add_post("/api/launch_quest", self.handle_post_quest_launch)
         self.app.router.add_post("/api/quest/launch", self.handle_post_quest_launch)
 
@@ -195,6 +197,9 @@ class WebPanelServer:
 
     async def handle_get_client_errors(self, request):
         return await handle_get_client_errors_impl(self, request)
+
+    async def handle_get_config(self, request):
+        return await handle_get_config_impl(self, request)
 
     def set_status(self, status_dict: dict):
         set_status_impl(self, status_dict)

@@ -55,10 +55,13 @@ def init_subsystems(
     hand_raw_max: int = 800,
     enable_thumb_swing: bool = False,
     allow_handtracking_real: bool = False,
+    input_mode: str = "controllers",
 ):
+    print(f"[INFO] Launch input mode: {input_mode.upper()} (exclusive)")
     app.port = port
     app.render_viewer = render_viewer
     app.use_controller = use_controller
+    app.input_mode = input_mode.lower()
     app.xr_view = xr_view
     app.backend = backend
     app.allow_handtracking_real = bool(allow_handtracking_real)

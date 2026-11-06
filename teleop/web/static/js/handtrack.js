@@ -13,9 +13,18 @@ const XR_JOINT_NAMES = [
 const handUrlParams = new URLSearchParams(window.location.search);
 const urlInputParam = (handUrlParams.get('input') || 'auto').toLowerCase();
 window.currentInputMode = urlInputParam;
-window.confirmedInputMode = 'auto';
+window.confirmedInputMode = urlInputParam !== 'auto' ? urlInputParam : 'controllers';
 window.currentHandFollowMode = (handUrlParams.get('mode') || handUrlParams.get('handmode') || 'absolute').toLowerCase();
 const handDebugEnabled = (handUrlParams.get('handdebug') === '1');
+
+// Fetch server source of truth for input mode
+fetch('/api/config').then(r => r.json()).then(data => {
+  if (data && data.input_mode) {
+    window.currentInputMode = data.input_mode;
+    window.confirmedInputMode = data.input_mode;
+    updateModeBannerUI();
+  }
+}).catch(() => {});
 
 let lastHandSendMs = 0;
 let handClutchSprite = null;
@@ -23,33 +32,16 @@ let handDebugSpheres = { left: [], right: [] };
 
 function setInputMode(mode) {
   window.currentInputMode = mode;
-  const sel = document.getElementById('select-input-mode');
-  if (sel) sel.value = mode;
-  sendCmd({ cmd: 'set_input_mode', mode: mode });
+  window.confirmedInputMode = mode;
   updateModeBannerUI();
 }
 
 function autoDetectInputMode(inputSources) {
-  const sources = (typeof getInputSources === 'function') ? getInputSources(inputSources) : (Array.isArray(inputSources) ? inputSources : Array.from(inputSources || []));
-  if (!sources || sources.length === 0) return;
-  let hasHand = false, hasController = false;
-  for (let i = 0; i < sources.length; i++) {
-    const src = sources[i];
-    if (src && src.hand) hasHand = true;
-    else if (src && (src.targetRayMode === 'tracked-pointer' || src.gamepad)) hasController = true;
-  }
-  let mode = window.currentInputMode;
-  if (hasHand) mode = 'hands';
-  else if (hasController) mode = 'controllers';
-  window.currentInputMode = mode;
-  sendCmd({ cmd: 'set_input_mode', mode: mode });
-  updateModeBannerUI();
+  // Server is single source of truth; no auto-switching
 }
 
 window.onXRInputSourcesChanged = function(event) {
-  const s = event && event.session ? event.session : window.xrSession;
-  const srcs = (typeof getInputSources === 'function') ? getInputSources(s) : Array.from((s && s.inputSources) || []);
-  autoDetectInputMode(srcs);
+  // Server is single source of truth; no auto-switching
 };
 
 function calibrateHandAction() { sendCmd({ cmd: 'calibrate_hand' }); }
@@ -146,19 +138,21 @@ function updateHandDebugSpheres(side, joints, isTracked, conf) {
 }
 
 function updateModeBannerUI(extraBanner) {
-  const req = window.currentInputMode, conf = window.confirmedInputMode || req;
-  const isMismatch = (req !== 'auto' && conf !== 'auto' && req !== conf);
-  const bld = window.BUILD_ID ? ` | bld=${window.BUILD_ID}` : '';
+  const mode = (window.confirmedInputMode || window.currentInputMode || 'controllers').toUpperCase();
+  const bannerText = `MODE: ${mode}`;
   const bar = document.getElementById('hand-banner-bar');
   if (bar) {
-    if (isMismatch) {
-      bar.innerText = `[MODE MISMATCH: req=${req} vs conf=${conf}]${bld}`;
-      bar.style.background = '#b71c1c'; bar.style.color = '#ffcdd2';
-    } else {
-      bar.innerText = (extraBanner || `INPUT: ${conf.toUpperCase()}${bld}`);
-      bar.style.background = conf === 'hands' ? '#1b382b' : '#1e293b';
-      bar.style.color = conf === 'hands' ? '#a7f3d0' : '#90caf9';
-    }
+    bar.innerText = bannerText;
+    bar.style.background = mode === 'HANDS' ? '#1b382b' : '#1e293b';
+    bar.style.color = mode === 'HANDS' ? '#a7f3d0' : '#90caf9';
+  }
+  const faultBanner = document.getElementById('fault-banner');
+  const faultText = document.getElementById('fault-banner-text');
+  if (faultBanner && faultText && (!faultText.innerText || faultText.innerText.startsWith('MODE:'))) {
+    faultText.innerText = bannerText;
+    faultBanner.style.background = mode === 'HANDS' ? '#1b382b' : '#1e293b';
+    faultBanner.style.color = mode === 'HANDS' ? '#a7f3d0' : '#90caf9';
+    faultBanner.style.display = 'flex';
   }
 }
 

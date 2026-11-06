@@ -16,9 +16,20 @@ def get_effective_axis_map(app) -> np.ndarray:
     return app.xr_axis_map @ Ry
 
 
+def get_effective_rot_axis_map(app) -> np.ndarray:
+    rot_map = getattr(app, "xr_rot_axis_map", np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64))
+    rig_yaw = float(getattr(app, "xr_rig_yaw", 0.0))
+    if abs(rig_yaw) < 1e-4:
+        return rot_map
+    c, s = np.cos(-rig_yaw), np.sin(-rig_yaw)
+    Ry = np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]], dtype=np.float64)
+    return rot_map @ Ry
+
+
 def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
     """Updates 4-state clutch machine and SE(3) targets for both arms."""
     axis_map = get_effective_axis_map(app)
+    rot_axis_map = get_effective_rot_axis_map(app)
 
     # --- Left Arm Clutch & Tracking Loss Handling ---
     left_present = left_pkt is not None
@@ -98,7 +109,7 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
             if app.xr_clutch_state_l in ("ROTATE", "6D") and rot_enabled and q_ctrl_l is not None and len(q_ctrl_l) == 4 and app.xr_anchor_ctrl_rot_l is not None:
                 r_curr_ctrl = R.from_quat([q_ctrl_l[1], q_ctrl_l[2], q_ctrl_l[3], q_ctrl_l[0]]).as_matrix()
                 r_rel_xr = r_curr_ctrl @ app.xr_anchor_ctrl_rot_l.T
-                r_rel_rob = axis_map @ r_rel_xr @ axis_map.T
+                r_rel_rob = rot_axis_map @ r_rel_xr @ rot_axis_map.T
                 app.cur_target_rot_l = r_rel_rob @ app.xr_anchor_marker_rot_l
                 app.gizmo_active_l = True
                 if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "controller clutch")
@@ -183,7 +194,7 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
             if app.xr_clutch_state_r in ("ROTATE", "6D") and rot_enabled and q_ctrl_r is not None and len(q_ctrl_r) == 4 and app.xr_anchor_ctrl_rot_r is not None:
                 r_curr_ctrl = R.from_quat([q_ctrl_r[1], q_ctrl_r[2], q_ctrl_r[3], q_ctrl_r[0]]).as_matrix()
                 r_rel_xr = r_curr_ctrl @ app.xr_anchor_ctrl_rot_r.T
-                r_rel_rob = axis_map @ r_rel_xr @ axis_map.T
+                r_rel_rob = rot_axis_map @ r_rel_xr @ rot_axis_map.T
                 app.cur_target_rot_r = r_rel_rob @ app.xr_anchor_marker_rot_r
                 app.gizmo_active_r = True
                 if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "controller clutch")
