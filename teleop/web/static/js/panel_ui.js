@@ -176,6 +176,54 @@ async function dumpHandLog() {
   }
 }
 
+// Global Client Error Reporter
+let lastErrorLogTimes = {};
+window.frameCountXR = 0;
+
+function reportClientError(err, extra = {}) {
+  const msg = (err && (err.message || err.toString())) || 'Unknown Client Error';
+  const stack = (err && err.stack) || '';
+  const fileLine = (extra && extra.fileLine) || (stack ? (stack.split('\n')[1] || '').trim() : '');
+  const now = Date.now();
+  if (lastErrorLogTimes[msg] && (now - lastErrorLogTimes[msg] < 1000)) return;
+  lastErrorLogTimes[msg] = now;
+
+  window.lastXRError = msg;
+  const bText = document.getElementById('fault-banner-text');
+  const bBox = document.getElementById('fault-banner');
+  if (bText && bBox) {
+    bText.innerText = `⚠️ ${msg}`;
+    bBox.style.display = 'flex';
+    bBox.style.background = '#d32f2f';
+  }
+  if (typeof updateXRDiagOverlay === 'function') updateXRDiagOverlay();
+
+  const payload = {
+    message: msg,
+    stack: stack,
+    "file:line": fileLine,
+    "build id": window.BUILD_ID || 'unknown',
+    "input mode": window.confirmedInputMode || window.currentInputMode || 'none',
+    "frame count": window.frameCountXR || 0,
+    time: new Date().toISOString()
+  };
+  try {
+    fetch('/api/client_log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  } catch (_) {}
+}
+window.reportClientError = reportClientError;
+
+window.onerror = function(message, source, lineno, colno, error) {
+  reportClientError(error || message, { fileLine: `${source}:${lineno}:${colno}` });
+};
+window.addEventListener('unhandledrejection', function(event) {
+  reportClientError(event.reason || 'Unhandled Promise Rejection');
+});
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {
   init3D();

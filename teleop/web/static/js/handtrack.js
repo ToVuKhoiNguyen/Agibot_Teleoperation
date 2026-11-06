@@ -109,15 +109,14 @@ function parseXRHandSource(src, frame, refSpace) {
   const hand = src.hand, jointCoords = [];
   let wristPose = null, trackedCount = 0;
   for (let i = 0; i < XR_JOINT_NAMES.length; i++) {
-    const jSpace = hand.get ? hand.get(XR_JOINT_NAMES[i]) : hand[i];
-    if (jSpace) {
-      const p = frame.getJointPose ? frame.getJointPose(jSpace, refSpace) : null;
-      if (p && p.transform) {
-        const pos = p.transform.position;
+    const jSpace = (hand && typeof hand.get === 'function') ? hand.get(XR_JOINT_NAMES[i]) : (hand ? hand[i] : null);
+    if (jSpace && frame && typeof frame.getJointPose === 'function') {
+      const p = frame.getJointPose(jSpace, refSpace);
+      if (p && p.transform && p.transform.position && p.transform.orientation) {
+        const pos = p.transform.position, q = p.transform.orientation;
         jointCoords.push([pos.x, pos.y, pos.z]);
         trackedCount++;
         if (i === 0) {
-          const q = p.transform.orientation;
           wristPose = { pos: [pos.x, pos.y, pos.z], quat: [q.w, q.x, q.y, q.z] };
         }
         continue;
@@ -127,7 +126,7 @@ function parseXRHandSource(src, frame, refSpace) {
   }
   const confidence = trackedCount / 25.0;
   const isTracked = (confidence >= 0.20 && wristPose !== null);
-  if (isTracked && jointCoords[10] && (jointCoords[10][0] !== 0 || jointCoords[10][1] !== 0)) {
+  if (isTracked && wristPose && jointCoords[10] && jointCoords[0] && (jointCoords[10][0] !== 0 || jointCoords[10][1] !== 0)) {
     wristPose.pos = [0.5 * (jointCoords[0][0] + jointCoords[10][0]), 0.5 * (jointCoords[0][1] + jointCoords[10][1]), 0.5 * (jointCoords[0][2] + jointCoords[10][2])];
   }
   return { tracking: isTracked, confidence: confidence, wrist: wristPose, joints: jointCoords };

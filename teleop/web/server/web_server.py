@@ -5,8 +5,11 @@ Core WebPanelServer hosting HTTPS, WebSocket streaming, and static assets.
 
 import os
 import ssl
+import json
+import time
 import queue
 import asyncio
+import collections
 import threading
 from aiohttp import web
 
@@ -27,6 +30,8 @@ from teleop.web.server.panel_routes import (
     handle_get_handrec_impl,
     handle_get_target_trace_impl,
     handle_get_fault_trace_impl,
+    handle_post_client_log_impl,
+    handle_get_client_errors_impl,
 )
 from teleop.web.server.ws_broadcaster import (
     handle_ws_impl,
@@ -77,6 +82,7 @@ class WebPanelServer:
         self._xr_lock = threading.Lock()
         self._latest_xr_cmd = None
         self.build_id = get_current_build_id()
+        self.client_errors = collections.deque(maxlen=50)
 
         @web.middleware
         async def static_cache_middleware(request, handler):
@@ -105,6 +111,8 @@ class WebPanelServer:
         self.app.router.add_post("/api/handrec", self.handle_get_handrec)
         self.app.router.add_post("/api/handtest", self.handle_post_handtest)
         self.app.router.add_post("/api/command", self.handle_post_cmd)
+        self.app.router.add_post("/api/client_log", self.handle_post_client_log)
+        self.app.router.add_get("/api/client_errors", self.handle_get_client_errors)
         self.app.router.add_post("/api/launch_quest", self.handle_post_quest_launch)
         self.app.router.add_post("/api/quest/launch", self.handle_post_quest_launch)
 
@@ -181,6 +189,12 @@ class WebPanelServer:
 
     async def handle_get_fault_trace(self, request):
         return await handle_get_fault_trace_impl(self, request)
+
+    async def handle_post_client_log(self, request):
+        return await handle_post_client_log_impl(self, request)
+
+    async def handle_get_client_errors(self, request):
+        return await handle_get_client_errors_impl(self, request)
 
     def set_status(self, status_dict: dict):
         set_status_impl(self, status_dict)

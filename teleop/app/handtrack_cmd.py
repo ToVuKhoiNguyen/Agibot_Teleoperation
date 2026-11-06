@@ -84,7 +84,8 @@ def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axi
             return {"tracking": False, "clutch": False, "flexion": [0]*5, "is_open": False, "vel": 0.0, "upd": False}
 
     if real_tracked: setattr(app, f"handtrack_loss_start_{side[0]}", 0.0)
-    w_data, joints = pkt.get("wrist", {}), resolve_joints_array(pkt.get("joints", []))
+    pkt_dict = pkt or {}
+    w_data, joints = pkt_dict.get("wrist") or {}, resolve_joints_array(pkt_dict.get("joints", []))
     raw_p, raw_q = np.array(w_data.get("pos", [0, 0, 0]), dtype=np.float64), w_data.get("quat", [1, 0, 0, 0])
     if not ('track_p' in locals() and not ('joints' in pkt and len(joints) >= 25)):
         track_p = 0.5 * (joints[0] + joints[10]) if len(joints) >= 25 else raw_p
@@ -191,11 +192,11 @@ def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axi
 
     if hasattr(app, "hand_recorder") and app.hand_recorder and getattr(app.hand_recorder, "enabled", False):
         act_p = app.env.get_ee_poses()[side]["pos"] if hasattr(app.env, "get_ee_poses") else [0, 0, 0]
-        app.hand_recorder.record_frame(now_t, side, {"pos": raw_p.tolist(), "quat": raw_q}, {"pos": p_w.tolist(), "quat": raw_q}, is_clutched, {"pos": (app.cur_target_pos_l if side == "left" else app.cur_target_pos_r).tolist()}, {"pos": list(act_p)}, joints.tolist() if len(joints) >= 25 else [], [float(a) for a in angles], [float(f) for f in flexion], [float(f) for f in flex_filt], [float(s) for s in safe_q6[:5]], retargeter.cal, bool(pkt.get("tracking", True)), float(pkt.get("confidence", 1.0)), float(getattr(app, f"last_ik_residual_{side[0]}", 0.0)), {"workspace": bool(clamped_ws), "collision": bool(is_col), "joint_limit": False})
+        app.hand_recorder.record_frame(now_t, side, {"pos": raw_p.tolist(), "quat": raw_q}, {"pos": p_w.tolist(), "quat": raw_q}, is_clutched, {"pos": (app.cur_target_pos_l if side == "left" else app.cur_target_pos_r).tolist()}, {"pos": list(act_p)}, joints.tolist() if len(joints) >= 25 else [], [float(a) for a in angles], [float(f) for f in flexion], [float(f) for f in flex_filt], [float(s) for s in safe_q6[:5]], retargeter.cal, bool(pkt_dict.get("tracking", True)), float(pkt_dict.get("confidence", 1.0)), float(getattr(app, f"last_ik_residual_{side[0]}", 0.0)), {"workspace": bool(clamped_ws), "collision": bool(is_col), "joint_limit": False})
 
     c_str = "ABSOLUTE" if mode == "absolute" else ("ENGAGED" if is_clutched else "LOCKED")
     nz = int(np.sum([np.linalg.norm(j) > 1e-4 for j in joints])) if len(joints) >= 25 else 0
-    app.handtrack_diag_status[side] = {"mode": mode, "valid": bool(pkt.get("tracking", True)), "conf": round(float(pkt.get("confidence", 1.0)), 2), "src": "hand", "clutch": c_str, "palm": np.round(track_p, 3).tolist(), "nz": nz, "flex": round(float(np.mean(flex_filt)), 2), "upd": bool(target_updating and not clamped_ws), "e2e_ms": getattr(app, "handtrack_e2e_ms", 0.0)}
+    app.handtrack_diag_status[side] = {"mode": mode, "valid": bool(pkt_dict.get("tracking", True)), "conf": round(float(pkt_dict.get("confidence", 1.0)), 2), "src": "hand", "clutch": c_str, "palm": np.round(track_p, 3).tolist(), "nz": nz, "flex": round(float(np.mean(flex_filt)), 2), "upd": bool(target_updating and not clamped_ws), "e2e_ms": getattr(app, "handtrack_e2e_ms", 0.0)}
     c_norm = [safe_q6[i] / COMFORTABLE_LIMITS[i] for i in (1, 2, 3, 4, 5)]
     app.handtrack_live_bars[side] = {"raw": [round(float(f), 3) for f in flex_filt], "cmd": [round(float(c), 3) for c in c_norm], "act": [round(float(c), 3) for c in c_norm]}
     return {"tracking": True, "clutch": bool(is_clutched), "flexion": [round(float(f), 3) for f in flex_filt], "is_open": bool(gestures["is_open"]), "vel": float(gestures["vel"]), "estop_candidate": bool(gestures["estop_candidate"]), "upd": bool(target_updating)}

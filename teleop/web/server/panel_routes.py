@@ -141,6 +141,36 @@ async def handle_get_fault_trace_impl(server, request):
     return web.json_response({"status": "error", "message": "Fault tracer not available"}, status=404)
 
 
+def record_client_error_impl(server, err_data: dict):
+    server.client_errors.append(err_data)
+    try:
+        import os
+        log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, "client_errors.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(err_data) + "\n")
+    except Exception:
+        pass
+
+
+async def handle_post_client_log_impl(server, request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"status": "error", "message": "Invalid JSON"}, status=400)
+    record_client_error_impl(server, data)
+    return web.json_response({"status": "ok"})
+
+
+async def handle_get_client_errors_impl(server, request):
+    return web.json_response({
+        "status": "ok",
+        "count": len(server.client_errors),
+        "errors": list(server.client_errors)
+    })
+
+
+
 
 
 

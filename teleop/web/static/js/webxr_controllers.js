@@ -12,8 +12,9 @@ const trackingState = {
 };
 
 function initVRViewpoint(viewerPose) {
-  const p = viewerPose.transform.position;
-  const q = viewerPose.transform.orientation;
+  if (!viewerPose || !viewerPose.transform) return;
+  const p = viewerPose.transform.position, q = viewerPose.transform.orientation;
+  if (!p || !q) return;
   const siny_cosp = 2.0 * (q.w * q.y + q.x * q.z);
   const cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
   headYaw = Math.atan2(siny_cosp, cosy_cosp);
@@ -75,8 +76,9 @@ function updateSceneHUD(msgView, msgLoss, headPos) {
 
 function updateTrackingStatus(side, src, pose, nowMs) {
   const st = trackingState[side];
+  if (!st) return false;
   let isLoss = false;
-  if (!src || !pose || !pose.transform) {
+  if (!src || !pose || !pose.transform || !pose.transform.position) {
     isLoss = true;
   } else {
     const p = pose.transform.position;
@@ -85,13 +87,13 @@ function updateTrackingStatus(side, src, pose, nowMs) {
       st.lastPosStr = posStr;
       st.lastChangeTime = nowMs;
     } else if (st.lastChangeTime > 0 && nowMs - st.lastChangeTime > 1000) {
-      isLoss = true; // frozen > 1s
+      isLoss = true;
     }
   }
 
   if (isLoss) {
     if (!st.lossStart) st.lossStart = nowMs;
-    if (nowMs - st.lossStart >= 150) st.lost = true; // 150ms debounce
+    if (nowMs - st.lossStart >= 150) st.lost = true;
   } else {
     st.lossStart = 0;
     st.lost = false;
@@ -102,17 +104,18 @@ function updateTrackingStatus(side, src, pose, nowMs) {
 function onXRFrame(time, frame) {
   if (!xrSession) return;
   try {
+    window.frameCountXR = (window.frameCountXR || 0) + 1;
     const nowMs = performance.now();
     const dtSec = lastXRFrameTime > 0 ? Math.min(0.05, Math.max(0.001, (nowMs - lastXRFrameTime) / 1000.0)) : 0.016;
     lastXRFrameTime = nowMs;
 
     if (typeof applyLatestMovingPoses === 'function') applyLatestMovingPoses(dtSec);
     renderer.render(scene, camera);
-    if (!xrRefSpace) return;
+    if (!xrRefSpace || !frame) return;
 
-    const viewerPose = frame.getViewerPose(xrRefSpace);
+    const viewerPose = frame.getViewerPose ? frame.getViewerPose(xrRefSpace) : null;
     let headPos = null;
-    if (viewerPose) {
+    if (viewerPose && viewerPose.transform && viewerPose.transform.position) {
       headPos = viewerPose.transform.position;
       if (!vrRigInitialized) initVRViewpoint(viewerPose);
     }
@@ -139,11 +142,11 @@ function onXRFrame(time, frame) {
         return { pos: null, quat: null, tracking: false, tracking_loss: true, grip: false, trigger: 0, thumbstick: [0, 0] };
       }
       const space = src.gripSpace || src.targetRaySpace;
-      const pose = space ? frame.getPose(space, xrRefSpace) : null;
+      const pose = (space && frame.getPose) ? frame.getPose(space, xrRefSpace) : null;
       const isTracked = updateTrackingStatus(side, src, pose, nowMs);
 
       let posArr = null, quatArr = null;
-      if (isTracked && pose && pose.transform) {
+      if (isTracked && pose && pose.transform && pose.transform.position && pose.transform.orientation) {
         const p = pose.transform.position, q = pose.transform.orientation;
         posArr = [p.x, p.y, p.z];
         quatArr = [q.w, q.x, q.y, q.z];
@@ -221,21 +224,12 @@ function onXRFrame(time, frame) {
     }
     if (typeof window.recordHandPacketSent === 'function') window.recordHandPacketSent();
   } catch (err) {
-    const msg = `${err.name || 'Error'}: ${err.message || err}`;
-    window.lastXRError = msg;
-    window._xrLoggedErrors = window._xrLoggedErrors || new Set();
-    if (!window._xrLoggedErrors.has(msg)) {
-      window._xrLoggedErrors.add(msg);
+    if (typeof reportClientError === 'function') reportClientError(err, { source: 'onXRFrame' });
+    else {
+      const msg = `${err.name || 'Error'}: ${err.message || err}`;
+      window.lastXRError = msg;
       console.error('[XRFrame Exception]', err);
     }
-    const bText = document.getElementById('fault-banner-text');
-    const bBox = document.getElementById('fault-banner');
-    if (bText && bBox) {
-      bText.innerText = `⚠️ XR ERROR: ${msg}`;
-      bBox.style.display = 'flex';
-      bBox.style.background = '#d32f2f';
-    }
-    if (typeof updateXRDiagOverlay === 'function') updateXRDiagOverlay();
   } finally {
     if (xrSession) {
       try { xrSession.requestAnimationFrame(onXRFrame); } catch (_) {}

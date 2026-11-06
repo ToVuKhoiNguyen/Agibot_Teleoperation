@@ -14,21 +14,25 @@ let xrRequireButtonResume = false;
 
 function checkXRSupport() {
   const container = document.getElementById('vr-corner-container');
-  const btn = document.getElementById('btn-vr-corner');
-  if (!btn) return;
+  const btnCorner = document.getElementById('btn-vr-corner');
+  const btnHud = document.getElementById('btn-enter-vr');
   if (container) container.style.display = 'none';
-  else btn.style.display = 'none';
+  if (btnCorner) btnCorner.style.display = 'none';
+  if (btnHud) btnHud.style.display = 'none';
   if (!window.isSecureContext || !navigator.xr) return;
 
   navigator.xr.isSessionSupported('immersive-vr').then(supported => {
     if (supported) {
       if (container) container.style.display = 'flex';
-      btn.style.display = 'block';
+      if (btnCorner) btnCorner.style.display = 'block';
+      if (btnHud) btnHud.style.display = 'inline-block';
     }
   }).catch(err => {
     console.warn('isSessionSupported(immersive-vr) error:', err);
   });
 }
+window.checkXRSupport = checkXRSupport;
+window.addEventListener('DOMContentLoaded', checkXRSupport);
 
 function toggleXRRotation(checked) {
   xrRotationEnabled = Boolean(checked);

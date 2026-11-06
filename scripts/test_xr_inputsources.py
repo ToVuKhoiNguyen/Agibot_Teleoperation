@@ -151,6 +151,22 @@ def run_test():
                     frames: frameCount
                 };
 
+                // Phase 3: Stress test 300 frames with corrupted/missing data (undefined handedness, null hand/gamepad, missing joints, null poses)
+                let edgeCases = [
+                    {},
+                    { handedness: undefined, targetRayMode: 'tracked-pointer' },
+                    { handedness: 'left', hand: null, targetRayMode: 'tracked-pointer' },
+                    { handedness: 'right', gamepad: null, targetRayMode: 'tracked-pointer' },
+                    { handedness: 'left', hand: new Map([['wrist', {name: 'wrist', index: 0}]]), targetRayMode: 'tracked-pointer' }
+                ];
+                for (let c = 0; c < edgeCases.length; c++) {
+                    session.inputSources = createNonArraySources([edgeCases[c]]);
+                    if (typeof onXRInputSourcesChange === 'function') onXRInputSourcesChange({ session: session });
+                    for (let f = 0; f < 60; f++) {
+                        await new Promise(r => setTimeout(r, 8));
+                    }
+                }
+
                 return { ctrl: ctrlRes, hand: handRes };
             }''')
 
@@ -198,3 +214,4 @@ def run_test():
 if __name__ == "__main__":
     success = run_test()
     sys.exit(0 if success else 1)
+
