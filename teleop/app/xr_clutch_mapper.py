@@ -26,180 +26,151 @@ def get_effective_rot_axis_map(app) -> np.ndarray:
     return rot_map @ Ry
 
 
+def _process_arm_clutch(app, side: str, pkt: dict, rot_enabled: bool, axis_map: np.ndarray, rot_axis_map: np.ndarray):
+    """Processes relative clutch state machine and SE(3) targets for a single arm."""
+    s = side[0]  # 'l' or 'r'
+    present = pkt is not None
+    loss = present and (pkt.get("pos") is None or pkt.get("tracking") is False or pkt.get("tracking_loss") is True)
+
+    if loss:
+        clutch_state = getattr(app, f"xr_clutch_state_{s}")
+        if clutch_state != "LOCKED" or getattr(app, f"gizmo_active_{s}", False):
+            setattr(app, f"xr_clutch_state_{s}", "LOCKED")
+            setattr(app, f"xr_anchor_ctrl_pos_{s}", None)
+            setattr(app, f"xr_anchor_ctrl_rot_{s}", None)
+            setattr(app, f"gizmo_active_{s}", False)
+            setattr(app, f"xr_grip_active_{s}", False)
+            setattr(app, f"xr_reengage_required_{s}", True)
+            setattr(app, f"xr_trig_down_{s}", False)
+            setattr(app, f"xr_grip_down_{s}", False)
+            app._log_xr_event(f"{side.upper()} tracking lost -> clutch released & target held")
+        if not getattr(app, f"xr_tracking_lost_{s}", False):
+            app.tracking_loss_events = getattr(app, "tracking_loss_events", 0) + 1
+        setattr(app, f"xr_tracking_lost_{s}", True)
+        return
+
+    if not present or pkt.get("pos") is None:
+        return
+
+    # Trigger & Grip detection with hysteresis (Trigger: rise 0.5, fall 0.4; Grip: rise 0.5, fall 0.4 or bool)
+    t_val = getattr(app, f"xr_trig_val_{s}", 0.0)
+    g_val = getattr(app, f"xr_grip_val_{s}", 0.0)
+    cur_trig_down = getattr(app, f"xr_trig_down_{s}", False)
+    cur_grip_down = getattr(app, f"xr_grip_down_{s}", False)
+
+    # If pkt explicitly gives boolean grip/trigger, honor them as fallbacks
+    pkt_grip = bool(pkt.get("grip", False))
+    pkt_trig = bool(pkt.get("trigger_pressed", False) or (pkt.get("trigger", 0.0) >= 0.5))
+
+    new_trig_down = (t_val >= 0.5 or pkt_trig) if not cur_trig_down else (t_val >= 0.4)
+    new_grip_down = (g_val >= 0.5 or pkt_grip) if not cur_grip_down else (g_val >= 0.4 or pkt_grip)
+    setattr(app, f"xr_trig_down_{s}", new_trig_down)
+    setattr(app, f"xr_grip_down_{s}", new_grip_down)
+
+    if getattr(app, f"xr_reengage_required_{s}", False):
+        if not new_trig_down and not new_grip_down:
+            setattr(app, f"xr_reengage_required_{s}", False)
+            setattr(app, f"xr_tracking_lost_{s}", False)
+            app._log_xr_event(f"{side.upper()} tracking restored & clutch re-armed")
+        else:
+            setattr(app, f"xr_clutch_state_{s}", "LOCKED")
+            setattr(app, f"xr_anchor_ctrl_pos_{s}", None)
+            setattr(app, f"xr_anchor_ctrl_rot_{s}", None)
+            setattr(app, f"gizmo_active_{s}", False)
+            setattr(app, f"xr_grip_active_{s}", False)
+            return
+
+    p_ctrl = np.array(pkt["pos"], dtype=np.float64)
+    q_ctrl = pkt.get("quat")
+
+    # Evaluate 4-state clutch mode
+    if new_grip_down and new_trig_down:
+        next_state = "6D"
+    elif new_trig_down and not new_grip_down:
+        next_state = "TRANSLATE"
+    elif new_grip_down and not new_trig_down:
+        next_state = "ROTATE"
+    else:
+        next_state = "LOCKED"
+
+    prev_state = getattr(app, f"xr_clutch_state_{s}")
+    setattr(app, f"xr_clutch_state_{s}", next_state)
+
+    # Independent channel re-anchoring when newly engaged or transitioning
+    newly_translating = next_state in ("TRANSLATE", "6D") and prev_state not in ("TRANSLATE", "6D")
+    newly_rotating = next_state in ("ROTATE", "6D") and prev_state not in ("ROTATE", "6D")
+
+    # Read current EE pose from sim or current target as base anchor T0
+    ee_curr = app.env.get_ee_poses()[side] if (hasattr(app, "env") and hasattr(app.env, "get_ee_poses")) else None
+    curr_target_pos = getattr(app, f"cur_target_pos_{s}")
+    curr_target_rot = getattr(app, f"cur_target_rot_{s}")
+
+    if newly_translating:
+        setattr(app, f"xr_anchor_ctrl_pos_{s}", p_ctrl.copy())
+        # T0 = current commanded target pose (holds last commanded target without jump)
+        p_t0 = curr_target_pos.copy()
+        setattr(app, f"xr_anchor_marker_pos_{s}", p_t0)
+        setattr(app, f"gizmo_active_{s}", True)
+        app._log_xr_event(f"{side.upper()} clutch translation re-anchored")
+
+    if newly_rotating:
+        if q_ctrl is not None and len(q_ctrl) == 4:
+            r_c0 = R.from_quat([q_ctrl[1], q_ctrl[2], q_ctrl[3], q_ctrl[0]]).as_matrix()
+            setattr(app, f"xr_anchor_ctrl_rot_{s}", r_c0)
+            r_t0 = curr_target_rot.copy()
+            setattr(app, f"xr_anchor_marker_rot_{s}", r_t0)
+            setattr(app, f"gizmo_active_{s}", True)
+            app._log_xr_event(f"{side.upper()} clutch rotation re-anchored")
+
+    if next_state == "LOCKED":
+        setattr(app, f"xr_anchor_ctrl_pos_{s}", None)
+        setattr(app, f"xr_anchor_ctrl_rot_{s}", None)
+        setattr(app, f"gizmo_active_{s}", False)
+
+    # While held: apply relative displacement
+    anchor_ctrl_pos = getattr(app, f"xr_anchor_ctrl_pos_{s}")
+    anchor_marker_pos = getattr(app, f"xr_anchor_marker_pos_{s}")
+    if next_state in ("TRANSLATE", "6D") and anchor_ctrl_pos is not None and anchor_marker_pos is not None:
+        delta_ctrl_xr = p_ctrl - anchor_ctrl_pos
+        delta_rob = axis_map @ delta_ctrl_xr
+        eff_scale = app.xr_scale * (app.xr_precision_scale_factor if getattr(app, f"precision_{s}") else 1.0)
+        new_pos = anchor_marker_pos + eff_scale * delta_rob
+        new_pos[0] = np.clip(new_pos[0], -0.2, 0.9)
+        new_pos[1] = np.clip(new_pos[1], -0.9, 0.9)
+        new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
+        setattr(app, f"cur_target_pos_{s}", new_pos)
+        setattr(app, f"gizmo_active_{s}", True)
+        if hasattr(app, "target_tracer"):
+            app.target_tracer.record_target_source(side, "controller clutch")
+
+    anchor_ctrl_rot = getattr(app, f"xr_anchor_ctrl_rot_{s}")
+    anchor_marker_rot = getattr(app, f"xr_anchor_marker_rot_{s}")
+    if next_state in ("ROTATE", "6D") and rot_enabled and q_ctrl is not None and len(q_ctrl) == 4 and anchor_ctrl_rot is not None and anchor_marker_rot is not None:
+        r_curr_ctrl = R.from_quat([q_ctrl[1], q_ctrl[2], q_ctrl[3], q_ctrl[0]]).as_matrix()
+        r_rel_xr = r_curr_ctrl @ anchor_ctrl_rot.T
+        r_rel_rob = rot_axis_map @ r_rel_xr @ rot_axis_map.T
+        setattr(app, f"cur_target_rot_{s}", r_rel_rob @ anchor_marker_rot)
+        setattr(app, f"gizmo_active_{s}", True)
+        if hasattr(app, "target_tracer"):
+            app.target_tracer.record_target_source(side, "controller clutch")
+
+    setattr(app, f"xr_grip_active_{s}", bool(next_state != "LOCKED"))
+
+
 def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
     """Updates 4-state clutch machine and SE(3) targets for both arms."""
     axis_map = get_effective_axis_map(app)
     rot_axis_map = get_effective_rot_axis_map(app)
 
-    # --- Left Arm Clutch & Tracking Loss Handling ---
-    left_present = left_pkt is not None
-    left_loss = left_present and (
-        left_pkt.get("pos") is None
-        or left_pkt.get("tracking") is False
-        or left_pkt.get("tracking_loss") is True
-    )
-    if left_loss:
-        if app.xr_clutch_state_l != "LOCKED" or getattr(app, "gizmo_active_l", False):
-            app.xr_clutch_state_l = "LOCKED"
-            app.xr_anchor_ctrl_pos_l = None
-            app.xr_anchor_ctrl_rot_l = None
-            app.gizmo_active_l = False
-            app.xr_grip_active_l = False
-            app.xr_reengage_required_l = True
-            app._log_xr_event("L tracking lost -> clutch released & target held")
-        if not getattr(app, "xr_tracking_lost_l", False):
-            app.tracking_loss_events = getattr(app, "tracking_loss_events", 0) + 1
-        app.xr_tracking_lost_l = True
-    elif left_present and left_pkt.get("pos") is not None:
-        grip_down_l = app.xr_grip_val_l >= app.xr_grip_thresh or bool(left_pkt.get("grip", False))
-        trig_down_l = app.xr_trig_val_l >= app.xr_trigger_thresh
-        if getattr(app, "xr_reengage_required_l", False):
-            if not grip_down_l and not trig_down_l:
-                app.xr_reengage_required_l = False
-                app.xr_tracking_lost_l = False
-                app._log_xr_event("L tracking restored & clutch re-armed")
-            else:
-                app.xr_clutch_state_l = "LOCKED"
-                app.xr_anchor_ctrl_pos_l = None
-                app.xr_anchor_ctrl_rot_l = None
-                app.gizmo_active_l = False
-                app.xr_grip_active_l = False
+    _process_arm_clutch(app, "left", left_pkt, rot_enabled, axis_map, rot_axis_map)
+    _process_arm_clutch(app, "right", right_pkt, rot_enabled, axis_map, rot_axis_map)
 
-        if not getattr(app, "xr_reengage_required_l", False):
-            p_ctrl_l = np.array(left_pkt["pos"], dtype=np.float64)
-            q_ctrl_l = left_pkt.get("quat")
-            if grip_down_l and trig_down_l:
-                next_state_l = "6D"
-            elif trig_down_l and not grip_down_l:
-                next_state_l = "TRANSLATE"
-            elif grip_down_l and not trig_down_l:
-                next_state_l = "ROTATE"
-            else:
-                next_state_l = "LOCKED"
-
-            if next_state_l != app.xr_clutch_state_l:
-                app.xr_clutch_state_l = next_state_l
-                if next_state_l != "LOCKED":
-                    app.xr_anchor_ctrl_pos_l = p_ctrl_l.copy()
-                    app.xr_anchor_marker_pos_l = app.cur_target_pos_l.copy()
-                    if q_ctrl_l is not None and len(q_ctrl_l) == 4:
-                        app.xr_anchor_ctrl_rot_l = R.from_quat([q_ctrl_l[1], q_ctrl_l[2], q_ctrl_l[3], q_ctrl_l[0]]).as_matrix()
-                        app.xr_anchor_marker_rot_l = app.cur_target_rot_l.copy()
-                    app.gizmo_active_l = True
-                    app._log_xr_event(f"L clutch -> {next_state_l}")
-                else:
-                    app.xr_anchor_ctrl_pos_l = None
-                    app.xr_anchor_ctrl_rot_l = None
-                    app.gizmo_active_l = False
-                    app._log_xr_event("L clutch -> LOCKED")
-
-            if app.xr_clutch_state_l in ("TRANSLATE", "6D") and app.xr_anchor_ctrl_pos_l is not None:
-                delta_ctrl_xr = p_ctrl_l - app.xr_anchor_ctrl_pos_l
-                if np.linalg.norm(delta_ctrl_xr) >= app.xr_deadband:
-                    delta_rob = axis_map @ delta_ctrl_xr
-                    eff_scale = app.xr_scale * (app.xr_precision_scale_factor if app.precision_l else 1.0)
-                    new_pos = app.xr_anchor_marker_pos_l + eff_scale * delta_rob
-                    new_pos[0] = np.clip(new_pos[0], -0.2, 0.9)
-                    new_pos[1] = np.clip(new_pos[1], -0.9, 0.9)
-                    new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
-                    app.cur_target_pos_l = new_pos
-                    app.gizmo_active_l = True
-                    if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "controller clutch")
-
-            if app.xr_clutch_state_l in ("ROTATE", "6D") and rot_enabled and q_ctrl_l is not None and len(q_ctrl_l) == 4 and app.xr_anchor_ctrl_rot_l is not None:
-                r_curr_ctrl = R.from_quat([q_ctrl_l[1], q_ctrl_l[2], q_ctrl_l[3], q_ctrl_l[0]]).as_matrix()
-                r_rel_xr = r_curr_ctrl @ app.xr_anchor_ctrl_rot_l.T
-                r_rel_rob = rot_axis_map @ r_rel_xr @ rot_axis_map.T
-                app.cur_target_rot_l = r_rel_rob @ app.xr_anchor_marker_rot_l
-                app.gizmo_active_l = True
-                if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "controller clutch")
-
-    app.xr_grip_active_l = (app.xr_clutch_state_l != "LOCKED")
-
-    # --- Right Arm Clutch & Tracking Loss Handling ---
-    right_present = right_pkt is not None
-    right_loss = right_present and (
-        right_pkt.get("pos") is None
-        or right_pkt.get("tracking") is False
-        or right_pkt.get("tracking_loss") is True
-    )
-    if right_loss:
-        if app.xr_clutch_state_r != "LOCKED" or getattr(app, "gizmo_active_r", False):
-            app.xr_clutch_state_r = "LOCKED"
-            app.xr_anchor_ctrl_pos_r = None
-            app.xr_anchor_ctrl_rot_r = None
-            app.gizmo_active_r = False
-            app.xr_grip_active_r = False
-            app.xr_reengage_required_r = True
-            app._log_xr_event("R tracking lost -> clutch released & target held")
-        if not getattr(app, "xr_tracking_lost_r", False):
-            app.tracking_loss_events = getattr(app, "tracking_loss_events", 0) + 1
-        app.xr_tracking_lost_r = True
-    elif right_present and right_pkt.get("pos") is not None:
-        grip_down_r = app.xr_grip_val_r >= app.xr_grip_thresh or bool(right_pkt.get("grip", False))
-        trig_down_r = app.xr_trig_val_r >= app.xr_trigger_thresh
-        if getattr(app, "xr_reengage_required_r", False):
-            if not grip_down_r and not trig_down_r:
-                app.xr_reengage_required_r = False
-                app.xr_tracking_lost_r = False
-                app._log_xr_event("R tracking restored & clutch re-armed")
-            else:
-                app.xr_clutch_state_r = "LOCKED"
-                app.xr_anchor_ctrl_pos_r = None
-                app.xr_anchor_ctrl_rot_r = None
-                app.gizmo_active_r = False
-                app.xr_grip_active_r = False
-
-        if not getattr(app, "xr_reengage_required_r", False):
-            p_ctrl_r = np.array(right_pkt["pos"], dtype=np.float64)
-            q_ctrl_r = right_pkt.get("quat")
-            if grip_down_r and trig_down_r:
-                next_state_r = "6D"
-            elif trig_down_r and not grip_down_r:
-                next_state_r = "TRANSLATE"
-            elif grip_down_r and not trig_down_r:
-                next_state_r = "ROTATE"
-            else:
-                next_state_r = "LOCKED"
-
-            if next_state_r != app.xr_clutch_state_r:
-                app.xr_clutch_state_r = next_state_r
-                if next_state_r != "LOCKED":
-                    app.xr_anchor_ctrl_pos_r = p_ctrl_r.copy()
-                    app.xr_anchor_marker_pos_r = app.cur_target_pos_r.copy()
-                    if q_ctrl_r is not None and len(q_ctrl_r) == 4:
-                        app.xr_anchor_ctrl_rot_r = R.from_quat([q_ctrl_r[1], q_ctrl_r[2], q_ctrl_r[3], q_ctrl_r[0]]).as_matrix()
-                        app.xr_anchor_marker_rot_r = app.cur_target_rot_r.copy()
-                    app.gizmo_active_r = True
-                    app._log_xr_event(f"R clutch -> {next_state_r}")
-                else:
-                    app.xr_anchor_ctrl_pos_r = None
-                    app.xr_anchor_ctrl_rot_r = None
-                    app.gizmo_active_r = False
-                    app._log_xr_event("R clutch -> LOCKED")
-
-            if app.xr_clutch_state_r in ("TRANSLATE", "6D") and app.xr_anchor_ctrl_pos_r is not None:
-                delta_ctrl_xr = p_ctrl_r - app.xr_anchor_ctrl_pos_r
-                if np.linalg.norm(delta_ctrl_xr) >= app.xr_deadband:
-                    delta_rob = axis_map @ delta_ctrl_xr
-                    eff_scale = app.xr_scale * (app.xr_precision_scale_factor if app.precision_r else 1.0)
-                    new_pos = app.xr_anchor_marker_pos_r + eff_scale * delta_rob
-                    new_pos[0] = np.clip(new_pos[0], -0.2, 0.9)
-                    new_pos[1] = np.clip(new_pos[1], -0.9, 0.9)
-                    new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
-                    app.cur_target_pos_r = new_pos
-                    app.gizmo_active_r = True
-                    if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "controller clutch")
-
-            if app.xr_clutch_state_r in ("ROTATE", "6D") and rot_enabled and q_ctrl_r is not None and len(q_ctrl_r) == 4 and app.xr_anchor_ctrl_rot_r is not None:
-                r_curr_ctrl = R.from_quat([q_ctrl_r[1], q_ctrl_r[2], q_ctrl_r[3], q_ctrl_r[0]]).as_matrix()
-                r_rel_xr = r_curr_ctrl @ app.xr_anchor_ctrl_rot_r.T
-                r_rel_rob = rot_axis_map @ r_rel_xr @ rot_axis_map.T
-                app.cur_target_rot_r = r_rel_rob @ app.xr_anchor_marker_rot_r
-                app.gizmo_active_r = True
-                if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "controller clutch")
-
-    app.xr_grip_active_r = (app.xr_clutch_state_r != "LOCKED")
+    if app.xr_grip_active_l and app.xr_grip_active_r:
+        app._solve_arm_ik("both")
+    elif app.xr_grip_active_l:
+        app._solve_arm_ik("left")
+    elif app.xr_grip_active_r:
+        app._solve_arm_ik("right")
 
     if app.xr_grip_active_l and app.xr_grip_active_r:
         app._solve_arm_ik("both")

@@ -15,8 +15,8 @@ P_ROBOT_SHOULDER_R = np.array([-0.038, -0.191, 1.272], dtype=np.float64)
 
 def _ensure_handtrack_state(app):
     if hasattr(app, "handtrack_retargeter_l"): return
-    app.handtrack_retargeter_l, app.handtrack_retargeter_r = HandRetargeter("left"), HandRetargeter("right")
     mc, bv, dc = float(getattr(app, "hand_min_cutoff", 1.5)), float(getattr(app, "hand_beta", 15.0)), float(getattr(app, "hand_dcutoff", 1.0))
+    app.handtrack_retargeter_l, app.handtrack_retargeter_r = HandRetargeter("left"), HandRetargeter("right")
     app.handtrack_filter_pos_l, app.handtrack_filter_pos_r = OneEuroFilter(mc, bv, dc), OneEuroFilter(mc, bv, dc)
     app.handtrack_filter_rot_l, app.handtrack_filter_rot_r = OneEuroQuaternionFilter(mc, bv, dc), OneEuroQuaternionFilter(mc, bv, dc)
     app.hand_follow_mode, app.hand_workspace_scale = getattr(app, "hand_follow_mode", "absolute"), float(getattr(app, "hand_workspace_scale", 1.0))
@@ -33,8 +33,9 @@ def _ensure_handtrack_state(app):
     app.handtrack_live_bars, app.handtrack_diag_status = {"left": None, "right": None}, {"left": {}, "right": {}}
     app.limit_indicator, app.clamp_counters = None, {"workspace": 0, "collision": 0, "total": 0}
     app.cal_head_pos = getattr(app, "cal_head_pos", np.array([0.0, 1.5, 0.0], dtype=np.float64))
-    app.cal_head_yaw = float(getattr(app, "cal_head_yaw", 0.0))
-    app.head_follow, app.handtrack_e2e_ms = getattr(app, "head_follow", True), 0.0
+    app.cal_head_yaw, app.head_follow, app.handtrack_e2e_ms = float(getattr(app, "cal_head_yaw", 0.0)), getattr(app, "head_follow", True), 0.0
+    app.handtrack_pinch_time_l = app.handtrack_pinch_time_r = 0.0
+    app.handtrack_pinch_clutch_l = app.handtrack_pinch_clutch_r = False
 
 def _compute_abs_target(app, side: str, p_w: np.ndarray, axis_map: np.ndarray) -> np.ndarray:
     h_pos, h_yaw = getattr(app, "cal_head_pos", np.array([0.0, 1.5, 0.0])), float(getattr(app, "cal_head_yaw", 0.0))
@@ -47,8 +48,7 @@ def _compute_abs_target(app, side: str, p_w: np.ndarray, axis_map: np.ndarray) -
 def _apply_head_tracking(app, hd: dict, now_t: float):
     if not hd or not getattr(app, "head_follow", True) or not getattr(app, "env", None): return
     yaw, pitch = float(np.clip(hd.get("yaw", 0.0), -2.2, 2.2)), float(np.clip(hd.get("pitch", 0.0), -0.5, 0.5))
-    if hasattr(app, "filter_head_yaw") and app.filter_head_yaw:
-        yaw, pitch = float(app.filter_head_yaw.filter(yaw, now_t)), float(app.filter_head_pitch.filter(pitch, now_t))
+    if hasattr(app, "filter_head_yaw") and app.filter_head_yaw: yaw, pitch = float(app.filter_head_yaw.filter(yaw, now_t)), float(app.filter_head_pitch.filter(pitch, now_t))
     try:
         d = app.env.data
         if len(d.ctrl) > 27: d.ctrl[26], d.ctrl[27] = yaw, pitch
@@ -71,9 +71,7 @@ def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axi
         dt_loss = now_t - ls
         if dt_loss < 0.100 and getattr(app, f"handtrack_prev_wrist_{side[0]}") is not None and filt_pos.dx_filt.y is not None:
             v_ext = filt_pos.dx_filt.y
-            if np.linalg.norm(v_ext) > 0.02:
-                track_p = getattr(app, f"handtrack_prev_wrist_{side[0]}") + v_ext * dt
-                is_tracked = True
+            if np.linalg.norm(v_ext) > 0.02: track_p, is_tracked = getattr(app, f"handtrack_prev_wrist_{side[0]}") + v_ext * dt, True
         if not is_tracked:
             setattr(app, f"handtrack_valid_since_{side[0]}", 0.0); setattr(app, f"handtrack_valid_count_{side[0]}", 0)
             if side == "left": app.gizmo_active_l = False
@@ -125,6 +123,14 @@ def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axi
     can_follow = is_stable and (abs(dx_h) <= 0.75 and -0.85 <= dy_h <= 0.45 and -1.05 <= dz_h <= 0.05)
     target_updating = False
 
+    # Gesture or pinch clutch detection
+    pinch_dist = np.linalg.norm(joints[4] - joints[8]) if len(joints) >= 9 else 0.10
+    p_time = getattr(app, f"handtrack_pinch_time_{side[0]}", 0.0) + (dt if pinch_dist < 0.035 else -dt)
+    p_time = max(0.0, p_time)
+    p_clutch = True if p_time >= 0.30 else (False if pinch_dist > 0.050 else getattr(app, f"handtrack_pinch_clutch_{side[0]}", False))
+    setattr(app, f"handtrack_pinch_time_{side[0]}", p_time)
+    setattr(app, f"handtrack_pinch_clutch_{side[0]}", p_clutch)
+
     if mode == "absolute":
         p_target_abs = _compute_abs_target(app, side, p_w_lead, axis_map)
         if was_lost or getattr(app, f"handtrack_anchor_r_{side[0]}") is None:
@@ -148,11 +154,11 @@ def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axi
         alpha = float(np.clip((now_t - regain_t) / 0.5, 0.0, 1.0)) if (now_t - regain_t < 0.5) else 1.0
         raw_target, target_updating = anchor_r + app.hand_origin_offset + app.hand_workspace_scale * alpha * (axis_map @ (p_w_lead - anchor_w)), can_follow
     else:  # gesture
-        if gestures["engage"]:
+        if gestures["engage"] or p_clutch:
             setattr(app, f"handtrack_clutch_{side[0]}", True); setattr(app, f"handtrack_anchor_w_{side[0]}", p_w_lead.copy())
             setattr(app, f"handtrack_anchor_r_{side[0]}", (app.cur_target_pos_l if side == "left" else app.cur_target_pos_r).copy())
             is_clutched = True
-        elif gestures["release"]:
+        elif gestures["release"] or (not p_clutch and getattr(app, f"handtrack_pinch_clutch_{side[0]}", False)):
             setattr(app, f"handtrack_clutch_{side[0]}", False); setattr(app, f"handtrack_anchor_w_{side[0]}", None)
             is_clutched = False
         anchor_w, anchor_r = getattr(app, f"handtrack_anchor_w_{side[0]}"), getattr(app, f"handtrack_anchor_r_{side[0]}")
@@ -177,19 +183,14 @@ def _process_single_hand(app, side: str, pkt: dict, now_t: float, dt: float, axi
         if hasattr(app, "target_tracer"): app.target_tracer.record_target_source(side, "hand tracking")
         if side == "left": app.cur_target_pos_l, app.gizmo_active_l = new_pos, True; app._solve_arm_ik("left")
         else: app.cur_target_pos_r, app.gizmo_active_r = new_pos, True; app._solve_arm_ik("right")
-    else:
-        if side == "left": app.gizmo_active_l = False
-        else: app.gizmo_active_r = False
+    elif side == "left": app.gizmo_active_l = False
+    else: app.gizmo_active_r = False
 
     safe_q6 = retargeter.retarget_to_active_joints(flex_filt, opp_filt)
     curr_safe = app.current_safe_hand_l if side == "left" else app.current_safe_hand_r
     safe_q6, is_col, _ = app.collision_checker.filter_hand_step(side, curr_safe, safe_q6, margin=0.001)
-    if side == "left":
-        app.current_safe_hand_l = app.last_hand_cmd_left = safe_q6
-        app.hand_closure_l = float(np.mean(flex_filt))
-    else:
-        app.current_safe_hand_r = app.last_hand_cmd_right = safe_q6
-        app.hand_closure_r = float(np.mean(flex_filt))
+    if side == "left": app.current_safe_hand_l = app.last_hand_cmd_left = safe_q6; app.hand_closure_l = float(np.mean(flex_filt))
+    else: app.current_safe_hand_r = app.last_hand_cmd_right = safe_q6; app.hand_closure_r = float(np.mean(flex_filt))
 
     if hasattr(app, "hand_recorder") and app.hand_recorder and getattr(app.hand_recorder, "enabled", False):
         act_p = app.env.get_ee_poses()[side]["pos"] if hasattr(app.env, "get_ee_poses") else [0, 0, 0]
@@ -246,5 +247,4 @@ def handle_xr_handtrack_input(app, cmd: dict):
 
     if res_l.get("estop_candidate", False) and res_r.get("estop_candidate", False) and not app.state_estop:
         app.state_estop, app.status_warning = True, "E-STOP: Both hands raised above head"
-
     app.xr_handtrack_status = {"active": True, "mode": app.hand_follow_mode, "rate_hz": round(float(app.handtrack_rate_hz), 1), "limit": app.limit_indicator, "e2e_ms": app.handtrack_e2e_ms, "left": res_l, "right": res_r}

@@ -12,6 +12,17 @@ from teleop.app.xr_clutch_mapper import update_xr_clutch
 def handle_xr_controllers_input(app, cmd: dict):
     """Processes incoming xr_controllers WebSocket packet."""
     now_t = time.time()
+    cmd_t = float(cmd.get("t", 0.0))
+    if cmd_t >= 1e7 and (now_t - cmd_t) > 0.150:
+        if app.xr_clutch_state_l != "LOCKED" or app.xr_clutch_state_r != "LOCKED" or app.xr_grip_active_l or app.xr_grip_active_r:
+            app.xr_clutch_state_l = "LOCKED"; app.xr_clutch_state_r = "LOCKED"
+            app.xr_anchor_ctrl_pos_l = app.xr_anchor_ctrl_pos_r = None
+            app.xr_anchor_ctrl_rot_l = app.xr_anchor_ctrl_rot_r = None
+            app.gizmo_active_l = app.gizmo_active_r = False
+            app.xr_grip_active_l = app.xr_grip_active_r = False
+            app.xr_reengage_required_l = app.xr_reengage_required_r = True
+        return
+
     dt_pkt = min(0.1, max(0.005, now_t - getattr(app, "xr_last_pkt_t", now_t - 0.02)))
     app.xr_last_pkt_t = now_t
     app.xr_last_packet_time = now_t
@@ -40,9 +51,10 @@ def handle_xr_controllers_input(app, cmd: dict):
     btn_y = False
     btn_menu_l = False
     if left_pkt:
-        btn_x = bool(left_pkt.get("btn_x", left_pkt.get("buttons", {}).get("primary", False)))
-        btn_y = bool(left_pkt.get("btn_y", left_pkt.get("buttons", {}).get("secondary", False)))
-        btn_menu_l = bool(left_pkt.get("btn_menu", left_pkt.get("buttons", {}).get("menu", False)))
+        btns_l = left_pkt.get("buttons") if isinstance(left_pkt.get("buttons"), dict) else {}
+        btn_x = bool(left_pkt.get("btn_x", btns_l.get("primary", False)))
+        btn_y = bool(left_pkt.get("btn_y", btns_l.get("secondary", False)))
+        btn_menu_l = bool(left_pkt.get("btn_menu", btns_l.get("menu", False)))
         app.xr_grip_val_l = float(left_pkt.get("grip_val", 1.0 if left_pkt.get("grip") else 0.0))
         app.xr_trig_val_l = float(left_pkt.get("trigger", 0.0))
         app.xr_thumb_click_l = bool(left_pkt.get("thumbstick_click", False))
@@ -54,9 +66,10 @@ def handle_xr_controllers_input(app, cmd: dict):
     btn_b = False
     btn_menu_r = False
     if right_pkt:
-        btn_a = bool(right_pkt.get("btn_a", right_pkt.get("buttons", {}).get("primary", False)))
-        btn_b = bool(right_pkt.get("btn_b", right_pkt.get("buttons", {}).get("secondary", False)))
-        btn_menu_r = bool(right_pkt.get("btn_menu", right_pkt.get("buttons", {}).get("menu", False)))
+        btns_r = right_pkt.get("buttons") if isinstance(right_pkt.get("buttons"), dict) else {}
+        btn_a = bool(right_pkt.get("btn_a", btns_r.get("primary", False)))
+        btn_b = bool(right_pkt.get("btn_b", btns_r.get("secondary", False)))
+        btn_menu_r = bool(right_pkt.get("btn_menu", btns_r.get("menu", False)))
         app.xr_grip_val_r = float(right_pkt.get("grip_val", 1.0 if right_pkt.get("grip") else 0.0))
         app.xr_trig_val_r = float(right_pkt.get("trigger", 0.0))
         app.xr_thumb_click_r = bool(right_pkt.get("thumbstick_click", False))
