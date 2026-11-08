@@ -13,15 +13,13 @@ from teleop.robot.aimdk_map import (
     ARM_JOINT_COMMAND_TOPIC, HAND_JOINT_COMMAND_TOPIC,
     ARM_JOINT_STATE_TOPIC, HAND_JOINT_STATE_TOPIC,
     ARM_JOINT_NAMES_AIMDK, HAND_JOINT_NAMES, HAND_EFFORT_DEFAULT,
+    HAND_FRAME_ID, HAND_EFFORT_RAW_MIN, HAND_EFFORT_RAW_MAX,
     sim_hand_to_robot_raw, robot_raw_to_sim_hand, align_joint_state_positions,
 )
 
 
 class Ros2Backend(RobotInterface):
-    """
-    ROS 2 Hardware backend communicating over AimDK DDS topics.
-    Strictly locked: requires dual unlock flags, user confirmation phrase, and verified robot telemetry.
-    """
+    """ROS 2 Hardware backend communicating over AimDK DDS topics with 5 safety locks."""
 
     def __init__(
         self,
@@ -41,7 +39,7 @@ class Ros2Backend(RobotInterface):
         self.real_max_vel = min(float(real_max_vel), ceiling)
         self.hand_raw_max = min(int(hand_raw_max), 2000)
         self.enable_thumb_swing = bool(enable_thumb_swing)
-        self.hand_effort = float(hand_effort)
+        self.hand_effort = float(np.clip(hand_effort, HAND_EFFORT_RAW_MIN, HAND_EFFORT_RAW_MAX))
         self.allow_hardware_risk = bool(allow_hardware_risk)
         self.confirmation_input_fn = confirmation_input_fn or input
 
@@ -143,6 +141,9 @@ class Ros2Backend(RobotInterface):
                 self._last_arm_state_t = time.time()
 
     def _on_hand_state(self, msg) -> None:
+        frame_id = getattr(getattr(msg, "header", None), "frame_id", "")
+        if frame_id and frame_id != HAND_FRAME_ID:
+            return  # Refuse / drop packets not matching vendor AgiHand frame_id
         if len(msg.position) >= 12:
             with self._lock:
                 raw_p = align_joint_state_positions(msg, HAND_JOINT_NAMES, 12)
@@ -228,6 +229,7 @@ class Ros2Backend(RobotInterface):
             if self._pub_hand is not None and not self.no_hand:
                 msg_hand = JointState()
                 msg_hand.header.stamp = self._node.get_clock().now().to_msg()
+                msg_hand.header.frame_id = HAND_FRAME_ID
                 msg_hand.name = list(HAND_JOINT_NAMES)
                 msg_hand.position = [
                     float(x) for x in sim_hand_to_robot_raw(

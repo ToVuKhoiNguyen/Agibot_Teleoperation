@@ -56,6 +56,7 @@ def init_subsystems(
     enable_thumb_swing: bool = False,
     allow_handtracking_real: bool = False,
     input_mode: str = "controllers",
+    real_follower: bool = False,
 ):
     print(f"[INFO] Launch input mode: {input_mode.upper()} (exclusive)")
     app.port = port
@@ -73,6 +74,9 @@ def init_subsystems(
     app.collision_avoidance = False
     app.collision_blocked = False
     app.min_collision_distance_m = 999.0
+    app.real_follower_mode = bool(real_follower or backend.lower() == "real-udp")
+    app.shadow_cmd_q14 = None
+    app.limiter_max_step = 0.01
 
     # 1. Port Check
     if not check_port_available(app.port):
@@ -110,6 +114,10 @@ def init_subsystems(
         app.robot_backend = DryRunBackend()
     elif backend_key == "ros2dry":
         app.robot_backend = Ros2DryBackend()
+    elif backend_key in ("real-udp", "udp"):
+        from teleop.robot.udp_backend import UdpBackend
+        app.robot_backend = UdpBackend(host="192.168.2.50", tx_port=5005, rx_port=5006, token=os.environ.get("TELEOP_TOKEN", ""), env=app.env)
+        app.robot_backend.app = app
     elif backend_key == "replay":
         app.robot_backend = ReplayBackend()
     elif backend_key in ("real", "ros2"):
@@ -126,8 +134,8 @@ def init_subsystems(
     else:
         app.robot_backend = SimBackend(app.env)
 
-    max_vel = real_max_vel if backend_key in ("real", "ros2") else 3.0
-    max_acc = 3.0 if backend_key in ("real", "ros2") else 15.0
+    max_vel = real_max_vel if backend_key in ("real", "ros2", "real-udp", "udp") else 3.0
+    max_acc = 3.0 if backend_key in ("real", "ros2", "real-udp", "udp") else 15.0
     app.robot_safety = SafetyLayer(app.robot_backend, max_velocity_rad_s=max_vel, max_accel_rad_s2=max_acc)
     try:
         app.robot_safety.connect()

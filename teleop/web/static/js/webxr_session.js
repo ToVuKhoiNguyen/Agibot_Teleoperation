@@ -34,25 +34,22 @@ function checkXRSupport() {
 window.checkXRSupport = checkXRSupport;
 window.addEventListener('DOMContentLoaded', checkXRSupport);
 
-function toggleXRRotation(checked) {
-  xrRotationEnabled = Boolean(checked);
-}
+function toggleXRRotation(checked) { xrRotationEnabled = Boolean(checked); }
+function toggleXRSession() { enterVRDirectly(); }
 
 function enterVRDirectly() {
-  if (xrSession) {
-    xrSession.end();
-    return;
-  }
+  if (xrSession) { xrSession.end(); return; }
   if (!navigator.xr) return;
-
   const errOverlay = document.getElementById('vr-error-overlay');
   if (errOverlay) errOverlay.style.display = 'none';
 
   // Synchronous requestSession maintaining user gesture
+  const reqMode = window.confirmedInputMode || window.currentInputMode || 'controllers';
   const sessionFeatures = ['local-floor'];
-  if (window.confirmedInputMode === 'hands' || window.currentInputMode === 'hands') {
+  if (reqMode === 'hands') {
     sessionFeatures.push('hand-tracking');
   }
+  window.lastRequestedFeatures = sessionFeatures;
   navigator.xr.requestSession('immersive-vr', {
     optionalFeatures: sessionFeatures
   }).then(session => {
@@ -65,10 +62,6 @@ function enterVRDirectly() {
       errOverlay.style.display = 'block';
     }
   });
-}
-
-function toggleXRSession() {
-  enterVRDirectly();
 }
 
 function onXRVisibilityChange() {
@@ -100,13 +93,15 @@ setInterval(() => {
 function updateXRDiagOverlay() {
   const info = window.xrSessionStartInfo || {};
   const granted = info.granted || 'unexposed';
-  const opt = info.requestedHand ? 'hand-tracking, local-floor' : 'none';
+  const reqFeatures = window.lastRequestedFeatures || (info.requestedHand ? ['local-floor', 'hand-tracking'] : ['local-floor']);
+  const reqStr = '[' + reqFeatures.join(', ') + ']';
+  const srvMode = window.confirmedInputMode || window.currentInputMode || 'controllers';
   const srcs = getInputSources(xrSession);
   const srcStr = srcs.map(s => `${(s && s.handedness) || 'none'}: hand=${Boolean(s && s.hand)} gp=${Boolean(s && s.gamepad)} ray=${(s && s.targetRayMode) || 'none'}`).join(' | ') || 'none';
-  const conf = window.confirmedInputMode || 'none';
   const bld = window.BUILD_ID || 'dev';
   const err = window.lastXRError || 'None';
-  const fullText = `XR: granted=[${granted}] opt=[${opt}]\nSrcs(${srcs.length}): ${srcStr}\nRate: ${window.handPacketsSec} pkts/s | Conf: ${conf} | Bld: ${bld}\nLast Err: ${err}`;
+  const bannerLine = `SERVER: ${srvMode} | REQUESTED: ${reqStr}`;
+  const fullText = `${bannerLine}\nXR: granted=[${granted}]\nSrcs(${srcs.length}): ${srcStr}\nRate: ${window.handPacketsSec} pkts/s | Bld: ${bld}\nLast Err: ${err}`;
 
   let el = document.getElementById('xr-diag-overlay');
   if (!el) {
@@ -117,6 +112,15 @@ function updateXRDiagOverlay() {
   }
   el.innerText = fullText;
   el.style.borderColor = (err !== 'None') ? '#ff1744' : '#00e5ff';
+
+  const faultBanner = document.getElementById('fault-banner');
+  const faultText = document.getElementById('fault-banner-text');
+  if (faultBanner && faultText && (!faultText.innerText || faultText.innerText.startsWith('SERVER:') || faultText.innerText.startsWith('MODE:'))) {
+    faultText.innerText = bannerLine;
+    faultBanner.style.background = srvMode === 'hands' ? '#1b382b' : '#1e293b';
+    faultBanner.style.color = srvMode === 'hands' ? '#a7f3d0' : '#90caf9';
+    faultBanner.style.display = 'flex';
+  }
 
   if (inXRSession && scene && typeof headYaw !== 'undefined') {
     if (!xrDiagSprite) {
@@ -136,10 +140,11 @@ window.updateXRDiagOverlay = updateXRDiagOverlay;
 
 function logSessionStartDiag(session) {
   const granted = session.enabledFeatures ? Array.from(session.enabledFeatures).join(', ') : 'unexposed';
+  const reqFeatures = window.lastRequestedFeatures || ['local-floor'];
   const srcs = getInputSources(session);
   const srcDetails = srcs.map(s => `${(s && s.handedness) || 'none'}: hand=${Boolean(s && s.hand)}, gp=${Boolean(s && s.gamepad)}, ray=${(s && s.targetRayMode) || 'none'}`);
-  window.xrSessionStartInfo = { granted: granted, requestedHand: true, sourcesCount: srcs.length, sources: srcDetails };
-  console.log(`[XR-START] Granted: [${granted}] | Optional Requested: [local-floor, hand-tracking] | InputSources (${srcs.length}): ${srcDetails.join(' ; ') || 'none'}`);
+  window.xrSessionStartInfo = { granted: granted, requestedHand: reqFeatures.includes('hand-tracking'), sourcesCount: srcs.length, sources: srcDetails };
+  console.log(`[XR-START] Granted: [${granted}] | Optional Requested: [${reqFeatures.join(', ')}] | InputSources (${srcs.length}): ${srcDetails.join(' ; ') || 'none'}`);
   updateXRDiagOverlay();
 }
 

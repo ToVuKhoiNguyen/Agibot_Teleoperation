@@ -93,6 +93,7 @@ SIM_HAND_COMFORTABLE_LIMITS = np.array([
 HAND_POS_RAW_MIN = 0
 HAND_POS_RAW_MAX = 2000
 HAND_SAFE_RAW_MAX = 800  # Conservative raw cap for initial real-robot tests [Item A.3]
+HAND_FRAME_ID = "AgiHand"  # Hand message frame_id required by vendor spec
 HAND_EFFORT_RAW_MIN = 0
 HAND_EFFORT_RAW_MAX = 5700
 HAND_EFFORT_DEFAULT = 1140  # 20% of 5700 as safe default torque limit
@@ -159,7 +160,7 @@ RPC_GET_ACTION_ENDPOINT = f"http://{A2_DEFAULT_IP}:{A2_MOTION_PORT}/rpc/aimdk.pr
 
 RPC_SET_ACTION_402_PAYLOAD = {
     "header": {"timestamp": {"seconds": 0, "nanos": 0}},
-    "command": {"action": ACTION_ID_SERVO_402},
+    "command": {"action": ACTION_ID_SERVO_402, "ext_action": ACTION_NAME_SERVO_402},
 }
 
 RPC_STOP_MOTION_PLAYER_ENDPOINT = f"http://{A2_DEFAULT_IP}:{A2_MOTION_PLAYER_PORT}/rpc/aimdk.protocol.MotionPlayerService/SendMotionCommand"

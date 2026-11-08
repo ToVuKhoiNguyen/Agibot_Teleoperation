@@ -63,12 +63,29 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
     else:
         cand_right = app.last_arm_cmd_right.copy()
 
-    # Gate 3: SafetyLayer self-collision verification & line-search sub-step interpolation
+    # Gate 3: SafetyLayer self-collision verification & shadow follower evaluation
     if app.self_collision and app.collision_checker.enabled:
         curr_qpos = app.env.data.qpos.copy()
+
+        # Shadow follower: post-limiter command tracking what will actually be sent
+        if not hasattr(app, "shadow_cmd_q14") or app.shadow_cmd_q14 is None:
+            app.shadow_cmd_q14 = np.concatenate([app.env.get_left_arm_qpos(), app.env.get_right_arm_qpos()])
+
+        raw_q14 = np.concatenate([cand_left, cand_right])
+        diff_q14 = raw_q14 - app.shadow_cmd_q14
+        max_d = float(np.max(np.abs(diff_q14)))
+        step_cap = getattr(app, "limiter_max_step", 0.01)
+        scale = min(1.0, step_cap / max_d) if max_d > 1e-6 else 1.0
+        post_limiter_q14 = app.shadow_cmd_q14 + diff_q14 * scale
+
+        use_shadow = getattr(app, "real_follower_mode", False) or getattr(app, "backend", "") in ("real-udp", "real", "ros2")
         target_qpos = curr_qpos.copy()
-        target_qpos[app.left_arm_qadr] = cand_left
-        target_qpos[app.right_arm_qadr] = cand_right
+        if use_shadow:
+            target_qpos[app.left_arm_qadr] = post_limiter_q14[:7]
+            target_qpos[app.right_arm_qadr] = post_limiter_q14[7:]
+        else:
+            target_qpos[app.left_arm_qadr] = cand_left
+            target_qpos[app.right_arm_qadr] = cand_right
 
         # Run collision check with hysteresis (<0.5 cm block, >1.0 cm release)
         safe_qpos, blocked, min_dist = app.collision_checker.filter_step(curr_qpos, target_qpos)
@@ -92,9 +109,16 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
         if hard_stop:
             app.last_arm_cmd_left = safe_qpos[app.left_arm_qadr].copy()
             app.last_arm_cmd_right = safe_qpos[app.right_arm_qadr].copy()
+            app.shadow_cmd_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
         else:
-            app.last_arm_cmd_left = cand_left
-            app.last_arm_cmd_right = cand_right
+            if use_shadow:
+                app.last_arm_cmd_left = post_limiter_q14[:7].copy()
+                app.last_arm_cmd_right = post_limiter_q14[7:].copy()
+                app.shadow_cmd_q14 = post_limiter_q14.copy()
+            else:
+                app.last_arm_cmd_left = cand_left
+                app.last_arm_cmd_right = cand_right
+                app.shadow_cmd_q14 = post_limiter_q14.copy()
     else:
         app.collision_blocked = False
         app.last_arm_cmd_left = cand_left

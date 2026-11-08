@@ -63,6 +63,7 @@ class UnifiedTeleopApp:
         enable_thumb_swing: bool = False,
         allow_handtracking_real: bool = False,
         input_mode: str = "controllers",
+        real_follower: bool = False,
     ):
         init_subsystems(
             self,
@@ -87,6 +88,7 @@ class UnifiedTeleopApp:
             enable_thumb_swing=enable_thumb_swing,
             allow_handtracking_real=allow_handtracking_real,
             input_mode=input_mode,
+            real_follower=real_follower,
         )
         init_state(self, project_root=PROJECT_ROOT)
 
@@ -191,7 +193,7 @@ def main():
     parser.add_argument("--headless", action="store_true", help="Explicitly run headless (forces native viewer OFF)")
     parser.add_argument("--controller", action="store_true", help="Use controller clutch teleop mode")
     parser.add_argument("--xr-view", action="store_true", help="Enable XR digital twin in Quest headset")
-    parser.add_argument("--backend", type=str, default="sim", choices=["sim", "mujoco", "dryrun", "replay", "real", "ros2", "ros2dry"], help="Robot execution backend (default: sim)")
+    parser.add_argument("--backend", type=str, default="sim", choices=["sim", "mujoco", "dryrun", "replay", "real", "ros2", "ros2dry", "real-udp"], help="Robot execution backend (default: sim)")
     parser.add_argument("--arms", type=str, default="both", choices=["left", "right", "both"], help="Active manipulation arms (default: both)")
     parser.add_argument("--no-hand", action="store_true", help="Disable hand publishing")
     parser.add_argument("--real-max-vel", type=float, default=0.3, help="Max velocity cap for real robot (default: 0.3 rad/s)")
@@ -206,16 +208,11 @@ def main():
     parser.add_argument("--no-adb", action="store_true", help="Disable automatic ADB detection and port reversal")
     parser.add_argument("--no-quest-launch", action="store_true", help="Do not automatically launch Quest browser on headset")
     parser.add_argument("--input", type=str, default=None, choices=["hands", "controllers"], help="Exclusive input mode: hands or controllers")
+    parser.add_argument("--real-follower", action="store_true", help="Enable sim real-like follower mode")
     parser.add_argument("--allow-handtracking-real", action="store_true", default=False, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    if args.headless or args.no_viewer:
-        render_viewer = False
-    elif args.viewer is True:
-        render_viewer = True
-    else:
-        render_viewer = has_display
-
+    render_viewer = False if (args.headless or args.no_viewer) else (True if args.viewer is True else has_display)
     self_col_enabled = (args.self_collision.lower() == "on")
     effective_input_mode = args.input if args.input is not None else ("controllers" if args.controller else "controllers")
 
@@ -239,6 +236,7 @@ def main():
         enable_thumb_swing=args.enable_thumb_swing,
         allow_handtracking_real=getattr(args, "allow_handtracking_real", False),
         input_mode=effective_input_mode,
+        real_follower=getattr(args, "real_follower", False),
     )
     app.run()
 

@@ -75,10 +75,11 @@ async def run_xr_tests_part2(session, ws, base_ctrl_pos, quat_identity, home_r, 
     print(f"  Precision mode status: {prec_on}")
     assert prec_on, "Precision mode was not enabled by Button B"
 
-    pkt_b_rel = {"cmd": "xr_controllers", "t": time.time(), "right": {"pos": base_ctrl_pos.tolist(), "btn_b": False}}
+    pkt_b_rel = {"cmd": "xr_controllers", "t": time.time(), "right": {"pos": base_ctrl_pos.tolist(), "btn_b": False, "buttons": {"secondary": False}}}
     await ws.send_str(json.dumps(pkt_b_rel))
     await asyncio.sleep(0.05)
-    await ws.send_str(json.dumps(pkt_b_press))
+    pkt_b_press2 = {"cmd": "xr_controllers", "t": time.time(), "right": {"pos": base_ctrl_pos.tolist(), "btn_b": True, "buttons": {"secondary": True}}}
+    await ws.send_str(json.dumps(pkt_b_press2))
     await asyncio.sleep(0.1)
     st8_off = await fetch_status(session)
     prec_off = st8_off.get("xr_status", {}).get("right", {}).get("precision", False)

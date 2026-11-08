@@ -35,6 +35,7 @@ IGNORED_DIRS = {
     "__pycache__",
     ".gemini",
     "televuer",
+    "agibot_a2_aimdk-dev2.0",
 }
 
 VALID_EXTS = {".py", ".js", ".html", ".css"}

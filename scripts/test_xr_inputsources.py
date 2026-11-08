@@ -137,6 +137,9 @@ def run_test():
                 };
 
                 // --- Phase 2: Hand Source (~60 frames) ---
+                window.updateTelemetryUI = () => {};
+                window.confirmedInputMode = 'hands';
+                window.currentInputMode = 'hands';
                 session.inputSources = createNonArraySources([handSource]);
                 if (typeof onXRInputSourcesChange === 'function') {
                     onXRInputSourcesChange({ session: session });
@@ -151,18 +154,38 @@ def run_test():
                     frames: frameCount
                 };
 
-                // Phase 3: Stress test 300 frames with corrupted/missing data (undefined handedness, null hand/gamepad, missing joints, null poses)
-                let edgeCases = [
-                    {},
-                    { handedness: undefined, targetRayMode: 'tracked-pointer' },
-                    { handedness: 'left', hand: null, targetRayMode: 'tracked-pointer' },
-                    { handedness: 'right', gamepad: null, targetRayMode: 'tracked-pointer' },
-                    { handedness: 'left', hand: new Map([['wrist', {name: 'wrist', index: 0}]]), targetRayMode: 'tracked-pointer' }
+                // Phase 3: Stress test 300 frames per case with corrupted/missing data (none, ctrl only, hand only, both, missing joints, null poses)
+                let nullPoseActive = false;
+                session.requestAnimationFrame = (cb) => {
+                    setTimeout(() => {
+                        frameCount++;
+                        cb(performance.now(), {
+                            getViewerPose: () => nullPoseActive ? null : ({
+                                transform: { position: { x: 0, y: 1.5, z: 0 }, orientation: { w: 1, x: 0, y: 0, z: 0 } }
+                            }),
+                            getPose: () => nullPoseActive ? null : ({
+                                transform: { position: { x: 0.2, y: 1.2, z: -0.4 }, orientation: { w: 1, x: 0, y: 0, z: 0 } }
+                            }),
+                            getJointPose: (j) => nullPoseActive ? null : ({
+                                transform: { position: { x: 0.205, y: 1.30, z: -0.45 - ((j.index||0)>0?0.05:0) }, orientation: { w: 1, x: 0, y: 0, z: 0 } }
+                            })
+                        });
+                    }, 8);
+                };
+
+                const testCases = [
+                    { name: 'none', sources: [] },
+                    { name: 'controller_only', sources: [ctrlSource] },
+                    { name: 'hand_only', sources: [handSource] },
+                    { name: 'both', sources: [ctrlSource, handSource] },
+                    { name: 'missing_joints', sources: [{ handedness: 'left', targetRayMode: 'tracked-pointer', hand: new Map([['wrist', {name: 'wrist', index: 0}]]) }] },
+                    { name: 'null_poses', sources: [ctrlSource, handSource], nullPoses: true }
                 ];
-                for (let c = 0; c < edgeCases.length; c++) {
-                    session.inputSources = createNonArraySources([edgeCases[c]]);
+                for (let tc of testCases) {
+                    nullPoseActive = Boolean(tc.nullPoses);
+                    session.inputSources = createNonArraySources(tc.sources);
                     if (typeof onXRInputSourcesChange === 'function') onXRInputSourcesChange({ session: session });
-                    for (let f = 0; f < 60; f++) {
+                    for (let f = 0; f < 300; f++) {
                         await new Promise(r => setTimeout(r, 8));
                     }
                 }

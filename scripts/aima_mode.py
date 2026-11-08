@@ -57,18 +57,19 @@ def main():
     parser = argparse.ArgumentParser(description="AGIBOT A2 Ultra Mode Management Tool")
     parser.add_argument("--mode", type=str, default="servo", choices=["servo", "restore"], help="Mode to configure ('servo' = Action 402, 'restore' = Action 400 default)")
     parser.add_argument("--execute", action="store_true", help="Actually send HTTP requests (requires confirmation phrase)")
-    parser.add_argument("--ip", type=str, default=A2_DEFAULT_IP, help=f"Robot control IP (default: {A2_DEFAULT_IP})")
+    parser.add_argument("--ip", type=str, default=os.environ.get("AGIBOT_RPC_HOST", A2_DEFAULT_IP), help=f"Robot control IP (default: {A2_DEFAULT_IP})")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("AGIBOT_RPC_PORT", str(A2_MOTION_PORT))), help=f"Robot motion RPC port (default: {A2_MOTION_PORT})")
     args = parser.parse_args()
 
     stop_mp_url = f"http://{args.ip}:{A2_MOTION_PLAYER_PORT}/rpc/aimdk.protocol.MotionPlayerService/SendMotionCommand"
-    set_action_url = f"http://{args.ip}:{A2_MOTION_PORT}/rpc/aimdk.protocol.McActionService/SetAction"
+    set_action_url = f"http://{args.ip}:{args.port}/rpc/aimdk.protocol.McActionService/SetAction"
 
     action_id = ACTION_ID_SERVO_402 if args.mode == "servo" else ACTION_ID_STAND_DEFAULT
     action_label = ACTION_NAME_SERVO_402 if args.mode == "servo" else "McAction_RL_JOINT_DEFAULT (Restore)"
 
     action_payload = {
         "header": {"timestamp": {"seconds": 0, "nanos": 0}},
-        "command": {"action": action_id},
+        "command": {"action": action_id, "ext_action": action_label},
     }
 
     # Step 1: Preview or send stop motion_player

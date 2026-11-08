@@ -24,9 +24,7 @@ function initVRViewpoint(viewerPose) {
   if (viewParam === 'side') viewOffset = Math.PI / 2.0;
   else if (viewParam === 'back') viewOffset = Math.PI;
 
-  rigYawOffset = viewOffset;
-  rigDist = 1.2;
-  rigHeightOffset = 0.0;
+  rigYawOffset = viewOffset; rigDist = 1.2; rigHeightOffset = 0.0;
   updateVRRigTransform(p.x, p.y, p.z);
   vrRigInitialized = true;
 }
@@ -139,7 +137,13 @@ function onXRFrame(time, frame) {
     const parseHand = (src, side) => {
       if (!src || !src.gamepad) {
         updateTrackingStatus(side, null, null, nowMs);
-        return { pos: null, quat: null, tracking: false, tracking_loss: true, grip: false, trigger: 0, thumbstick: [0, 0] };
+        return {
+          pos: null, quat: null, tracking: false, tracking_loss: true,
+          grip: false, grip_val: 0.0, trigger: 0.0, thumbstick: [0, 0],
+          thumbstick_click: false,
+          buttons: { primary: false, secondary: false },
+          btn_x: false, btn_y: false, btn_a: false, btn_b: false
+        };
       }
       const space = src.gripSpace || src.targetRaySpace;
       const pose = (space && frame.getPose) ? frame.getPose(space, xrRefSpace) : null;
@@ -180,13 +184,13 @@ function onXRFrame(time, frame) {
     const rightPkt = parseHand(rightSrc, 'right');
 
     if (xrRequireButtonResume) {
-      if (leftPkt.trigger > 0.3 || leftPkt.grip_val > 0.3 || rightPkt.trigger > 0.3 || rightPkt.grip_val > 0.3 || leftPkt.buttons.primary || rightPkt.buttons.primary) {
+      if ((leftPkt?.trigger || 0) > 0.3 || (leftPkt?.grip_val || 0) > 0.3 || (rightPkt?.trigger || 0) > 0.3 || (rightPkt?.grip_val || 0) > 0.3 || leftPkt?.buttons?.primary || rightPkt?.buttons?.primary) {
         xrRequireButtonResume = false;
         xrVisibilityHold = false;
       }
     }
 
-    if (leftPkt.thumbstick_click && rightPkt.thumbstick_click) {
+    if (leftPkt?.thumbstick_click && rightPkt?.thumbstick_click) {
       if (!bothClickStart) bothClickStart = nowMs;
       else if (nowMs - bothClickStart >= 500 && !bothClickTriggered) {
         inViewMode = !inViewMode;
@@ -198,20 +202,22 @@ function onXRFrame(time, frame) {
     }
 
     if (inViewMode && headPos) {
-      const rx = rightPkt.thumbstick[0], ry = rightPkt.thumbstick[1], ly = leftPkt.thumbstick[1];
+      const rx = (rightPkt?.thumbstick && rightPkt.thumbstick[0]) || 0;
+      const ry = (rightPkt?.thumbstick && rightPkt.thumbstick[1]) || 0;
+      const ly = (leftPkt?.thumbstick && leftPkt.thumbstick[1]) || 0;
       if (Math.abs(rx) > 0.15) rigYawOffset += rx * 1.5 * dtSec;
       if (Math.abs(ry) > 0.15) rigDist = Math.max(0.6, Math.min(3.5, rigDist - ry * 1.5 * dtSec));
       if (Math.abs(ly) > 0.15) rigHeightOffset += -ly * 1.0 * dtSec;
-      if (rightPkt.btn_a) { rigYawOffset = 0.0; rigDist = 1.2; rigHeightOffset = 0.0; }
+      if (rightPkt?.btn_a) { rigYawOffset = 0.0; rigDist = 1.2; rigHeightOffset = 0.0; }
       updateVRRigTransform(headPos.x, headPos.y, headPos.z);
     }
 
-    const anyLoss = !leftPkt.tracking || !rightPkt.tracking;
+    const anyLoss = !leftPkt?.tracking || !rightPkt?.tracking;
     updateSceneHUD(inViewMode, anyLoss, headPos);
 
     const ctrlStatus = document.getElementById('ctrl-status-text');
     if (ctrlStatus) {
-      if (anyLoss) ctrlStatus.innerText = (!leftPkt.tracking && !rightPkt.tracking) ? 'L/R TRACKING LOST' : (!leftPkt.tracking ? 'L TRACKING LOST' : 'R TRACKING LOST');
+      if (anyLoss) ctrlStatus.innerText = (!leftPkt?.tracking && !rightPkt?.tracking) ? 'L/R TRACKING LOST' : (!leftPkt?.tracking ? 'L TRACKING LOST' : 'R TRACKING LOST');
       else if (inViewMode) ctrlStatus.innerText = 'VIEW MODE ACTIVE';
     }
 
@@ -219,7 +225,13 @@ function onXRFrame(time, frame) {
     if (!inViewMode && !xrVisibilityHold) {
       sendCmd(Object.assign(baseCmd, { left: leftPkt, right: rightPkt }));
     } else {
-      const zeroPkt = { pos: null, quat: null, tracking: false, tracking_loss: true, grip: false, trigger: 0, thumbstick: [0, 0] };
+      const zeroPkt = {
+        pos: null, quat: null, tracking: false, tracking_loss: true,
+        grip: false, grip_val: 0.0, trigger: 0.0, thumbstick: [0, 0],
+        thumbstick_click: false,
+        buttons: { primary: false, secondary: false },
+        btn_x: false, btn_y: false, btn_a: false, btn_b: false
+      };
       sendCmd(Object.assign(baseCmd, { left: zeroPkt, right: zeroPkt }));
     }
     if (typeof window.recordHandPacketSent === 'function') window.recordHandPacketSent();

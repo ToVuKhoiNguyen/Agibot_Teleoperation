@@ -46,21 +46,21 @@ class MockBackend(RobotInterface):
 
 
 def test_joint_limits():
-    # Left wrist pitch (idx 5) limit +-0.45, Right wrist yaw (idx 13) +-0.35
+    # Left wrist pitch (idx 5) limit +-0.30, Right wrist yaw (idx 13) +-0.20
     cmd = np.zeros(14)
-    cmd[5] = 0.80   # Exceeds +0.45
-    cmd[13] = -0.60  # Exceeds -0.35
+    cmd[5] = 0.80   # Exceeds +0.30
+    cmd[13] = -0.60  # Exceeds -0.20
     init_q = np.zeros(14)
-    init_q[5] = 0.45
-    init_q[13] = -0.35
+    init_q[5] = 0.30
+    init_q[13] = -0.20
     mock = MockBackend(initial_q14=init_q)
     safety = SafetyLayer(mock)
     safety.connect()
     safety.send_arm(cmd)
-    assert np.isclose(mock.last_sent_arm[5], 0.45), f"Pitch not clamped: {mock.last_sent_arm[5]}"
-    assert np.isclose(mock.last_sent_arm[13], -0.35), f"Yaw not clamped: {mock.last_sent_arm[13]}"
+    assert np.isclose(mock.last_sent_arm[5], 0.30), f"Pitch not clamped: {mock.last_sent_arm[5]}"
+    assert np.isclose(mock.last_sent_arm[13], -0.20), f"Yaw not clamped: {mock.last_sent_arm[13]}"
     assert safety.stats["joint_limit_clamps"] > 0
-    print("  [PASS] Joint limits clamp (wrist pitch +-0.45, yaw +-0.35)")
+    print("  [PASS] Joint limits clamp (wrist pitch +-0.30, yaw +-0.20)")
 
 
 def test_velocity_cap():

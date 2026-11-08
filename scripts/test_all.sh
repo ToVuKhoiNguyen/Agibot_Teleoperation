@@ -26,6 +26,8 @@ TESTS=(
   "scripts/test_handtracking.py"
   "scripts/test_xr_inputsources.py"
   "scripts/test_fault_diagnosis.py"
+  "scripts/test_vendor_crosscheck.py"
+  "scripts/test_real_lag_contact.py"
 )
 
 TOTAL=${#TESTS[@]}
@@ -45,7 +47,9 @@ for test in "${TESTS[@]}"; do
   test_name=$(basename "$test")
   pkill -9 -f "python.*main.py" 2>/dev/null || true
   fuser -k 8012/tcp >/dev/null 2>&1 || true
-  sleep 1.5
+  fuser -k 8013/tcp >/dev/null 2>&1 || true
+  fuser -k 8035/tcp >/dev/null 2>&1 || true
+  sleep 2.0
   echo -e "\n>>> RUNNING: $test_name ..."
   t_start=$(date +%s%N)
   

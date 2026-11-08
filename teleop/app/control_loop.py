@@ -137,7 +137,16 @@ def run_control_loop(app):
                 if (app.hand_closure_l >= 0.95 or app.hand_closure_r >= 0.95) and not getattr(app, "_logged_hand_close_trace", False):
                     app._logged_hand_close_trace = True
                     print(f"[HAND_CLOSE_TRACE] Commanded 6 joints L: {app.last_hand_cmd_left.round(3)}, R: {app.last_hand_cmd_right.round(3)}")
-                app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=app.last_arm_cmd_left, hold_right_qpos=app.last_arm_cmd_right)
+
+                if getattr(app, "real_follower_mode", False):
+                    if not hasattr(app, "_sim_lag_queue"):
+                        app._sim_lag_queue = []
+                    app._sim_lag_queue.append((app.last_arm_cmd_left.copy(), app.last_arm_cmd_right.copy()))
+                    exec_l, exec_r = app._sim_lag_queue.pop(0) if len(app._sim_lag_queue) > 2 else app._sim_lag_queue[0]
+                else:
+                    exec_l, exec_r = app.last_arm_cmd_left, app.last_arm_cmd_right
+
+                app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=exec_l, hold_right_qpos=exec_r)
             else:
                 app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=app.last_arm_cmd_left, hold_right_qpos=app.last_arm_cmd_right)
 

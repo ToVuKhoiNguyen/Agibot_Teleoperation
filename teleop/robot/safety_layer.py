@@ -10,8 +10,8 @@ from teleop.robot.aimdk_map import ARM_JOINT_NAMES_AIMDK
 from teleop.robot.fault_tracer import FaultTracer
 
 # 14-DoF physical bounds: [L0..L6, R0..R6]
-ARM_LOWER_14 = np.array([-2.91, -0.46, -2.91, -2.00, -2.88, -0.45, -0.35, -2.91, -1.60, -2.91, 0.03, -2.88, -0.45, -0.35], dtype=np.float64)
-ARM_UPPER_14 = np.array([2.91, 1.60, 2.91, -0.03, 2.88, 0.45, 0.35, 2.91, 0.46, 2.91, 2.00, 2.88, 0.45, 0.35], dtype=np.float64)
+ARM_LOWER_14 = np.array([-2.91, -0.46, -2.91, -2.00, -2.88, -0.30, -0.20, -2.91, -1.5359, -2.91, 0.10, -2.88, -0.30, -0.20], dtype=np.float64)
+ARM_UPPER_14 = np.array([2.91, 1.5359, 2.91, -0.10, 2.88, 0.30, 0.20, 2.91, 0.46, 2.91, 2.00, 2.88, 0.30, 0.20], dtype=np.float64)
 HAND_LOWER_12 = np.zeros(12, dtype=np.float64)
 HAND_UPPER_12 = np.array([2.286, 0.78, 1.7, 1.7, 1.7, 1.7, 2.286, 0.78, 1.7, 1.7, 1.7, 1.7], dtype=np.float64)
 
@@ -191,7 +191,7 @@ class SafetyLayer:
         target_q = np.clip(target_q, ARM_LOWER_14, ARM_UPPER_14)
 
         # 5. Deviation gate check (sim vs real / read-back)
-        is_real = getattr(self.backend, "__class__", type(self.backend)).__name__ in ("Ros2Backend", "RealBackend")
+        is_real = getattr(self.backend, "__class__", type(self.backend)).__name__ in ("Ros2Backend", "RealBackend", "UdpBackend")
         eff_thresh = np.full(14, self.deviation_thresh_rad) if is_real else np.clip(
             self.deviation_thresh_rad + 0.05 * np.abs(self._last_cmd_vel), 0.05, 0.10
         )
