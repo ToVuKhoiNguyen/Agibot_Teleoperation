@@ -56,6 +56,10 @@ class CollisionChecker:
                 self.substeps = int(sc_cfg.get("interpolation_substeps", 5))
                 self.dist_max = float(sc_cfg.get("dist_max", 0.50))
                 self.pair_margins = cfg.get("pair_margins", {})
+                sd_cfg = cfg.get("shadow_check", {})
+                self.shadow_horizon = int(sd_cfg.get("horizon_steps", 10))
+                self.shadow_inflation_margin = float(sd_cfg.get("inflation_margin", 0.03))
+                self.shadow_check_enabled = bool(sd_cfg.get("enabled", True))
             except Exception as e:
                 print(f"[WARN] Failed to load safety.yaml: {e}")
 
@@ -135,6 +139,19 @@ class CollisionChecker:
             qpos,
             enabled=self.enabled,
         )
+
+    def predict_clearance(self, future_poses_q14: list, left_adr: list, right_adr: list) -> tuple[float, tuple]:
+        """Evaluates minimum predicted distance across N future forward-simulated poses."""
+        min_pred_dist, min_pred_pair = 999.0, (None, None, "none")
+        for q14 in future_poses_q14:
+            self.scratch_data.qpos[left_adr] = q14[:7]
+            self.scratch_data.qpos[right_adr] = q14[7:]
+            mujoco.mj_forward(self.model, self.scratch_data)
+            d, pair = self.compute_min_distance(data=self.scratch_data, force=True)
+            if d < min_pred_dist:
+                min_pred_dist, min_pred_pair = d, pair
+                if min_pred_dist < 0.005: break
+        return float(min_pred_dist), min_pred_pair
 
     def filter_step(
         self,

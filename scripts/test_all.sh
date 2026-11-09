@@ -28,6 +28,8 @@ TESTS=(
   "scripts/test_fault_diagnosis.py"
   "scripts/test_vendor_crosscheck.py"
   "scripts/test_real_lag_contact.py"
+  "scripts/test_sim_follower_validation.py"
+  "scripts/test_latency_ladder.py"
 )
 
 TOTAL=${#TESTS[@]}

@@ -231,13 +231,18 @@ async def test_websocket_stream():
                 "pos": new_target_pos
             }
             await ws.send_str(json.dumps(drag_cmd))
-            await asyncio.sleep(0.8)
+            t_wait_start = time.time()
+            target_err_mm = 999.0
+            new_ee_l = [0, 0, 0]
+            while time.time() - t_wait_start < 2.0:
+                await asyncio.sleep(0.2)
+                with urllib.request.urlopen(req, context=ssl_ctx, timeout=3.0) as resp:
+                    new_st = json.loads(resp.read().decode("utf-8"))
+                new_ee_l = new_st["ee_l"]
+                target_err_mm = np.linalg.norm(np.array(new_ee_l) - np.array(new_target_pos)) * 1000.0
+                if target_err_mm < 15.0:
+                    break
 
-            with urllib.request.urlopen(req, context=ssl_ctx, timeout=3.0) as resp:
-                new_st = json.loads(resp.read().decode("utf-8"))
-
-            new_ee_l = new_st["ee_l"]
-            target_err_mm = np.linalg.norm(np.array(new_ee_l) - np.array(new_target_pos)) * 1000.0
             print(f"  Target Marker Position : [{new_target_pos[0]:.3f}, {new_target_pos[1]:.3f}, {new_target_pos[2]:.3f}] m")
             print(f"  MuJoCo Reached EE Pos  : [{new_ee_l[0]:.3f}, {new_ee_l[1]:.3f}, {new_ee_l[2]:.3f}] m")
             print(f"  IK Convergence Error   : {target_err_mm:.2f} mm")

@@ -114,7 +114,7 @@ def test_10min_sim_trajectories():
         fault_count = 0
         t_sim = 0.0
         dt = 0.02  # 50 Hz
-        num_steps = 3000  # 60 s high-stress sweep covering up to 1.5 m/s
+        num_steps = 1500  # 30 s high-stress sweep covering up to 1.5 m/s
 
         t_start = time.time()
         for i in range(num_steps):

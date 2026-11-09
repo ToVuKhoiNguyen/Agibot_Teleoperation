@@ -147,6 +147,9 @@ function updateUIStatus(s) {
       hudFeedback.style.borderColor = '#ff5252';
       hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';
     } else {
+      if (s.predicted_clearance_mm !== undefined && s.predicted_clearance_mm < 900.0) {
+        txt += ` | Clearance: ${s.predicted_clearance_mm.toFixed(0)} mm`;
+      }
       hudFeedback.style.color = ikErr > 15.0 ? '#ffb74d' : '#81c784';
       hudFeedback.style.borderColor = '#32415d';
       hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';

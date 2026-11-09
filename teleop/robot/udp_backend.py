@@ -143,11 +143,11 @@ class UdpBackend(RobotInterface):
         pass
 
     def read_state(self) -> tuple[np.ndarray, np.ndarray, dict]:
-        if self._last_arm_cmd is not None:
-            return self._last_arm_cmd.copy(), np.zeros(12, dtype=np.float64), {}
         with self._real_q14_lock:
             if self._real_q14 is not None:
                 return self._real_q14.copy(), np.zeros(12, dtype=np.float64), {}
+        if self._last_arm_cmd is not None:
+            return self._last_arm_cmd.copy(), np.zeros(12, dtype=np.float64), {}
         if self.env is not None and hasattr(self.env, "get_arm_qpos"):
             try:
                 qp = self.env.get_arm_qpos()

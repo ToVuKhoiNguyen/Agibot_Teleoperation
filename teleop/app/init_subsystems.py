@@ -71,11 +71,10 @@ def init_subsystems(
     app.self_collision = self_collision
     app.no_adb = no_adb
     app.no_quest_launch = no_quest_launch
-    app.collision_avoidance = False
-    app.collision_blocked = False
-    app.min_collision_distance_m = 999.0
+    app.collision_avoidance, app.collision_blocked = False, False
+    app.min_collision_distance_m, app.predicted_clearance_m = 999.0, 999.0
     app.real_follower_mode = bool(real_follower or backend.lower() == "real-udp")
-    app.shadow_cmd_q14 = None
+    app.shadow_cmd_q14, app.real_follower_instance = None, None
     app.limiter_max_step = 0.01
 
     # 1. Port Check

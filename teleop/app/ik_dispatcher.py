@@ -87,6 +87,29 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
             target_qpos[app.left_arm_qadr] = cand_left
             target_qpos[app.right_arm_qadr] = cand_right
 
+        # Predictive shadow collision check on future follower steps
+        pred_blocked = False
+        pred_clearance_m = 999.0
+        if getattr(app.collision_checker, "shadow_check_enabled", False):
+            if not hasattr(app, "real_follower_instance") or app.real_follower_instance is None:
+                from teleop.kinematics.real_follower import RealLikeFollower
+                app.real_follower_instance = RealLikeFollower(
+                    max_step_rad=step_cap,
+                    scaling_mode="uniform",
+                    initial_q14=app.shadow_cmd_q14.copy(),
+                )
+            if use_shadow:
+                n_horizon = getattr(app.collision_checker, "shadow_horizon", 10)
+                future_poses = app.real_follower_instance.predict_ahead(raw_q14, n_steps=n_horizon)
+                pred_clearance_m, _ = app.collision_checker.predict_clearance(future_poses, app.left_arm_qadr, app.right_arm_qadr)
+                shadow_margin = getattr(app.collision_checker, "safety_margin", 0.005) + getattr(app.collision_checker, "shadow_inflation_margin", 0.03)
+                if pred_clearance_m < shadow_margin:
+                    pred_blocked = True
+            else:
+                app.real_follower_instance.reset(raw_q14)
+
+        app.predicted_clearance_m = float(pred_clearance_m)
+
         # Run collision check with hysteresis (<0.5 cm block, >1.0 cm release)
         safe_qpos, blocked, min_dist = app.collision_checker.filter_step(curr_qpos, target_qpos)
 
@@ -98,27 +121,36 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
         else:
             hard_stop = blocked or (min_dist < margin_block)
 
+        if pred_blocked:
+            hard_stop = True
+
         collision_stopped = hard_stop or (app.gizmo_active_l and slid_blocked_l) or (app.gizmo_active_r and slid_blocked_r)
 
         app.collision_blocked = bool(collision_stopped)
         app.min_collision_distance_m = float(min_dist)
 
         if collision_stopped:
-            app.status_warning = "Self-collision blocked"
+            app.status_warning = f"Shadow collision predicted ({pred_clearance_m*1000:.1f} mm)" if pred_blocked else "Self-collision blocked"
 
         if hard_stop:
             app.last_arm_cmd_left = safe_qpos[app.left_arm_qadr].copy()
             app.last_arm_cmd_right = safe_qpos[app.right_arm_qadr].copy()
             app.shadow_cmd_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
+            if hasattr(app, "real_follower_instance") and app.real_follower_instance:
+                app.real_follower_instance.reset(app.shadow_cmd_q14)
         else:
             if use_shadow:
+                if hasattr(app, "real_follower_instance") and app.real_follower_instance:
+                    app.real_follower_instance.step(raw_q14)
                 app.last_arm_cmd_left = post_limiter_q14[:7].copy()
                 app.last_arm_cmd_right = post_limiter_q14[7:].copy()
                 app.shadow_cmd_q14 = post_limiter_q14.copy()
             else:
                 app.last_arm_cmd_left = cand_left
                 app.last_arm_cmd_right = cand_right
-                app.shadow_cmd_q14 = post_limiter_q14.copy()
+                app.shadow_cmd_q14 = raw_q14.copy()
+                if hasattr(app, "real_follower_instance") and app.real_follower_instance:
+                    app.real_follower_instance.reset(raw_q14)
     else:
         app.collision_blocked = False
         app.last_arm_cmd_left = cand_left

@@ -208,13 +208,15 @@ def main():
     parser.add_argument("--no-adb", action="store_true", help="Disable automatic ADB detection and port reversal")
     parser.add_argument("--no-quest-launch", action="store_true", help="Do not automatically launch Quest browser on headset")
     parser.add_argument("--input", type=str, default=None, choices=["hands", "controllers"], help="Exclusive input mode: hands or controllers")
-    parser.add_argument("--real-follower", action="store_true", help="Enable sim real-like follower mode")
+    parser.add_argument("--sim-follower", type=str, default="ideal", choices=["ideal", "real"], help="Sim follower dynamics: ideal or real (default: ideal)")
+    parser.add_argument("--real-follower", action="store_true", help="Enable sim real-like follower mode (alias for --sim-follower real)")
     parser.add_argument("--allow-handtracking-real", action="store_true", default=False, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     render_viewer = False if (args.headless or args.no_viewer) else (True if args.viewer is True else has_display)
     self_col_enabled = (args.self_collision.lower() == "on")
     effective_input_mode = args.input if args.input is not None else ("controllers" if args.controller else "controllers")
+    is_real_follower = (args.sim_follower == "real") or getattr(args, "real_follower", False)
 
     app = UnifiedTeleopApp(
         port=args.port,
@@ -236,7 +238,7 @@ def main():
         enable_thumb_swing=args.enable_thumb_swing,
         allow_handtracking_real=getattr(args, "allow_handtracking_real", False),
         input_mode=effective_input_mode,
-        real_follower=getattr(args, "real_follower", False),
+        real_follower=is_real_follower,
     )
     app.run()
 

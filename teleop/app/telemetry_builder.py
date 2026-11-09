@@ -128,6 +128,7 @@ def build_status_packet(app) -> dict:
         "collision_blocked": bool(app.collision_blocked),
         "hand_collision_blocked": bool(app.hand_collision_blocked),
         "min_distance_mm": float(app.min_collision_distance_m * 1000.0),
+        "predicted_clearance_mm": float(getattr(app, "predicted_clearance_m", 0.999) * 1000.0),
         "min_hand_distance_mm": float(app.min_hand_distance_m * 1000.0),
         "homing": bool(app.homing_active),
         "qpos_l": [float(x) for x in app.last_arm_cmd_left],
