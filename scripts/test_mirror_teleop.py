@@ -144,6 +144,12 @@ def test_sine_tracking():
 
 def test_two_senders_lock():
     print("--- 7. Testing Two Senders Lock Guard ---")
+    test_lock = "/tmp/test_a2_teleop.lock"
+    import os
+    if os.path.exists(test_lock):
+        try: os.unlink(test_lock)
+        except Exception: pass
+    os.environ["TELEOP_LOCK_FILE"] = test_lock
     backend1 = UdpBackend(tx_port=5605, rx_port=5606)
     backend1.connect()
     assert backend1._lock_fd is not None, "First backend failed to obtain lock"
@@ -153,6 +159,7 @@ def test_two_senders_lock():
     backend2.connect()
     assert backend2._lock_fd is None, "Second backend should have been rejected by lock!"
     backend1.disconnect()
+    os.environ.pop("TELEOP_LOCK_FILE", None)
     print("  [PASS] Second sender lock rejection strictly enforced.")
 
 

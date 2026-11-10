@@ -128,6 +128,7 @@ class AgibotSimEnv:
                     target = float(np.clip(right_qpos[i], low, high))
                     self.data.ctrl[act_idx] = target
                     self.data.qpos[self.qpos_idx_map[jname]] = target
+        mujoco.mj_forward(self.model, self.data)
 
     def set_hand_commands(self, left_hand: np.ndarray = None, right_hand: np.ndarray = None):
         """Commands 6 active joints per hand and propagates coupled mimic joints."""

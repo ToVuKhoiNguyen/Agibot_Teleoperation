@@ -56,7 +56,7 @@ if (typeof window !== 'undefined') {
   window.GIZMO_HANDLE_SCALE = HANDLE_SCALE;
 }
 let GIZMO_SIZE = GIZMO_SCALE; // Equal extent size for translate and rotate controls
-let followActualWrist = true;
+let followActualWrist = false;
 let xrRotationEnabled = true;
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();

@@ -58,6 +58,7 @@ function sendCmd(obj) {
 function updateUIStatus(s) {
   latestStatusData = s;
   window.latestTelemetry = s;
+  window.lastTelemetryState = s;
   lastLeftClosure = s.hand_closure_l;
   lastRightClosure = s.hand_closure_r;
 
@@ -88,39 +89,37 @@ function updateUIStatus(s) {
   if (actualSphereL && s.ee_l) actualSphereL.position.set(s.ee_l[0], s.ee_l[1], s.ee_l[2]);
   if (actualSphereR && s.ee_r) actualSphereR.position.set(s.ee_r[0], s.ee_r[1], s.ee_r[2]);
 
+  // Snap gizmo to FK(measured) once upon transition to READY or fault clear
+  if ((window._lastSyncState === 'SYNC' && s.sync_state === 'READY') || (window._lastFaultLatched && !s.fault_latched)) {
+    if (s.tgt_l && targetSphereL) targetSphereL.position.set(s.tgt_l[0], s.tgt_l[1], s.tgt_l[2]);
+    if (s.tgt_r && targetSphereR) targetSphereR.position.set(s.tgt_r[0], s.tgt_r[1], s.tgt_r[2]);
+  }
+  window._lastSyncState = s.sync_state;
+  window._lastFaultLatched = Boolean(s.fault_latched);
+
   // Sync target marker positions when not dragging
   if (!isDraggingGizmo) {
     const clutchedL = Boolean(s.xr_grip_l || s.held);
     const clutchedR = Boolean(s.xr_grip_r || s.held);
 
     if (targetSphereL) {
-      const pL = (clutchedL || !followActualWrist) ? (s.tgt_l || s.ee_l) : (s.ee_l || s.tgt_l);
+      const pL = (followActualWrist && s.ee_l) ? s.ee_l : (s.tgt_l || s.ee_l);
       if (pL) targetSphereL.position.set(pL[0], pL[1], pL[2]);
       const rL = (clutchedL && s.tgt_rot_l) ? s.tgt_rot_l : (s.rot_l || s.tgt_rot_l);
       if (rL && gizmoMode !== 'rotate') {
         const m = new THREE.Matrix4();
-        m.set(
-          rL[0][0], rL[0][1], rL[0][2], 0,
-          rL[1][0], rL[1][1], rL[1][2], 0,
-          rL[2][0], rL[2][1], rL[2][2], 0,
-          0, 0, 0, 1
-        );
+        m.set(rL[0][0], rL[0][1], rL[0][2], 0, rL[1][0], rL[1][1], rL[1][2], 0, rL[2][0], rL[2][1], rL[2][2], 0, 0, 0, 0, 1);
         targetSphereL.quaternion.setFromRotationMatrix(m);
       }
     }
 
     if (targetSphereR) {
-      const pR = (clutchedR || !followActualWrist) ? (s.tgt_r || s.ee_r) : (s.ee_r || s.tgt_r);
+      const pR = (followActualWrist && s.ee_r) ? s.ee_r : (s.tgt_r || s.ee_r);
       if (pR) targetSphereR.position.set(pR[0], pR[1], pR[2]);
       const rR = (clutchedR && s.tgt_rot_r) ? s.tgt_rot_r : (s.rot_r || s.tgt_rot_r);
       if (rR && gizmoMode !== 'rotate') {
         const m = new THREE.Matrix4();
-        m.set(
-          rR[0][0], rR[0][1], rR[0][2], 0,
-          rR[1][0], rR[1][1], rR[1][2], 0,
-          rR[2][0], rR[2][1], rR[2][2], 0,
-          0, 0, 0, 1
-        );
+        m.set(rR[0][0], rR[0][1], rR[0][2], 0, rR[1][0], rR[1][1], rR[1][2], 0, rR[2][0], rR[2][1], rR[2][2], 0, 0, 0, 0, 1);
         targetSphereR.quaternion.setFromRotationMatrix(m);
       }
     }
@@ -180,13 +179,11 @@ function updateUIStatus(s) {
 
 
   // Sync sliders
-  const sL = document.getElementById('slider_hand_l');
+  const sL = document.getElementById('slider_hand_l'), sLv = document.getElementById('slider_hand_l_val');
   if (sL) sL.value = Math.round(s.hand_closure_l * 100);
-  const sLv = document.getElementById('slider_hand_l_val');
   if (sLv) sLv.innerText = Math.round(s.hand_closure_l * 100) + '%';
-  const sR = document.getElementById('slider_hand_r');
+  const sR = document.getElementById('slider_hand_r'), sRv = document.getElementById('slider_hand_r_val');
   if (sR) sR.value = Math.round(s.hand_closure_r * 100);
-  const sRv = document.getElementById('slider_hand_r_val');
   if (sRv) sRv.innerText = Math.round(s.hand_closure_r * 100) + '%';
 
   // Update persistent Hardware Fault Banner
@@ -201,12 +198,18 @@ function updateUIStatus(s) {
     }
   }
 
-  // Update Sync / Ready / Engaged status badge
+  // Update Sync / Ready / Engaged status badge (shows reasons when not moving)
   const syncBadge = document.getElementById('sync-badge');
   if (syncBadge) {
-    const st = s.sync_state || (s.fault_latched ? 'FAULT' : 'READY');
-    const gap = s.max_sim_real_gap_rad !== undefined ? ` • gap: ${s.max_sim_real_gap_rad.toFixed(3)} rad` : '';
-    syncBadge.innerText = `${st}${gap}`;
+    let st = s.sync_state || (s.fault_latched ? 'FAULT' : 'READY');
+    let sub = '';
+    if (s.fault_latched || st === 'FAULT') { st = 'FAULT'; sub = ' (Clear to resume)'; }
+    else if (st === 'SYNC') { sub = ' (Waiting for robot telemetry)'; }
+    else if (st === 'READY') { sub = ' (Click Engage to move robot)'; }
+    else if (s.feedback_age_ms > 200) { sub = ` (Stale feedback: ${s.feedback_age_ms.toFixed(0)}ms)`; }
+    else if (s.max_sim_real_gap_rad >= 0.095) { sub = ' (Lead limited)'; }
+    const gap = (s.max_sim_real_gap_rad !== undefined && st === 'ENGAGED') ? ` • gap: ${s.max_sim_real_gap_rad.toFixed(3)} rad` : '';
+    syncBadge.innerText = `${st}${sub}${gap}`;
     syncBadge.className = `tag tag-${st === 'ENGAGED' ? 'ok' : (st === 'READY' ? 'info' : (st === 'FAULT' ? 'danger' : 'warn'))}`;
   }
 
@@ -215,6 +218,7 @@ function updateUIStatus(s) {
     const isEng = (s.sync_state === 'ENGAGED');
     engageBtn.innerText = isEng ? 'Disengage' : 'Engage';
     engageBtn.style.background = isEng ? '#e65100' : '#2e7d32';
+    engageBtn.style.display = (s.sync_state === 'SYNC') ? 'none' : 'inline-block';
   }
 
   const hudProf = document.getElementById('hud-profile-stat');

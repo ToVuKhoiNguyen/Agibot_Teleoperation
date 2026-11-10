@@ -44,6 +44,10 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
                 if hasattr(app, "output_filter_right_gizmo"): app.output_filter_right_gizmo.reset(app.last_arm_cmd_right)
                 app.last_ik_sol_left = app.last_arm_cmd_left.copy()
                 app.last_ik_sol_right = app.last_arm_cmd_right.copy()
+                if hasattr(app, "robot_safety") and app.robot_safety is not None:
+                    app.robot_safety._last_cmd_q14 = q_act.copy()
+                    app.robot_safety._last_cmd_vel = np.zeros(14, dtype=np.float64)
+                    app.robot_safety._deviation_start_t = None
                 app.sync_state = "READY"
                 print("[SYNC] Robot state synchronized! Transitioned SYNC -> READY.")
             return
@@ -64,9 +68,8 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         raw_target_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
         last_plan = app.mirror_limiter.q_plan
 
-        # Source sanity check
-        step_jump = float(np.max(np.abs(raw_target_q14 - last_plan)))
-        if np.any(np.isnan(raw_target_q14)) or np.any(np.isinf(raw_target_q14)) or step_jump > 0.20:
+        # Source sanity check (NaN / inf protection; step bounding handled by mirror_limiter)
+        if np.any(np.isnan(raw_target_q14)) or np.any(np.isinf(raw_target_q14)):
             raw_target_q14 = last_plan.copy()
 
         # Soft back-off at 0.035 rad

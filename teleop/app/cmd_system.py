@@ -59,6 +59,13 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
     elif name == "engage_arm":
         arm = cmd.get("arm", "both")
         if getattr(app, "sync_state", "READY") in ("READY", "ENGAGED"):
+            if hasattr(app, "robot_safety") and app.robot_safety is not None:
+                q_act, _, _ = app.robot_safety.read_state()
+                if q_act is not None and len(q_act) == 14 and not np.any(np.isnan(q_act)):
+                    app.robot_safety._last_cmd_q14 = q_act.copy()
+                    app.robot_safety._last_cmd_vel = np.zeros(14, dtype=np.float64)
+                    app.robot_safety._deviation_start_t = None
+                    if hasattr(app, "mirror_limiter"): app.mirror_limiter.reset(q_act)
             if arm in ("left", "both"): app.arm_engaged_l = True
             if arm in ("right", "both"): app.arm_engaged_r = True
             app.sync_state = "ENGAGED"

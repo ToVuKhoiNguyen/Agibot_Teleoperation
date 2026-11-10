@@ -9,7 +9,10 @@ BUILD_ID = "f43762b"
 class UdpBackend(RobotInterface):
     """Bidirectional UDP teleop backend with single-sender lock, 50Hz monotonic TX, and version handshake."""
     def __init__(self, host: str = "192.168.2.50", tx_port: int = 5005, rx_port: int = 5006, token: str = "", env=None):
-        self.host, self.tx_port, self.rx_port, self.token, self.env = host, tx_port, rx_port, token, env
+        self.host = os.environ.get("ROBOT_IP", host)
+        self.tx_port = int(os.environ.get("ROBOT_PORT", tx_port))
+        self.rx_port = int(os.environ.get("ROBOT_RX_PORT", rx_port))
+        self.token, self.env = token, env
         self.tx_sock, self.rx_sock = None, None
         self._connected, self._seq = False, 0
         self.session_id = f"laptop_{os.getpid()}_{int(time.time())}"
@@ -32,11 +35,12 @@ class UdpBackend(RobotInterface):
         self.app = None
 
     def connect(self) -> None:
+        lock_path = os.environ.get("TELEOP_LOCK_FILE", "/tmp/a2_teleop.lock")
         try:
-            self._lock_fd = open("/tmp/a2_teleop.lock", "w")
+            self._lock_fd = open(lock_path, "w")
             fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (IOError, BlockingIOError, OSError) as e:
-            print(f"[UdpBackend] WARNING: Single-sender lock /tmp/a2_teleop.lock already held: {e}")
+            print(f"[UdpBackend] WARNING: Single-sender lock {lock_path} already held: {e}")
             if self._lock_fd: self._lock_fd.close()
             self._lock_fd = None
             
