@@ -21,12 +21,18 @@ def get_status(port=8012):
         return json.loads(resp.read().decode("utf-8"))
 
 
+def wait_ready(port):
+    for _ in range(25):
+        try:
+            get_status(port); return True
+        except Exception: time.sleep(0.25)
+    return False
+
 def test_sim_mode(browser):
     print("\n--- TEST A: SIM BACKEND (GIZMO & +/-XYZ WORK WITHOUT GATE) ---")
-    cmd = [sys.executable, str(PROJECT_ROOT / "main.py"), "--headless", "--backend", "sim", "--port", "8021"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen([sys.executable, str(PROJECT_ROOT / "main.py"), "--headless", "--backend", "sim", "--port", "8021"])
     try:
-        time.sleep(3.5)
+        wait_ready(8021)
         page = browser.new_page(viewport={"width": 1440, "height": 900})
         page.goto("https://localhost:8021/panel", timeout=15000, wait_until="networkidle")
         page.wait_for_timeout(2000)
@@ -134,9 +140,9 @@ def test_real_udp_mode(browser):
         sys.executable, str(PROJECT_ROOT / "main.py"), "--headless", "--backend", "real-udp",
         "--speed-profile", "normal", "--port", "8022"
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=run_env)
+    proc = subprocess.Popen(cmd, env=run_env)
     try:
-        time.sleep(3.5)
+        wait_ready(8022)
         page = browser.new_page(viewport={"width": 1440, "height": 900})
         page.goto("https://localhost:8022/panel", timeout=15000, wait_until="networkidle")
         page.wait_for_timeout(2000)
@@ -230,9 +236,7 @@ def test_real_udp_mode(browser):
 
 
 def main():
-    print("=" * 80)
-    print("PLAYWRIGHT HEADLESS ACCEPTANCE TEST: GIZMO & +/-XYZ JOG VERIFICATION")
-    print("=" * 80)
+    print("=" * 80 + "\nPLAYWRIGHT HEADLESS ACCEPTANCE TEST: GIZMO & +/-XYZ JOG VERIFICATION\n" + "=" * 80)
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--ignore-certificate-errors", "--no-sandbox"])
         test_sim_mode(browser)
