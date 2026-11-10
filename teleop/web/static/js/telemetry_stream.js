@@ -227,8 +227,7 @@ function updateUIStatus(s) {
     const actVel = s.profile_max_vel !== undefined ? s.profile_max_vel.toFixed(2) : '0.30';
     let capMsg = `${prof.toUpperCase()} (${actVel} rad/s)`;
     if (s.profile_v_cap !== undefined && s.profile_max_vel < (prof === 'fast2' ? 0.70 : (prof === 'fast' ? 0.50 : (prof === 'slow' ? 0.20 : 0.30)))) {
-      const tauStr = s.profile_tau ? `tau=${s.profile_tau.toFixed(3)}s` : 'unidentified';
-      capMsg = `${prof} capped to ${actVel} rad/s (${tauStr})`;
+      capMsg = `${prof} capped to ${actVel} rad/s (${s.profile_tau ? `tau=${s.profile_tau.toFixed(3)}s` : 'unidentified'})`;
     }
     hudProf.innerText = `Profile: ${capMsg}`;
   }
@@ -237,16 +236,12 @@ function updateUIStatus(s) {
 };
 
 window.confirmClearFault = function() {
-  if (confirm("Operator confirmation required: Clear latched hardware fault and resume? (Note: Orin latch requires node restart)")) {
+  if (confirm("Operator confirmation required: Clear latched hardware fault and resume?")) {
     sendCmd({cmd: "clear_fault", confirmed: true});
   }
 };
 
 window.toggleEngageArms = function() {
   const current = window.lastTelemetryState && window.lastTelemetryState.sync_state;
-  if (current === 'ENGAGED') {
-    sendCmd({cmd: "disengage_arm", arm: "both"});
-  } else {
-    sendCmd({cmd: "engage_arm", arm: "both"});
-  }
+  sendCmd({cmd: current === 'ENGAGED' ? "disengage_arm" : "engage_arm", arm: "both"});
 };
