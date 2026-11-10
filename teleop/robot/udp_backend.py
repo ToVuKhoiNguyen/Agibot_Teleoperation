@@ -129,8 +129,8 @@ class UdpBackend(RobotInterface):
             with self._tx_lock:
                 q_to_send = self._target_tx_q.copy() if self._target_tx_q is not None else None
             app = getattr(self, "app", None)
-            sync_st = getattr(app, "sync_state", "READY") if app else "READY"
-            if q_to_send is not None and (sync_st in ("ENGAGED", "SYNC")):
+            sync_st = getattr(app, "sync_state", None) if app else None
+            if q_to_send is not None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
                 self._send_packet_now(q_to_send)
             next_t += 0.020
             sleep_t = next_t - time.monotonic()
@@ -141,6 +141,10 @@ class UdpBackend(RobotInterface):
         q_arr = np.array(q14, dtype=np.float64)
         with self._tx_lock:
             self._target_tx_q = q_arr
+        app = getattr(self, "app", None)
+        sync_st = getattr(app, "sync_state", None) if app else None
+        if self.tx_thread is None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
+            self._send_packet_now(q_arr)
 
     def _send_packet_now(self, q14: np.ndarray) -> None:
         if not self._connected or self.tx_sock is None: return
