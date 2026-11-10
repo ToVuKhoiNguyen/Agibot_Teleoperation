@@ -60,7 +60,7 @@ bash /agibot/data/home/agi/Desktop/motion_player/disable_motion_player.sh
 # 3. Vào thư mục mc và kiểm tra mã băm SHA256 file receiver
 cd /agibot/data/home/agi/Desktop/mc
 sha256sum arm_teleop_rx.py
-# Kỳ vọng đúng mã: 5dd1cce57d748c1b65b6f16d5aba76231e668b6d66a30264d4d2e7bca331274a
+# Kỳ vọng đúng mã: dbb71f2726a3a6a307bed919e102e91f442a8076e3b9ee13021b54c0fe3b49f1
 
 # 4. Nạp cấu hình ROS 2
 source /opt/ros/humble/setup.bash

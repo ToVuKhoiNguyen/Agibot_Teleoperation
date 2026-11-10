@@ -122,6 +122,7 @@ class ArmTeleopRx(Node):
             if max_req_v * dt > 0.020001:
                 self.fault_latched = True
                 self.fault_reason = f"Step {max_req_v*dt:.4f} > 0.02 rad"
+                print(f"[FAULT] {self.fault_reason}")
                 v_target = np.zeros(14)
             else:
                 scale_v = min(1.0, self.max_vel / max_req_v) if max_req_v > 1e-6 else 1.0
@@ -166,22 +167,23 @@ class ArmTeleopRx(Node):
             if not meas: return
             if self.homing_start_q is None:
                 self.homing_start_q, self.curr_cmd_q = list(meas), list(meas)
-                self.homing_start_t = now
                 deltas = [HOME[i] - meas[i] for i in range(14)]
                 max_d = max(abs(d) for d in deltas)
-                self.homing_dur = max(2.5, max_d / (self.max_vel * 0.8))
-                print(f"[HOMING] Auto-homing starting ({self.homing_dur:.1f}s move to HOME)...")
+                est_dur = max(2.5, max_d / (self.max_vel * 0.8))
+                print(f"[HOMING] Auto-homing starting (~{est_dur:.1f}s move to HOME)...")
             
-            tau = min(1.0, (now - self.homing_start_t) / self.homing_dur)
-            s = tau * tau * (3.0 - 2.0 * tau)
-            tgt_step = np.array([self.homing_start_q[i] + (HOME[i] - self.homing_start_q[i]) * s for i in range(14)])
-            v_homing = (tgt_step - np.array(self.curr_cmd_q)) / dt
-            self._final_line_guard_and_publish(v_homing, dt)
-            
-            if tau >= 1.0 and np.max(np.abs(np.array(self.curr_cmd_q) - np.array(HOME))) < 0.005:
+            err = np.array(HOME) - np.array(self.curr_cmd_q)
+            D = float(np.max(np.abs(err)))
+            if D < 0.005:
                 self.homing_active, self.anchored = False, True
                 self.curr_cmd_v = np.zeros(14)
-                print("HOMED")
+                print("[HOMED] Hoàn thành Auto-Homing! Sẵn sàng nhận lệnh teleop.")
+                return
+            
+            v_stop = -0.5 * self.max_acc * dt + math.sqrt(max(0.0, (0.5 * self.max_acc * dt)**2 + 2.0 * self.max_acc * D))
+            V = min(self.max_vel, v_stop, D / dt)
+            v_homing = err * (V / D)
+            self._final_line_guard_and_publish(v_homing, dt)
             return
             
         if not self.anchored:
