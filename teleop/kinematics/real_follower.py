@@ -8,7 +8,8 @@ Predictive real-robot follower model matching Orin arm_teleop_rx.py dynamics:
 """
 
 import numpy as np
-from scripts.arm_teleop_rx import LIMS_MIN, LIMS_MAX
+from teleop.robot.aimdk_map import ARM_LOWER_14, ARM_UPPER_14
+LIMS_MIN, LIMS_MAX = ARM_LOWER_14, ARM_UPPER_14
 
 IDENTIFIED_TAU_S = 0.150  # Identified from logs/real_20261106_165245.jsonl (0.15s)
 

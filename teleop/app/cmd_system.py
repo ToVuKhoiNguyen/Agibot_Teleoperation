@@ -21,13 +21,59 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
     elif name == "clear_fault":
         confirmed = bool(cmd.get("confirmed", False))
         if hasattr(app, "robot_safety") and app.robot_safety is not None:
+            q_act, _, meta = app.robot_safety.read_state()
+            age = meta.get("age_s", 999.0) if isinstance(meta, dict) else 0.0
+            if age > 0.200 or q_act is None:
+                app.status_warning = "Clear Fault refused: robot telemetry is stale (>200ms) or missing."
+                print(f"[FAULT] Clear refused: feedback age={age*1000:.1f}ms > 200ms")
+                return False
             if app.robot_safety.clear_fault(confirm=confirmed):
                 app.status_warning = ""
-                print("[INFO] HARDWARE FAULT CLEARED")
+                if hasattr(app, "mirror_limiter"): app.mirror_limiter.reset(q_act)
+                app.last_arm_cmd_left = q_act[:7].copy()
+                app.last_arm_cmd_right = q_act[7:].copy()
+                if hasattr(app, "env"):
+                    app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
+                    ee_poses = app.env.get_ee_poses()
+                    app.cur_target_pos_l = ee_poses["left"]["pos"].copy()
+                    app.cur_target_rot_l = ee_poses["left"]["rot"].copy()
+                    app.cur_target_pos_r = ee_poses["right"]["pos"].copy()
+                    app.cur_target_rot_r = ee_poses["right"]["rot"].copy()
+                    app.gizmo_target_pos_l = app.cur_target_pos_l.copy()
+                    app.gizmo_target_pos_r = app.cur_target_pos_r.copy()
+                if hasattr(app, "output_filter_left"): app.output_filter_left.reset(app.last_arm_cmd_left)
+                if hasattr(app, "output_filter_right"): app.output_filter_right.reset(app.last_arm_cmd_right)
+                if hasattr(app, "output_filter_left_gizmo"): app.output_filter_left_gizmo.reset(app.last_arm_cmd_left)
+                if hasattr(app, "output_filter_right_gizmo"): app.output_filter_right_gizmo.reset(app.last_arm_cmd_right)
+                app.last_ik_sol_left = app.last_arm_cmd_left.copy()
+                app.last_ik_sol_right = app.last_arm_cmd_right.copy()
+                app.sync_state = "READY"
+                app.arm_engaged_l = False
+                app.arm_engaged_r = False
+                print("[INFO] FAULT CLEARED: Plan dropped, resynced to measured state, transitioned to READY.")
             else:
                 app.status_warning = "Clear fault requires explicit confirmation."
         else:
             app.status_warning = ""
+        return True
+    elif name == "engage_arm":
+        arm = cmd.get("arm", "both")
+        if getattr(app, "sync_state", "READY") in ("READY", "ENGAGED"):
+            if arm in ("left", "both"): app.arm_engaged_l = True
+            if arm in ("right", "both"): app.arm_engaged_r = True
+            app.sync_state = "ENGAGED"
+            print(f"[SYNC] Arms engaged: L={app.arm_engaged_l}, R={app.arm_engaged_r} (State: ENGAGED)")
+            return True
+        else:
+            print(f"[SYNC] Cannot engage in state {app.sync_state}")
+            return False
+    elif name == "disengage_arm":
+        arm = cmd.get("arm", "both")
+        if arm in ("left", "both"): app.arm_engaged_l = False
+        if arm in ("right", "both"): app.arm_engaged_r = False
+        if not app.arm_engaged_l and not app.arm_engaged_r and app.sync_state == "ENGAGED":
+            app.sync_state = "READY"
+        print(f"[SYNC] Arms disengaged: L={app.arm_engaged_l}, R={app.arm_engaged_r} (State: {app.sync_state})")
         return True
     elif name == "hold_toggle":
         app.manual_held = not app.manual_held

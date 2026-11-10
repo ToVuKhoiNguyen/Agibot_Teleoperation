@@ -8,6 +8,7 @@ import time
 import numpy as np
 from teleop.utils.startup_banner import get_local_ip, print_startup_banner
 from teleop.app.telemetry_builder import build_status_packet
+from teleop.app.sync_manager import process_arm_sync_and_dispatch
 
 
 def run_control_loop(app):
@@ -127,16 +128,7 @@ def run_control_loop(app):
                 if app.hand_collision_blocked:
                     app.clamp_counter_hand = getattr(app, "clamp_counter_hand", 0) + 1
 
-                if is_real and hasattr(app, "robot_safety") and app.robot_safety is not None:
-                    q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
-                    h12 = np.concatenate([app.last_hand_cmd_left, app.last_hand_cmd_right])
-                    app.robot_safety.context["input_mode"] = getattr(app, "input_mode", "mouse")
-                    app.robot_safety.context["collision_gate"] = bool(getattr(app, "collision_blocked", False))
-                    ok = app.robot_safety.send_arm(q14, dt=app.control_dt)
-                    app.robot_safety.send_hand(h12)
-                else:
-                    app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
-                    app.env.set_hand_commands(app.last_hand_cmd_left, app.last_hand_cmd_right)
+                process_arm_sync_and_dispatch(app, is_real, app.control_dt)
                 if (app.hand_closure_l >= 0.95 or app.hand_closure_r >= 0.95) and not getattr(app, "_logged_hand_close_trace", False):
                     app._logged_hand_close_trace = True
                     print(f"[HAND_CLOSE_TRACE] Commanded 6 joints L: {app.last_hand_cmd_left.round(3)}, R: {app.last_hand_cmd_right.round(3)}")

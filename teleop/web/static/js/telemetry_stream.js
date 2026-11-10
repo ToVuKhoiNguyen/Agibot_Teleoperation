@@ -201,11 +201,43 @@ function updateUIStatus(s) {
     }
   }
 
+  // Update Sync / Ready / Engaged status badge
+  const syncBadge = document.getElementById('sync-badge');
+  if (syncBadge) {
+    const st = s.sync_state || (s.fault_latched ? 'FAULT' : 'READY');
+    const gap = s.max_sim_real_gap_rad !== undefined ? ` • gap: ${s.max_sim_real_gap_rad.toFixed(3)} rad` : '';
+    syncBadge.innerText = `${st}${gap}`;
+    syncBadge.className = `tag tag-${st === 'ENGAGED' ? 'ok' : (st === 'READY' ? 'info' : (st === 'FAULT' ? 'danger' : 'warn'))}`;
+  }
+
+  const engageBtn = document.getElementById('btn-engage-arms');
+  if (engageBtn) {
+    const isEng = (s.sync_state === 'ENGAGED');
+    engageBtn.innerText = isEng ? 'Disengage' : 'Engage';
+    engageBtn.style.background = isEng ? '#e65100' : '#2e7d32';
+  }
+
+  const hudProf = document.getElementById('hud-profile-stat');
+  if (hudProf) {
+    const prof = (s.speed_profile || 'normal').toUpperCase();
+    const vel = s.speed_profile === 'slow' ? '0.2' : (s.speed_profile === 'fast' ? '0.48' : '0.3');
+    hudProf.innerText = `Profile: ${prof} (${vel} rad/s)`;
+  }
+
   if (typeof updateTelemetryUI === 'function') updateTelemetryUI(s);
 };
 
 window.confirmClearFault = function() {
-  if (confirm("Operator confirmation required: Clear latched hardware fault and resume?")) {
+  if (confirm("Operator confirmation required: Clear latched hardware fault and resume? (Note: Orin latch requires node restart)")) {
     sendCmd({cmd: "clear_fault", confirmed: true});
+  }
+};
+
+window.toggleEngageArms = function() {
+  const current = window.lastTelemetryState && window.lastTelemetryState.sync_state;
+  if (current === 'ENGAGED') {
+    sendCmd({cmd: "disengage_arm", arm: "both"});
+  } else {
+    sendCmd({cmd: "engage_arm", arm: "both"});
   }
 };

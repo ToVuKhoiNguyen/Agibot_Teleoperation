@@ -127,6 +127,8 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
                 app.robot_safety._last_cmd_q14 = q_home.copy()
                 app.robot_safety._last_cmd_vel = np.zeros(14)
                 app.robot_safety._deviation_start_t = None
+            if hasattr(app, "mirror_limiter") and app.mirror_limiter is not None:
+                app.mirror_limiter.reset(np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right]))
             app.last_hand_cmd_left = np.zeros(6, dtype=np.float64)
             app.last_hand_cmd_right = np.zeros(6, dtype=np.float64)
             app.current_safe_hand_l = np.zeros(6, dtype=np.float64)

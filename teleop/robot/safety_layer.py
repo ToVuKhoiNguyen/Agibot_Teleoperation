@@ -6,12 +6,9 @@ SafetyLayer wrapping any RobotInterface: kinematic limits, rate clamping, watchd
 import time
 import numpy as np
 from teleop.robot.interface import RobotInterface
-from teleop.robot.aimdk_map import ARM_JOINT_NAMES_AIMDK
+from teleop.robot.aimdk_map import ARM_JOINT_NAMES_AIMDK, ARM_LOWER_14, ARM_UPPER_14, HOME
 from teleop.robot.fault_tracer import FaultTracer
 
-# 14-DoF physical bounds: [L0..L6, R0..R6]
-ARM_LOWER_14 = np.array([-2.91, -0.46, -2.91, -2.00, -2.88, -0.30, -0.20, -2.91, -1.5359, -2.91, 0.10, -2.88, -0.30, -0.20], dtype=np.float64)
-ARM_UPPER_14 = np.array([2.91, 1.5359, 2.91, -0.10, 2.88, 0.30, 0.20, 2.91, 0.46, 2.91, 2.00, 2.88, 0.30, 0.20], dtype=np.float64)
 HAND_LOWER_12 = np.zeros(12, dtype=np.float64)
 HAND_UPPER_12 = np.array([2.286, 0.78, 1.7, 1.7, 1.7, 1.7, 2.286, 0.78, 1.7, 1.7, 1.7, 1.7], dtype=np.float64)
 
@@ -195,8 +192,9 @@ class SafetyLayer:
         eff_thresh = np.full(14, self.deviation_thresh_rad) if is_real else np.clip(
             self.deviation_thresh_rad + 0.05 * np.abs(self._last_cmd_vel), 0.05, 0.10
         )
-        q_act, _, _ = self.backend.read_state()
-        cmd_cmp = target_q if is_real else q
+        q_act, _, meta = self.backend.read_state()
+        age_s = meta.get("age_s", 0.0) if isinstance(meta, dict) else (float(meta) if isinstance(meta, (int, float)) else 0.0)
+        cmd_cmp = self._last_cmd_q14 if is_real else q
         err = np.abs(cmd_cmp - q_act)
         tripped_idx = np.where(err > eff_thresh)[0]
         if len(tripped_idx) > 0:
@@ -209,7 +207,8 @@ class SafetyLayer:
                 self.fault_reason, ev = self.fault_tracer.format_trip(
                     j, float(err[j]), float(eff_thresh[j]), target_q, q_act,
                     ARM_LOWER_14, ARM_UPPER_14, active_clamps[j],
-                    self.backend.__class__.__name__, self.context, t_now
+                    self.backend.__class__.__name__, self.context, t_now,
+                    sent_q=self._last_cmd_q14, raw_q=q, age_s=age_s, check_name="hard_deviation_gate"
                 )
                 self.fault_tracer.record_trip(ev)
                 self.hold()

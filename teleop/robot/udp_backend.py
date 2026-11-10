@@ -37,6 +37,8 @@ class UdpBackend(RobotInterface):
             fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (IOError, BlockingIOError, OSError) as e:
             print(f"[UdpBackend] WARNING: Single-sender lock /tmp/a2_teleop.lock already held: {e}")
+            if self._lock_fd: self._lock_fd.close()
+            self._lock_fd = None
             
         self.tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -178,15 +180,16 @@ class UdpBackend(RobotInterface):
     def read_state(self) -> tuple[np.ndarray, np.ndarray, dict]:
         with self._real_q14_lock:
             if self._real_q14 is not None:
-                return self._real_q14.copy(), np.zeros(12, dtype=np.float64), {}
+                age = time.time() - self._last_state_t if self._last_state_t > 0 else 999.0
+                return self._real_q14.copy(), np.zeros(12, dtype=np.float64), {"age_s": age, "last_t": self._last_state_t}
         if self._last_arm_cmd is not None:
-            return self._last_arm_cmd.copy(), np.zeros(12, dtype=np.float64), {}
+            return self._last_arm_cmd.copy(), np.zeros(12, dtype=np.float64), {"age_s": 0.0, "last_t": time.time()}
         if self.env is not None and hasattr(self.env, "get_arm_qpos"):
             try:
                 qp = self.env.get_arm_qpos()
-                return np.concatenate([qp["left"], qp["right"]]), np.zeros(12, dtype=np.float64), {}
+                return np.concatenate([qp["left"], qp["right"]]), np.zeros(12, dtype=np.float64), {"age_s": 0.0, "last_t": time.time()}
             except Exception: pass
-        return np.zeros(14, dtype=np.float64), np.zeros(12, dtype=np.float64), {}
+        return np.zeros(14, dtype=np.float64), np.zeros(12, dtype=np.float64), {"age_s": 999.0, "last_t": 0.0}
 
     def estop(self) -> None: print("[UdpBackend] ESTOP triggered!")
     def hold(self) -> None:

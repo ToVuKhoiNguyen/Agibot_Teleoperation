@@ -9,6 +9,7 @@ import collections
 from pathlib import Path
 import numpy as np
 import yaml
+from teleop.kinematics.mirror_limiter import MirrorLimiter
 
 
 def init_state(app, project_root: Path):
@@ -21,6 +22,17 @@ def init_state(app, project_root: Path):
     app.last_arm_cmd_right = app.env.get_right_arm_qpos()
     app.last_hand_cmd_left = np.zeros(6)
     app.last_hand_cmd_right = np.zeros(6)
+
+    prof = getattr(app, "speed_profile", "normal")
+    init_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
+    app.mirror_limiter = MirrorLimiter(speed_profile=prof, initial_q14=init_q14)
+    is_real_backend = getattr(app, "backend", "sim").lower() in ("real", "ros2", "real-udp", "udp")
+    app.sync_state = "SYNC" if is_real_backend else "ENGAGED"
+    app.arm_engaged_l = False if is_real_backend else True
+    app.arm_engaged_r = False if is_real_backend else True
+    app.max_sim_real_gap_rad = 0.0
+    app.last_state_feedback_age_s = 999.0
+    app.real_q14_measured = None
 
     app.target_curls_l = np.zeros(5)
     app.target_pinch_l = 0.0

@@ -64,20 +64,29 @@ class FaultTracer:
         }
         self.ring_buffer.append(record)
 
-    def format_trip(self, j: int, err: float, thresh: float, target_q, q_act, lower, upper, clamp: str, backend: str, ctx: dict, t_now: float):
+    def format_trip(
+        self, j: int, err: float, thresh: float, target_q, q_act, lower, upper,
+        clamp: str, backend: str, ctx: dict, t_now: float,
+        sent_q=None, raw_q=None, age_s: float = 0.0, check_name: str = "hard_deviation_gate"
+    ):
         j_name = ARM_JOINT_NAMES_AIMDK[j] if j < len(ARM_JOINT_NAMES_AIMDK) else f"joint_{j}"
         low_lim, high_lim = float(lower[j]), float(upper[j])
         cmd_v, act_v = float(target_q[j]), float(q_act[j])
+        sent_v = float(sent_q[j]) if sent_q is not None and j < len(sent_q) else cmd_v
+        raw_v = float(raw_q[j]) if raw_q is not None and j < len(raw_q) else cmd_v
+        age_ms = float(age_s * 1000.0) if age_s is not None else 0.0
         hint = "joint at physical limit" if (act_v <= low_lim + 0.02 or act_v >= high_lim - 0.02) else (
             "sudden target step" if err > 0.15 else "motor lag / obstruction"
         )
         reason = (
             f"Position deviation >{thresh:.2f} rad (>200ms) on joint {j} (0-based: {j_name}) "
-            f"[cmd: {cmd_v:+.3f}, act: {act_v:+.3f}, lim: ({low_lim:.2f}, {high_lim:.2f})] (hint: {hint})"
+            f"[sent: {sent_v:+.3f}, plan: {cmd_v:+.3f}, target: {raw_v:+.3f}, act: {act_v:+.3f}, age: {age_ms:.1f}ms] "
+            f"(check: {check_name})"
         )
         event = {
             "t": t_now, "reason": reason, "joint_0based": j, "joint_1based": j + 1, "joint_name": j_name,
-            "cmd": cmd_v, "act": act_v, "err": float(err), "thresh": float(thresh),
+            "cmd": cmd_v, "sent": sent_v, "raw": raw_v, "act": act_v, "err": float(err), "thresh": float(thresh),
+            "age_ms": age_ms, "check": check_name,
             "limits": [low_lim, high_lim], "clamp": clamp, "backend": backend,
             "input_mode": ctx.get("input_mode", "mouse"), "collision": bool(ctx.get("collision_gate", False)),
         }

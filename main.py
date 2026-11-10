@@ -64,7 +64,11 @@ class UnifiedTeleopApp:
         allow_handtracking_real: bool = False,
         input_mode: str = "controllers",
         real_follower: bool = False,
+        speed_profile: str = "normal",
     ):
+        self.speed_profile = speed_profile
+        v_prof = 0.20 if speed_profile == "slow" else (0.48 if speed_profile == "fast" else 0.30)
+        print(f"[PROFILE] Active Profile: {speed_profile.upper()} ({v_prof:.2f} rad/s) | Steady error v*tau: {v_prof*0.1:.3f} rad (tau assumed 0.10s)")
         init_subsystems(
             self,
             port=port,
@@ -208,7 +212,8 @@ def main():
     parser.add_argument("--no-adb", action="store_true", help="Disable automatic ADB detection and port reversal")
     parser.add_argument("--no-quest-launch", action="store_true", help="Do not automatically launch Quest browser on headset")
     parser.add_argument("--input", type=str, default=None, choices=["hands", "controllers"], help="Exclusive input mode: hands or controllers")
-    parser.add_argument("--sim-follower", type=str, default="ideal", choices=["ideal", "real"], help="Sim follower dynamics: ideal or real (default: ideal)")
+    parser.add_argument("--sim-follower", type=str, default="ideal", choices=["ideal", "real"])
+    parser.add_argument("--speed-profile", type=str, default="normal", choices=["slow", "normal", "fast"], help="Speed profile: slow (0.2), normal (0.3 DEFAULT), fast (0.5)")
     parser.add_argument("--real-follower", action="store_true", help="Enable sim real-like follower mode (alias for --sim-follower real)")
     parser.add_argument("--allow-handtracking-real", action="store_true", default=False, help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -220,26 +225,13 @@ def main():
     is_real_follower = (args.sim_follower == "real") or getattr(args, "real_follower", False)
 
     app = UnifiedTeleopApp(
-        port=args.port,
-        render_viewer=render_viewer,
-        use_controller=args.controller,
-        xr_view=args.xr_view,
-        backend=args.backend,
-        speed_scale=args.speed_scale,
-        ik_solver_type=args.ik,
-        self_collision=self_col_enabled,
-        no_adb=args.no_adb,
-        no_quest_launch=args.no_quest_launch,
-        allow_hardware_risk=getattr(args, "i_understand_hardware_risk", False),
-        arms=args.arms,
-        no_hand=args.no_hand,
-        real_max_vel=args.real_max_vel,
-        i_accept_higher_speed=args.i_accept_higher_speed,
-        hand_raw_max=args.hand_raw_max,
-        enable_thumb_swing=args.enable_thumb_swing,
-        allow_handtracking_real=getattr(args, "allow_handtracking_real", False),
-        input_mode=effective_input_mode,
-        real_follower=is_real_follower,
+        port=args.port, render_viewer=render_viewer, use_controller=args.controller, xr_view=args.xr_view,
+        backend=args.backend, speed_scale=args.speed_scale, ik_solver_type=args.ik, self_collision=self_col_enabled,
+        no_adb=args.no_adb, no_quest_launch=args.no_quest_launch, allow_hardware_risk=getattr(args, "i_understand_hardware_risk", False),
+        arms=args.arms, no_hand=args.no_hand, real_max_vel=args.real_max_vel, i_accept_higher_speed=args.i_accept_higher_speed,
+        hand_raw_max=args.hand_raw_max, enable_thumb_swing=args.enable_thumb_swing,
+        allow_handtracking_real=getattr(args, "allow_handtracking_real", False), input_mode=effective_input_mode,
+        real_follower=is_real_follower, speed_profile=args.speed_profile,
     )
     app.run()
 
