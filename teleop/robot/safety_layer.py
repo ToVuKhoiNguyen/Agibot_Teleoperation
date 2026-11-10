@@ -4,6 +4,7 @@ SafetyLayer wrapping any RobotInterface: kinematic limits, rate clamping, watchd
 """
 
 import time
+from pathlib import Path
 import numpy as np
 from teleop.robot.interface import RobotInterface
 from teleop.robot.aimdk_map import ARM_JOINT_NAMES_AIMDK, ARM_LOWER_14, ARM_UPPER_14, HOME
@@ -216,10 +217,11 @@ class SafetyLayer:
             self.fault_tracer.record_trip(ev); self.hold(); return False
 
         lim_pairs = [(float(ARM_LOWER_14[i]), float(ARM_UPPER_14[i])) for i in range(14)]
+        worst_j = int(np.argmax(np.abs(q_act - target_q))) if q_act is not None else 0
         self.fault_tracer.sample(
             self.backend.__class__.__name__, q, target_q, target_q, q_act, self._last_cmd_vel,
             active_clamps, lim_pairs, abs(dt_eff - 0.005), self.context.get("input_mode", "mouse"),
-            self.context.get("collision_gate", False), int(np.argmax(err)), t_now=t_now
+            self.context.get("collision_gate", False), worst_j, t_now=t_now
         )
 
         self._last_cmd_vel = (target_q - self._last_cmd_q14) / dt_eff
