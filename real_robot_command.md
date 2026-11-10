@@ -60,7 +60,7 @@ bash /agibot/data/home/agi/Desktop/motion_player/disable_motion_player.sh
 # 3. Vào thư mục mc và kiểm tra mã băm SHA256 file receiver
 cd /agibot/data/home/agi/Desktop/mc
 sha256sum arm_teleop_rx.py
-# Kỳ vọng đúng mã: ed8ff75ec839aa744ecb86feb0766b3ee0914ff220fea159cde91e2b85d14b0c
+# Kỳ vọng đúng mã: 35f64b57af38dc01aeb7ba7d24636cacf74332da400e45501cda0c6b7dcb0c37
 
 # 4. Nạp cấu hình ROS 2
 source /opt/ros/humble/setup.bash
@@ -68,7 +68,13 @@ export ROS_DOMAIN_ID=232
 export ROS_LOCALHOST_ONLY=0
 export FASTRTPS_DEFAULT_PROFILES_FILE=/agibot/software/v0/entry/bin/cfg/ros_dds_configuration.xml
 
-# 5. Kích hoạt nhận lệnh điều khiển động cơ thật (LIVE)
+# 5. CHUYỂN ACTION THỦ CÔNG (BẮT BUỘC TRƯỚC KHI BẬT LIVE)
+# Vì lý do an toàn tuyệt đối, arm_teleop_rx.py đã loại bỏ tính năng tự động chuyển action.
+# Hãy dùng script của vendor để chuyển sang Action Ext Joint Servo (Action 402 / 12):
+python3 SetAction.py --action 402
+# (Hoặc: python3 SetAction.py --action 12 tùy phiên bản SDK vendor)
+
+# 6. Kích hoạt nhận lệnh điều khiển động cơ thật (LIVE)
 # Chế độ Tiêu Chuẩn (Profile Normal: 0.3 rad/s - êm ru, đã kiểm định an toàn):
 python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --speed-profile normal
 
@@ -77,12 +83,13 @@ python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.
 ```
 
 > **Các tầng bảo vệ an toàn chuẩn hóa trong `arm_teleop_rx.py`:**
-> - **Cổng bảo vệ cuối (Final-Line Guard):** Đúng 1 vị trí publish lệnh duy nhất trên timer 50 Hz. Co giãn đồng tỉ lệ (uniform vector scaling) bảo toàn 100% hướng di chuyển, gia tốc khống chế $\le 1.05\text{ rad/s}^2$, bước nhảy tối đa $\le 0.010\text{ rad/chu kỳ}$.
+> - **Cổng bảo vệ cuối (Final-Line Guard):** Đúng 1 vị trí publish lệnh duy nhất trên timer 50 Hz. Co giãn đồng tỉ lệ (uniform vector scaling) bảo toàn 100% hướng di chuyển, gia tốc khống chế $\le 2.0\text{ rad/s}^2$ (trần cứng $\le 3.0\text{ rad/s}^2$), bước nhảy $\le 0.010\text{ rad/chu kỳ}$ (trần cứng $\le 0.016\text{ rad}$).
 > - **Phanh hãm Parabolic rời rạc:** Tự động tính toán khoảng cách phanh trước khi tiếp cận giới hạn khớp (`LIMS`) hoặc vị trí đích, loại bỏ hoàn toàn hiện tượng va chạm biên gây giật nảy.
 > - **Xả sạch hàng đợi (Socket Backlog Drain):** Mỗi chu kỳ 20 ms xả sạch buffer và chỉ lấy gói tin mới nhất, triệt tiêu hiện tượng dồn ứ tạo vận tốc đột biến.
 > - **Khóa nguồn phát duy nhất (Single Sender Lock):** Khóa chặt phiên phát với IP + SessionID đầu tiên, tự động từ chối và hold an toàn nếu có máy khác cố tình xen lệnh.
-> - **Tự động SetAction:** Tự gửi lệnh RPC nội bộ chuyển Action 10 $\rightarrow$ Action 12 (`McAction_RL_LOCOMOTION_ARM_EXT_JOINT_SERVO`), không cần thao tác `SetAction.py` thủ công.
-> - **Tự động Auto-Homing:** Robot tự đo góc thực tế và di chuyển êm dịu về vị trí HOME trong 2.5–5s (báo chữ `HOMED` khi sẵn sàng nhận teleop).
+> - **Chuyển Action thủ công (Manual SetAction Only):** Đã loại bỏ hoàn toàn auto switch `10 Stand -> 12 Ext Servo` để tránh nguy cơ giật tay đột ngột khi robot chưa đứng vững. Node chỉ kiểm tra read-only `GetAction()` và từ chối bật LIVE nếu chưa ở Action 402/12.
+> - **Kiểm tra ổn định khớp trước khi LIVE:** Yêu cầu khớp đứng yên trong 1 giây ($\Delta < 0.003\text{ rad}$) và không có publisher nào khác trên topic `/motion/control/arm_joint_command` trước khi nhận lệnh teleop.
+> - **Mô hình độ trễ bậc 1 (First-order Lag Gate):** Hỗ trợ cờ `--gate-mode lagged` để tính toán sai số động học theo hằng số thời gian $\tau$ đã nhận diện thực tế ($\tau \approx 0.138\text{ s}$), ngăn ngừa ngắt nhầm do quán tính cơ cấu.
 
 ---
 
