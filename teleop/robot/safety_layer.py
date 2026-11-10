@@ -8,6 +8,7 @@ import numpy as np
 from teleop.robot.interface import RobotInterface
 from teleop.robot.aimdk_map import ARM_JOINT_NAMES_AIMDK, ARM_LOWER_14, ARM_UPPER_14, HOME
 from teleop.robot.fault_tracer import FaultTracer
+from teleop.robot.deviation_checker import DeviationChecker
 
 HAND_LOWER_12 = np.zeros(12, dtype=np.float64)
 HAND_UPPER_12 = np.array([2.286, 0.78, 1.7, 1.7, 1.7, 1.7, 2.286, 0.78, 1.7, 1.7, 1.7, 1.7], dtype=np.float64)
@@ -31,18 +32,14 @@ class SafetyLayer:
         self.watchdog_timeout_s = float(watchdog_timeout_s)
         self.deviation_thresh_rad = float(deviation_thresh_rad)
         self.deviation_timeout_s = float(deviation_timeout_s)
+        self.dev_checker = DeviationChecker(deviation_thresh_rad, deviation_timeout_s)
+        self._load_tau_config()
 
-        self.is_connected = False
-        self.estop_active = False
-        self.hold_active = False
-        self.fault_latched = False
+        self.is_connected, self.estop_active, self.hold_active, self.fault_latched = False, False, False, False
         self.fault_reason = ""
         self.fault_tracer = FaultTracer()
         self.context = {"input_mode": "mouse", "collision_gate": False}
-
-        self._last_cmd_t = None
-        self._last_cmd_q14 = None
-        self._last_cmd_h12 = None
+        self._last_cmd_t, self._last_cmd_q14, self._last_cmd_h12 = None, None, None
         self._last_cmd_vel = np.zeros(14, dtype=np.float64)
         self._deviation_start_t = None
 
@@ -56,47 +53,59 @@ class SafetyLayer:
             "first_command_ramps": 0,
         }
 
+    @property
+    def gate_mode(self): return self.dev_checker.gate_mode
+    @gate_mode.setter
+    def gate_mode(self, val): self.dev_checker.gate_mode = val
+    @property
+    def q_model(self): return self.dev_checker.q_model
+    @q_model.setter
+    def q_model(self, val): self.dev_checker.q_model = val
+    @property
+    def tau_id(self): return self.dev_checker.tau_id
+    @tau_id.setter
+    def tau_id(self, val): self.dev_checker.tau_id = val
+
+    def _load_tau_config(self) -> None:
+        cfg_p = Path(__file__).resolve().parent.parent.parent / "config" / "tau_id.json"
+        if cfg_p.exists():
+            try:
+                import json
+                with open(cfg_p, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                    self.tau_id = d.get("tau_arm") or d.get("tau_max")
+            except Exception: pass
+
     def _resync_state(self) -> None:
         q_act, h_act, _ = self.backend.read_state()
         self._last_cmd_q14, self._last_cmd_h12 = q_act.copy(), h_act.copy()
         self._last_cmd_vel = np.zeros(14, dtype=np.float64)
+        self.dev_checker.reset_model(q_act)
         self._last_cmd_t = time.time()
 
     def connect(self) -> None:
-        self.backend.connect()
-        self.is_connected, self.estop_active, self.hold_active = True, False, False
-        self._resync_state()
+        self.backend.connect(); self.is_connected, self.estop_active, self.hold_active = True, False, False; self._resync_state()
 
     def disconnect(self) -> None:
-        self.backend.disconnect()
-        self.is_connected = False
+        self.backend.disconnect(); self.is_connected = False
 
     def estop(self) -> None:
-        self.estop_active = True
-        self.backend.estop()
+        self.estop_active = True; self.backend.estop()
 
     def clear_estop(self) -> None:
-        self.estop_active = False
-        self._resync_state()
+        self.estop_active = False; self._resync_state()
 
     def hold(self) -> None:
-        self.hold_active = True
-        self.backend.hold()
+        self.hold_active = True; self.backend.hold()
 
     def clear_hold(self) -> None:
-        self.hold_active = False
-        self._resync_state()
+        self.hold_active = False; self._resync_state()
 
     def clear_fault(self, confirm: bool = False) -> bool:
-        """Requires explicit operator confirmation to clear a latched hardware fault."""
-        if not confirm:
-            return False
-        self.fault_latched = False
-        self.fault_reason = ""
-        self._deviation_start_t = None
+        if not confirm: return False
+        self.fault_latched, self.fault_reason, self._deviation_start_t = False, "", None
         self.clear_hold()
-        if hasattr(self.backend, "clear_fault"):
-            self.backend.clear_fault(confirm=True)
+        if hasattr(self.backend, "clear_fault"): self.backend.clear_fault(confirm=True)
         return True
 
     def read_state(self) -> tuple[np.ndarray, np.ndarray, float]:
@@ -189,32 +198,22 @@ class SafetyLayer:
 
         # 5. Deviation gate check (sim vs real / read-back)
         is_real = getattr(self.backend, "__class__", type(self.backend)).__name__ in ("Ros2Backend", "RealBackend", "UdpBackend")
-        eff_thresh = np.full(14, self.deviation_thresh_rad) if is_real else np.clip(
-            self.deviation_thresh_rad + 0.05 * np.abs(self._last_cmd_vel), 0.05, 0.10
-        )
         q_act, _, meta = self.backend.read_state()
         age_s = meta.get("age_s", 0.0) if isinstance(meta, dict) else (float(meta) if isinstance(meta, (int, float)) else 0.0)
-        cmd_cmp = self._last_cmd_q14 if is_real else q
-        err = np.abs(cmd_cmp - q_act)
-        tripped_idx = np.where(err > eff_thresh)[0]
-        if len(tripped_idx) > 0:
-            if self._deviation_start_t is None:
-                self._deviation_start_t = t_now
-            elif (t_now - self._deviation_start_t) > self.deviation_timeout_s:
-                self.stats["deviation_trips"] += 1
-                self.fault_latched = True
-                j = int(np.argmax(err))
-                self.fault_reason, ev = self.fault_tracer.format_trip(
-                    j, float(err[j]), float(eff_thresh[j]), target_q, q_act,
-                    ARM_LOWER_14, ARM_UPPER_14, active_clamps[j],
-                    self.backend.__class__.__name__, self.context, t_now,
-                    sent_q=self._last_cmd_q14, raw_q=q, age_s=age_s, check_name="hard_deviation_gate"
-                )
-                self.fault_tracer.record_trip(ev)
-                self.hold()
-                return False
-        else:
-            self._deviation_start_t = None
+        
+        trip, j, err_val, thresh_val, chk_name, mod_q, res_v = self.dev_checker.check(
+            self._last_cmd_q14, q if not is_real else target_q, q_act, is_real, dt_eff, t_now, self._last_cmd_vel
+        )
+        if trip:
+            self.stats["deviation_trips"] += 1
+            self.fault_latched = True
+            self.fault_reason, ev = self.fault_tracer.format_trip(
+                j, err_val, thresh_val, target_q, q_act, ARM_LOWER_14, ARM_UPPER_14,
+                active_clamps[j], self.backend.__class__.__name__, self.context, t_now,
+                sent_q=self._last_cmd_q14, raw_q=q, age_s=age_s, check_name=chk_name,
+                model_q=mod_q, res_v=res_v
+            )
+            self.fault_tracer.record_trip(ev); self.hold(); return False
 
         lim_pairs = [(float(ARM_LOWER_14[i]), float(ARM_UPPER_14[i])) for i in range(14)]
         self.fault_tracer.sample(

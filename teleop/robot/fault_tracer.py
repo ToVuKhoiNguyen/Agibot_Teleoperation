@@ -67,7 +67,8 @@ class FaultTracer:
     def format_trip(
         self, j: int, err: float, thresh: float, target_q, q_act, lower, upper,
         clamp: str, backend: str, ctx: dict, t_now: float,
-        sent_q=None, raw_q=None, age_s: float = 0.0, check_name: str = "hard_deviation_gate"
+        sent_q=None, raw_q=None, age_s: float = 0.0, check_name: str = "hard_deviation_gate",
+        model_q=None, res_v=None
     ):
         j_name = ARM_JOINT_NAMES_AIMDK[j] if j < len(ARM_JOINT_NAMES_AIMDK) else f"joint_{j}"
         low_lim, high_lim = float(lower[j]), float(upper[j])
@@ -75,12 +76,14 @@ class FaultTracer:
         sent_v = float(sent_q[j]) if sent_q is not None and j < len(sent_q) else cmd_v
         raw_v = float(raw_q[j]) if raw_q is not None and j < len(raw_q) else cmd_v
         age_ms = float(age_s * 1000.0) if age_s is not None else 0.0
-        hint = "joint at physical limit" if (act_v <= low_lim + 0.02 or act_v >= high_lim - 0.02) else (
-            "sudden target step" if err > 0.15 else "motor lag / obstruction"
-        )
+        extra_info = ""
+        if model_q is not None and j < len(model_q):
+            mod_v = float(model_q[j])
+            rv = float(res_v[j]) if res_v is not None and j < len(res_v) else abs(act_v - mod_v)
+            extra_info = f", model: {mod_v:+.3f}, residual: {rv:.3f}"
         reason = (
             f"Position deviation >{thresh:.2f} rad (>200ms) on joint {j} (0-based: {j_name}) "
-            f"[sent: {sent_v:+.3f}, plan: {cmd_v:+.3f}, target: {raw_v:+.3f}, act: {act_v:+.3f}, age: {age_ms:.1f}ms] "
+            f"[sent: {sent_v:+.3f}, plan: {cmd_v:+.3f}, target: {raw_v:+.3f}, act: {act_v:+.3f}{extra_info}, age: {age_ms:.1f}ms] "
             f"(check: {check_name})"
         )
         event = {
