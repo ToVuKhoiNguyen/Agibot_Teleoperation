@@ -18,7 +18,7 @@ ARM_NAMES_LONG = [f"idx{i}_{'left' if i<20 else 'right'}_arm_joint{i-12 if i<20 
 LIMS_MIN = [-2.91, -0.46, -2.91, -2.00, -2.94, -0.30, -0.20, -2.91, -1.5359, -2.91, 0.10, -2.94, -0.30, -0.20]
 LIMS_MAX = [ 2.91,  1.5359, 2.91, -0.10,  2.94,  0.30,  0.20,  2.91,  0.46,   2.91, 2.00,  2.94,  0.30,  0.20]
 HOME = [0.0, 1.2, 0.0, -0.5, 1.5, 0.0, 0.0, 0.0, -1.2, 0.0, 0.5, 1.5, 0.0, 0.0]
-PROFILES = {"slow": (0.2, 0.004), "normal": (0.3, 0.006), "fast": (0.5, 0.010)}
+PROFILES = {"slow": (0.2, 0.004), "normal": (0.3, 0.006), "fast": (0.48, 0.010)}
 PROTO_VER = 2
 
 def rpc_set_action(action_name, host="192.168.100.100", port=56322):
@@ -32,7 +32,7 @@ def rpc_set_action(action_name, host="192.168.100.100", port=56322):
 
 class ArmTeleopRx(Node):
     def __init__(self, mode_live=False, allow_ip="127.0.0.1", port=5005, tx_state_port=5006,
-                 speed_profile="normal", max_step_rad=None, deadband_rad=0.003, max_acc=1.40,
+                 speed_profile="normal", max_step_rad=None, deadband_rad=0.003, max_acc=0.95,
                  omega=12.0, accept_higher_speed=False):
         super().__init__("arm_teleop_rx")
         self.is_live, self.allow_ip, self.tx_state_port = mode_live, allow_ip, tx_state_port
@@ -41,7 +41,7 @@ class ArmTeleopRx(Node):
         base_vel, _ = PROFILES[self.profile]
         
         cand_vel = (max_step_rad / 0.02) if max_step_rad is not None else base_vel
-        self.max_vel = min(1.0 if accept_higher_speed else 0.5, cand_vel)
+        self.max_vel = min(1.0 if accept_higher_speed else 0.48, cand_vel)
         self.max_step_rad = self.max_vel * 0.02
         
         self.curr_cmd_q = list(HOME)

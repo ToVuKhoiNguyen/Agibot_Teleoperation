@@ -55,10 +55,9 @@ class UdpBackend(RobotInterface):
             print(f"[UdpBackend] Failed to open real log: {e}")
 
         self._connected = True
+        self._last_tx_mono = time.monotonic()
         self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self.rx_thread.start()
-        self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
-        self.tx_thread.start()
         print(f"[UdpBackend] Connected 50Hz. TX -> {self.host}:{self.tx_port} | session={self.session_id}")
 
     def disconnect(self) -> None:
@@ -100,38 +99,34 @@ class UdpBackend(RobotInterface):
                         except Exception: pass
             except (socket.timeout, Exception): pass
 
-    def _tx_loop(self) -> None:
-        next_tick = time.monotonic()
-        last_t = next_tick
-        while self._connected and self.tx_sock:
-            now = time.monotonic()
-            dt = min(0.040, max(0.010, now - last_t))
-            last_t = now
+    def send_arm(self, q14: np.ndarray) -> None:
+        if not self._connected or self.tx_sock is None: return
+        now = time.monotonic()
+        dt = min(0.040, max(0.010, now - self._last_tx_mono))
+        self._last_tx_mono = now
+        
+        target_q = np.array(q14, dtype=np.float64)
+        with self._tx_lock:
+            if self._curr_tx_q is None:
+                self._curr_tx_q = target_q.copy()
+                self._curr_tx_v = np.zeros(14)
+            omega = 120.0
+            decay = math.exp(-omega * dt)
+            a11 = decay * (1.0 + omega * dt)
+            a12 = decay * dt
+            a21 = -decay * (omega * omega * dt)
+            a22 = decay * (1.0 - omega * dt)
+            q_new = a11 * self._curr_tx_q + a12 * self._curr_tx_v + (1.0 - a11) * target_q
+            v_new = a21 * self._curr_tx_q + a22 * self._curr_tx_v - a21 * target_q
+            acc = (v_new - self._curr_tx_v) / dt
+            max_a = float(np.max(np.abs(acc)))
+            if max_a > 1.5:
+                acc = acc * (1.5 / max_a)
+            self._curr_tx_v = np.clip(self._curr_tx_v + acc * dt, -0.5, 0.5)
+            self._curr_tx_q = self._curr_tx_q + self._curr_tx_v * dt
+            tx_to_send = self._curr_tx_q.copy()
             
-            with self._tx_lock:
-                if self._target_tx_q is not None:
-                    if self._curr_tx_q is None:
-                        self._curr_tx_q = self._target_tx_q.copy()
-                    err = self._target_tx_q - self._curr_tx_q
-                    D = float(np.max(np.abs(err)))
-                    if D > 0.0001:
-                        v_stop = -0.5 * 1.5 * dt + math.sqrt(max(0.0, (0.5 * 1.5 * dt)**2 + 2.0 * 1.5 * D))
-                        V = min(0.50, v_stop, D / dt)
-                        v_req = err * (V / D)
-                    else:
-                        v_req = np.zeros(14)
-                    dv = v_req - self._curr_tx_v
-                    max_dv = float(np.max(np.abs(dv)))
-                    if max_dv > 1.5 * dt:
-                        dv = dv * ((1.5 * dt) / max_dv)
-                    self._curr_tx_v += dv
-                    self._curr_tx_q += self._curr_tx_v * dt
-                    self._send_packet_now(self._curr_tx_q)
-                    
-            next_tick += 0.02
-            sleep_t = next_tick - time.monotonic()
-            if sleep_t > 0: time.sleep(sleep_t)
-            else: next_tick = time.monotonic()
+        self._send_packet_now(tx_to_send)
 
     def _send_packet_now(self, q14: np.ndarray) -> None:
         if not self._connected or self.tx_sock is None: return

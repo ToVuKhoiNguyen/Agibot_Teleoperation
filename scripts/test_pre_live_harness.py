@@ -36,10 +36,12 @@ class MockMC(Node):
         self.state_pub.publish(msg)
 
     def _on_cmd(self, msg: JointState):
-        t = time.monotonic()
+        stamp_t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        t = stamp_t if stamp_t > 0.0 else time.monotonic()
         q = np.array(msg.position, dtype=np.float64)
+        v = np.array(msg.velocity, dtype=np.float64) if msg.velocity else np.zeros(14)
         tid = threading.get_ident()
-        self.published_records.append((t, q, tid))
+        self.published_records.append((t, q, tid, v))
         self.cur_q = list(q)
 
 def send_pkt(sock, target_q, seq=1, token="audit_token_secret", session_id="test_sess", proto_ver=2, build_id="audited"):
@@ -184,14 +186,16 @@ def run_adversarial_test():
     nominal_accels = []
     for i in range(len(deltas) - 1):
         dt_i = max(1e-4, dts[i])
+        dt_next = max(1e-4, dts[i+1])
+        dt_mid = 0.5 * (dt_i + dt_next)
         v1 = deltas[i] / dt_i
-        v2 = deltas[i+1] / max(1e-4, dts[i+1])
-        accels.append(np.max(np.abs(v2 - v1)) / dt_i)
+        v2 = deltas[i+1] / dt_next
+        a_arr = float(np.max(np.abs(v2 - v1)) / dt_mid)
+        accels.append(a_arr)
         
         # Nominal discrete-time acceleration at 50 Hz (0.02s per step)
-        nom_a = np.max(np.abs(deltas[i+1] - deltas[i])) / (0.02 * 0.02)
+        nom_a = float(np.max(np.abs(deltas[i+1] - deltas[i])) / (0.02 * 0.02))
         nominal_accels.append(nom_a)
-
 
 
         

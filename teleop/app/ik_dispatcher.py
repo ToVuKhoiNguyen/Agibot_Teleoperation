@@ -35,11 +35,14 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
         )
         app.last_ik_residual_l = float(pos_err_l)
         last_ee_l = getattr(app, "_last_ee_target_l", None)
+        last_rot_l = getattr(app, "_last_ee_rot_l", None)
         ee_move_l = float(np.linalg.norm(slid_pos_l - last_ee_l)) if last_ee_l is not None else 1.0
-        if float(np.max(np.abs(q_sol_l - warm_q_l))) > 0.10 and ee_move_l < 0.005:
+        rot_move_l = float(np.linalg.norm(follow_rot_l - last_rot_l)) if last_rot_l is not None else 1.0
+        if float(np.max(np.abs(q_sol_l - warm_q_l))) > 0.10 and ee_move_l < 0.005 and rot_move_l < 0.05:
             q_sol_l = warm_q_l.copy()
         else:
             app._last_ee_target_l = np.array(slid_pos_l).copy()
+            app._last_ee_rot_l = np.array(follow_rot_l).copy()
         app.last_ik_sol_left = q_sol_l.copy()
         cand_left = q_sol_l if is_hands else app.output_filter_left_gizmo.filter(q_sol_l)
     else:
@@ -65,11 +68,14 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
         )
         app.last_ik_residual_r = float(pos_err_r)
         last_ee_r = getattr(app, "_last_ee_target_r", None)
+        last_rot_r = getattr(app, "_last_ee_rot_r", None)
         ee_move_r = float(np.linalg.norm(slid_pos_r - last_ee_r)) if last_ee_r is not None else 1.0
-        if float(np.max(np.abs(q_sol_r - warm_q_r))) > 0.10 and ee_move_r < 0.005:
+        rot_move_r = float(np.linalg.norm(follow_rot_r - last_rot_r)) if last_rot_r is not None else 1.0
+        if float(np.max(np.abs(q_sol_r - warm_q_r))) > 0.10 and ee_move_r < 0.005 and rot_move_r < 0.05:
             q_sol_r = warm_q_r.copy()
         else:
             app._last_ee_target_r = np.array(slid_pos_r).copy()
+            app._last_ee_rot_r = np.array(follow_rot_r).copy()
         app.last_ik_sol_right = q_sol_r.copy()
         cand_right = q_sol_r if is_hands else app.output_filter_right_gizmo.filter(q_sol_r)
     else:
