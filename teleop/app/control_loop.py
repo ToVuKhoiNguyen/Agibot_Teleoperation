@@ -37,14 +37,16 @@ def run_control_loop(app):
         target_step_dt = dt / app.speed_scale
         next_step_time = time.perf_counter()
 
+        last_exc_logged = None
         while app.running:
-            # Process Web Panel commands
-            cmd = app.server.get_command()
-            while cmd is not None:
-                app._handle_panel_command(cmd)
+            try:
+                # Process Web Panel commands
                 cmd = app.server.get_command()
+                while cmd is not None:
+                    app._handle_panel_command(cmd)
+                    cmd = app.server.get_command()
 
-            # Quest 3S Watchdog: if no packet for timeout, release clutches
+                # Quest 3S Watchdog: if no packet for timeout, release clutches
             now_t = time.time()
             if app.xr_input_active and (now_t - app.xr_last_packet_time) > app.xr_timeout:
                 if app.xr_clutch_state_l != "LOCKED" or app.xr_clutch_state_r != "LOCKED" or app.xr_grip_active_l or app.xr_grip_active_r:
@@ -201,6 +203,14 @@ def run_control_loop(app):
                     app.status_warning = ""
                 if hasattr(app, "target_tracer") and app.target_tracer:
                     app.target_tracer.tick(app)
+
+            except Exception as e:
+                msg = str(e)
+                if msg != last_exc_logged:
+                    last_exc_logged = msg
+                    print(f"[CONTROL_LOOP ERROR] {type(e).__name__}: {msg}")
+                if hasattr(app, "mirror_limiter") and hasattr(app, "real_q14_measured") and app.real_q14_measured is not None:
+                    app.mirror_limiter.reset(app.real_q14_measured)
 
             step += 1
             next_step_time += target_step_dt
