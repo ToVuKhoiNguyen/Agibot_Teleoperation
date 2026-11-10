@@ -50,7 +50,15 @@ def slerp_quaternion(rot_start: np.ndarray, rot_target: np.ndarray, alpha: float
 
 def start_smooth_homing(app, side: str = "both", duration: float = None):
     """Initiates smooth min-jerk trajectory transition to the home keyframe."""
-    dur = duration if duration is not None else app.home_duration
+    if duration is not None:
+        dur = duration
+    else:
+        # Scale duration by largest joint delta to HOME
+        q_curr = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
+        from teleop.robot.aimdk_map import HOME
+        max_delta = float(np.max(np.abs(q_curr - np.array(HOME))))
+        v_eff = getattr(getattr(app, "mirror_limiter", None), "max_vel", 0.3)
+        dur = max(1.0, max_delta / max(0.1, v_eff * 0.8))
     app.homing_duration_current = max(0.5, float(dur))
     app.homing_elapsed = 0.0
     app.homing_side = side

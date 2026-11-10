@@ -44,7 +44,7 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
             app._last_ee_target_l = np.array(slid_pos_l).copy()
             app._last_ee_rot_l = np.array(follow_rot_l).copy()
         app.last_ik_sol_left = q_sol_l.copy()
-        cand_left = q_sol_l if is_hands else app.output_filter_left_gizmo.filter(q_sol_l)
+        cand_left = q_sol_l.copy()
     else:
         cand_left = app.last_arm_cmd_left.copy()
 
@@ -77,7 +77,7 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
             app._last_ee_target_r = np.array(slid_pos_r).copy()
             app._last_ee_rot_r = np.array(follow_rot_r).copy()
         app.last_ik_sol_right = q_sol_r.copy()
-        cand_right = q_sol_r if is_hands else app.output_filter_right_gizmo.filter(q_sol_r)
+        cand_right = q_sol_r.copy()
     else:
         cand_right = app.last_arm_cmd_right.copy()
 

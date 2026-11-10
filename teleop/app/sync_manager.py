@@ -84,10 +84,21 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         app.last_arm_cmd_right = q_plan[7:].copy()
         app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
 
+        # Bounded velocity feedforward: lead = min(v_plan * tau, 0.05 rad), uniform across joints
+        tau_ff = getattr(app.mirror_limiter, "tau_val", 0.138) or 0.138
+        v_plan = getattr(app.mirror_limiter, "v_plan", np.zeros(14))
+        raw_ff = v_plan * tau_ff
+        max_ff = float(np.max(np.abs(raw_ff)))
+        if max_ff > 0.05 and max_ff > 1e-6:
+            ff_lead = raw_ff * (0.05 / max_ff)
+        else:
+            ff_lead = raw_ff
+        q_send = np.clip(q_plan + ff_lead, app.mirror_limiter.lim_min, app.mirror_limiter.lim_max)
+
         h12 = np.concatenate([app.last_hand_cmd_left, app.last_hand_cmd_right])
         app.robot_safety.context["input_mode"] = getattr(app, "input_mode", "mouse")
         app.robot_safety.context["collision_gate"] = bool(getattr(app, "collision_blocked", False))
-        ok = app.robot_safety.send_arm(q_plan, dt=dt)
+        ok = app.robot_safety.send_arm(q_send, dt=dt)
         app.robot_safety.send_hand(h12)
     elif getattr(app, "real_follower_mode", False):
         # Sim mode with real follower enabled (--sim-follower real): self-tracking via sim qpos
