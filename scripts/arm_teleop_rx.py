@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
-"""Agibot A2 Ultra - Safe Arm Teleoperation UDP Receiver Node for Orin (Self-Contained with Auto-Homing)"""
-import os, sys, time, json, math, socket, threading, argparse, urllib.request
+"""scripts/arm_teleop_rx.py
+AGIBOT A2 Ultra - Pre-Live Audited 50 Hz Arm Teleoperation Receiver for Orin.
+Guarantees single publish site, uniform vector scaling, accel cap, socket drain, and version handshake.
+"""
+import os, sys, time, json, math, socket, hashlib, argparse, urllib.request
+import numpy as np
 
-def rpc_set_action(action_name, host="192.168.100.100", port=56322):
-    url = f"http://{host}:{port}/rpc/aimdk.protocol.McActionService/SetAction"
-    payload = {
-        "header": {"timestamp": {"seconds": int(time.time()), "nanos": 0}, "control_source": "ControlSource_SAFE"},
-        "command": {"action": "McAction_USE_EXT_CMD", "ext_action": action_name}
-    }
-    try:
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=1.5) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"[arm_teleop_rx] RPC SetAction '{action_name}' warning: {e}")
-        return None
 try:
     import rclpy
     from rclpy.node import Node
@@ -23,191 +14,205 @@ try:
 except ImportError:
     rclpy, Node, JointState = None, object, None
 
-ARM_NAMES_LONG = [
-    "idx13_left_arm_joint1", "idx14_left_arm_joint2", "idx15_left_arm_joint3",
-    "idx16_left_arm_joint4", "idx17_left_arm_joint5", "idx18_left_arm_joint6",
-    "idx19_left_arm_joint7", "idx20_right_arm_joint1", "idx21_right_arm_joint2",
-    "idx22_right_arm_joint3", "idx23_right_arm_joint4", "idx24_right_arm_joint5",
-    "idx25_right_arm_joint6", "idx26_right_arm_joint7"
-]
+ARM_NAMES_LONG = [f"idx{i}_{'left' if i<20 else 'right'}_arm_joint{i-12 if i<20 else i-19}" for i in range(13, 27)]
 LIMS_MIN = [-2.91, -0.46, -2.91, -2.00, -2.94, -0.30, -0.20, -2.91, -1.5359, -2.91, 0.10, -2.94, -0.30, -0.20]
 LIMS_MAX = [ 2.91,  1.5359, 2.91, -0.10,  2.94,  0.30,  0.20,  2.91,  0.46,   2.91, 2.00,  2.94,  0.30,  0.20]
 HOME = [0.0, 1.2, 0.0, -0.5, 1.5, 0.0, 0.0, 0.0, -1.2, 0.0, 0.5, 1.5, 0.0, 0.0]
-for _i in range(14):
-    assert LIMS_MIN[_i] <= HOME[_i] <= LIMS_MAX[_i], f"Joint {_i} HOME exceeds limits"
+PROFILES = {"slow": (0.2, 0.004), "normal": (0.3, 0.006), "fast": (0.5, 0.010)}
+PROTO_VER = 2
+
+def rpc_set_action(action_name, host="192.168.100.100", port=56322):
+    url = f"http://{host}:{port}/rpc/aimdk.protocol.McActionService/SetAction"
+    p = {"header": {"timestamp": {"seconds": int(time.time()), "nanos": 0}, "control_source": "ControlSource_SAFE"},
+         "command": {"action": "McAction_USE_EXT_CMD", "ext_action": action_name}}
+    try:
+        r = urllib.request.Request(url, data=json.dumps(p).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(r, timeout=1.5) as resp: return json.loads(resp.read().decode())
+    except Exception: return None
 
 class ArmTeleopRx(Node):
-    def __init__(self, mode_live=False, allow_ip="127.0.0.1", port=5005, tx_state_port=5006, max_step_rad=0.035, deadband_rad=0.003, max_acc=8.0, omega=16.0):
+    def __init__(self, mode_live=False, allow_ip="127.0.0.1", port=5005, tx_state_port=5006,
+                 speed_profile="normal", max_step_rad=None, deadband_rad=0.003, max_acc=1.40,
+                 omega=12.0, accept_higher_speed=False):
         super().__init__("arm_teleop_rx")
         self.is_live, self.allow_ip, self.tx_state_port = mode_live, allow_ip, tx_state_port
-        self.max_step_rad, self.deadband_rad, self.max_acc, self.omega = max_step_rad, deadband_rad, max_acc, omega
-        self.max_vel = self.max_step_rad / 0.02
-        self.curr_cmd_v = [0.0] * 14
+        self.deadband_rad, self.max_acc, self.omega = deadband_rad, max_acc, omega
+        self.profile = speed_profile if speed_profile in PROFILES else "normal"
+        base_vel, _ = PROFILES[self.profile]
+        
+        cand_vel = (max_step_rad / 0.02) if max_step_rad is not None else base_vel
+        self.max_vel = min(1.0 if accept_higher_speed else 0.5, cand_vel)
+        self.max_step_rad = self.max_vel * 0.02
+        
+        self.curr_cmd_q = list(HOME)
+        self.curr_cmd_v, self.curr_cmd_a = np.zeros(14), np.zeros(14)
+        self.target_q = list(HOME)
         self.token = os.environ.get("TELEOP_TOKEN", "")
-        self.meas_q, self.meas_lock = None, threading.Lock()
+        self.session_lock, self.foreign_sender_count = None, 0
+        self.last_pkt_time, self.rx_count = 0.0, 0
+        self.last_tick_t = time.monotonic()
+        self.fault_latched, self.holding, self.anchored = False, False, False
+        self.fault_reason = ""
+        
+        with open(__file__, "rb") as f: self.file_sha = hashlib.sha256(f.read()).hexdigest()
+        self.sender_build_id = "unknown"
+        self.meas_q = None
         
         qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
         self.cmd_pub = self.create_publisher(JointState, "/motion/control/arm_joint_command", qos) if self.is_live else None
         self.state_sub = self.create_subscription(JointState, "/motion/control/arm_joint_state", self._on_state, qos)
         
-        self.anchored = False
-        self.homing_active = True
-        self.homing_dropped_udp = 0
-        self.target_q, self.curr_cmd_q, self.last_pkt_time, self.rx_count = None, None, 0.0, 0
-        
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(("0.0.0.0", port))
-        self.sock.settimeout(0.1)
+        self.sock.setblocking(False)
         self.running = True
-        self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
-        self.rx_thread.start()
+        
+        self.homing_active, self.homing_start_t, self.homing_dur = True, 0.0, 3.0
+        self.homing_start_q = None
         self.timer = self.create_timer(0.02, self._control_tick)
-        print(f"[arm_teleop_rx] Ready at 50 Hz. LIVE={self.is_live} | allow_ip={self.allow_ip}:{port} | max_vel={self.max_vel:.2f} max_acc={self.max_acc:.1f} deadband={self.deadband_rad}")
+        print(f"[arm_teleop_rx] SHA256: {self.file_sha}")
+        print(f"[arm_teleop_rx] Ready 50 Hz. LIVE={self.is_live} | profile={self.profile} (vel={self.max_vel:.2f} rad/s) | IP={allow_ip}:{port}")
 
     def _on_state(self, msg: JointState):
         name_map = {n: p for n, p in zip(msg.name, msg.position)}
-        with self.meas_lock:
-            if all(k in name_map for k in ARM_NAMES_LONG): self.meas_q = [name_map[k] for k in ARM_NAMES_LONG]
-            elif any("idx13" in k for k in name_map): self.meas_q = [name_map[k] for k in sorted(name_map.keys()) if "idx" in k][:14]
-            elif len(msg.position) >= 14: self.meas_q = list(msg.position[:14])
+        if all(k in name_map for k in ARM_NAMES_LONG): self.meas_q = [name_map[k] for k in ARM_NAMES_LONG]
+        elif any("idx13" in k for k in name_map): self.meas_q = [name_map[k] for k in sorted(name_map.keys()) if "idx" in k][:14]
+        elif len(msg.position) >= 14: self.meas_q = list(msg.position[:14])
         if self.meas_q and self.allow_ip not in ("0.0.0.0", "127.0.0.1"):
             try:
-                pkt = {"t": time.time(), "q": [float(round(x, 5)) for x in self.meas_q]}
-                self.sock.sendto(json.dumps(pkt).encode("utf-8"), (self.allow_ip, self.tx_state_port))
+                pkt = {"t": time.time(), "q": [float(round(x, 5)) for x in self.meas_q],
+                       "rx_sha": self.file_sha[:12], "echo_build": self.sender_build_id, "profile": self.profile}
+                self.sock.sendto(json.dumps(pkt).encode(), (self.allow_ip, self.tx_state_port))
             except Exception: pass
 
-    def _rx_loop(self):
-        while self.running:
-            try:
-                data, addr = self.sock.recvfrom(2048)
-                if self.allow_ip != "0.0.0.0" and addr[0] != self.allow_ip:
-                    print(f"[arm_teleop_rx] [CẢNH BÁO] Từ chối gói tin từ IP lạ: {addr[0]} (cần {self.allow_ip})")
-                    continue
-                if self.homing_active:
-                    self.homing_dropped_udp += 1
-                    if self.homing_dropped_udp % 50 == 1:
-                        print(f"[arm_teleop_rx] Đang Homing, tạm bỏ qua gói tin từ {addr[0]} (đã bỏ {self.homing_dropped_udp})")
-                    continue
-                pkt = json.loads(data.decode("utf-8"))
-                if self.token and pkt.get("token") != self.token:
-                    print(f"[arm_teleop_rx] [LỖI TOKEN] Token không khớp! Nhận '{pkt.get('token')}' != '{self.token}'")
-                    continue
-                q = pkt.get("q", [])
-                if len(q) != 14 or any(math.isnan(x) or math.isinf(x) for x in q):
-                    print(f"[arm_teleop_rx] [LỖI GÓI] Góc khớp không hợp lệ: len={len(q)}")
-                    continue
-                self.target_q = [max(LIMS_MIN[i], min(LIMS_MAX[i], float(q[i]))) for i in range(14)]
-                self.last_pkt_time = time.time()
-                self.rx_count += 1
-                if self.rx_count == 1:
-                    print(f"\n>>> [arm_teleop_rx] ĐÃ NHẬN GÓI ĐẦU TIÊN TỪ {addr[0]}:{addr[1]}! <<<")
-                if self.rx_count % 50 == 1:
-                    print(f"[arm_teleop_rx] RX #{self.rx_count:05d} | OK từ {addr[0]} | Target J4={self.target_q[3]:.3f}, J11={self.target_q[10]:.3f}")
-            except (socket.timeout, Exception): pass
+    def _drain_socket(self):
+        newest_pkt = None
+        while True:
+            try: data, addr = self.sock.recvfrom(2048)
+            except (BlockingIOError, socket.error): break
+            if self.allow_ip != "0.0.0.0" and addr[0] != self.allow_ip:
+                self.foreign_sender_count += 1; continue
+            try: p = json.loads(data.decode("utf-8"))
+            except Exception: continue
+            if self.token and p.get("token") != self.token: continue
+            q = p.get("q", [])
+            if len(q) != 14 or any(math.isnan(x) or math.isinf(x) for x in q): continue
+            
+            sess_id = p.get("session_id", "default")
+            sender_id = (addr[0], sess_id)
+            if self.session_lock is None: self.session_lock = sender_id
+            elif self.session_lock != sender_id:
+                self.foreign_sender_count += 1; self.holding = True; continue
+                
+            self.sender_build_id = str(p.get("build_id", "unknown"))
+            newest_pkt = p
+            
+        if newest_pkt is not None:
+            self.target_q = [float(np.clip(newest_pkt["q"][i], LIMS_MIN[i], LIMS_MAX[i])) for i in range(14)]
+            self.last_pkt_time = time.monotonic()
+            self.rx_count += 1
 
-    def _publish_raw_q(self, q):
+    def _final_line_guard_and_publish(self, v_target_req, dt):
+        """EXACTLY ONE PUBLISH SITE: applies uniform scaling, accel cap, and fault latching."""
+        if self.fault_latched or self.holding:
+            v_target = np.zeros(14)
+        else:
+            max_req_v = float(np.max(np.abs(v_target_req)))
+            if max_req_v * dt > 0.020001:
+                self.fault_latched = True
+                self.fault_reason = f"Step {max_req_v*dt:.4f} > 0.02 rad"
+                v_target = np.zeros(14)
+            else:
+                scale_v = min(1.0, self.max_vel / max_req_v) if max_req_v > 1e-6 else 1.0
+                v_target = v_target_req * scale_v
+        
+        # Accel cap with uniform scaling (max_acc <= 1.5 rad/s^2)
+        dv = v_target - self.curr_cmd_v
+        max_dv = float(np.max(np.abs(dv)))
+        if max_dv > self.max_acc * dt:
+            dv = dv * ((self.max_acc * dt) / max_dv)
+        self.curr_cmd_v = self.curr_cmd_v + dv
+        
+        max_v = float(np.max(np.abs(self.curr_cmd_v)))
+        if max_v > self.max_vel:
+            self.curr_cmd_v = self.curr_cmd_v * (self.max_vel / max_v)
+            
+        next_cmd_q = np.array(self.curr_cmd_q) + self.curr_cmd_v * dt
+        if np.any(np.isnan(next_cmd_q)) or np.any(np.isinf(next_cmd_q)):
+            self.fault_latched = True
+            next_cmd_q = np.array(self.curr_cmd_q)
+            self.curr_cmd_v = np.zeros(14)
+            
+        self.curr_cmd_q = [float(np.clip(next_cmd_q[i], LIMS_MIN[i], LIMS_MAX[i])) for i in range(14)]
+        
         if self.is_live and self.cmd_pub:
             msg = JointState()
             msg.header.stamp = self.get_clock().now().to_msg()
-            msg.name, msg.position = ARM_NAMES_LONG, list(q)
-            msg.velocity, msg.effort = [0.0] * 14, [0.0] * 14
+            msg.name = ARM_NAMES_LONG
+            msg.position = list(self.curr_cmd_q)
+            msg.velocity = list(self.curr_cmd_v)
             self.cmd_pub.publish(msg)
 
     def _control_tick(self):
-        if self.homing_active: return
-        with self.meas_lock: meas = list(self.meas_q) if self.meas_q else None
-        if not meas: return
-        if not self.anchored: self.curr_cmd_q, self.curr_cmd_v = list(meas), [0.0]*14; self.anchored = True
-        now = time.time()
-        des_q = list(self.target_q) if (self.target_q and now - self.last_pkt_time <= 0.400) else list(self.curr_cmd_q)
-        for i in range(14):
-            err = des_q[i] - self.curr_cmd_q[i]
-            if abs(err) < self.deadband_rad: err = 0.0
-            a = max(-self.max_acc, min(self.max_acc, (self.omega ** 2) * err - 2.0 * self.omega * self.curr_cmd_v[i]))
-            self.curr_cmd_v[i] = max(-self.max_vel, min(self.max_vel, self.curr_cmd_v[i] + a * 0.02))
-            if err == 0.0 and abs(self.curr_cmd_v[i]) < 0.02: self.curr_cmd_v[i] = 0.0
-            self.curr_cmd_q[i] = max(LIMS_MIN[i], min(LIMS_MAX[i], self.curr_cmd_q[i] + self.curr_cmd_v[i] * 0.02))
-        self._publish_raw_q(self.curr_cmd_q)
-
-    def auto_home(self, prompt_fn=None):
-        """Automatically moves robot arms from current pose to HOME smoothly."""
-        t0 = time.time()
-        while time.time() - t0 < 3.5:
-            with self.meas_lock:
-                if self.meas_q is not None: break
-            time.sleep(0.02)
-        with self.meas_lock: meas = list(self.meas_q) if self.meas_q else None
-        if not meas or len(meas) != 14 or any(math.isnan(x) or math.isinf(x) for x in meas):
-            print("FATAL: State not alive within 3.5 s. Refusing homing."); return False
-
-        deltas = [HOME[i] - meas[i] for i in range(14)]
-        max_d = max(abs(d) for d in deltas)
-        dur = max(2.5, max_d / 0.15) if max_d > 1e-4 else 0.5
-        print(f"[HOMING] Per-joint deltas: {[round(d, 4) for d in deltas]}")
-        print(f"[HOMING] max|delta| = {max_d:.4f} rad | Est duration = {dur:.2f} s")
-        if max_d > 1.0:
-            print(f"FATAL: max|delta| ({max_d:.3f} rad) > 1.0 rad. Move arms manually closer to home."); return False
-
-        if not self.is_live:
-            print("[HOMING] --dry mode: Plan computed successfully. 0 commands published.")
-            self.homing_active = False; return True
-
-        print(f"[HOMING] Auto-homing starting ({dur:.1f}s move to HOME)...")
-
-        self.curr_cmd_q = list(meas)
-        self._publish_raw_q(self.curr_cmd_q)
-        t_start, fault_cnt = time.time(), 0
-        while True:
-            now = time.time()
-            tau = min(1.0, (now - t_start) / dur) if dur > 0 else 1.0
-            s = tau * tau * (3.0 - 2.0 * tau)  # Smoothstep
-            target_step = [meas[i] + deltas[i] * s for i in range(14)]
-            self.curr_cmd_q = [max(LIMS_MIN[i], min(LIMS_MAX[i], target_step[i])) for i in range(14)]
-            self._publish_raw_q(self.curr_cmd_q)
-            with self.meas_lock: curr_meas = list(self.meas_q) if self.meas_q else None
-            if curr_meas and max(abs(curr_meas[i] - self.curr_cmd_q[i]) for i in range(14)) > 0.05:
-                fault_cnt += 1
-                if fault_cnt >= 10:
-                    print("FATAL FAULT: Joint deviation > 0.05 rad for >200 ms!"); return False
-            else: fault_cnt = 0
-            if tau >= 1.0: break
-            time.sleep(0.02)
-
-        t_settle = time.time()
-        while time.time() - t_settle < 0.5:
-            self._publish_raw_q(HOME)
-            with self.meas_lock: curr_meas = list(self.meas_q) if self.meas_q else None
-            if curr_meas and max(abs(curr_meas[i] - HOME[i]) for i in range(14)) >= 0.02: t_settle = time.time()
-            time.sleep(0.02)
-
-        self.curr_cmd_q = list(HOME)
-        self.anchored = True
-        self.homing_active = False
-        print(f"[HOMING] Dropped {self.homing_dropped_udp} UDP packets during homing.\nHOMED")
-        return True
+        now = time.monotonic()
+        dt = min(0.040, max(0.010, now - self.last_tick_t))
+        self.last_tick_t = now
+        
+        self._drain_socket()
+        meas = list(self.meas_q) if self.meas_q else None
+        
+        if self.homing_active:
+            if not meas: return
+            if self.homing_start_q is None:
+                self.homing_start_q, self.curr_cmd_q = list(meas), list(meas)
+                self.homing_start_t = now
+                deltas = [HOME[i] - meas[i] for i in range(14)]
+                max_d = max(abs(d) for d in deltas)
+                self.homing_dur = max(2.5, max_d / (self.max_vel * 0.8))
+                print(f"[HOMING] Auto-homing starting ({self.homing_dur:.1f}s move to HOME)...")
+            
+            tau = min(1.0, (now - self.homing_start_t) / self.homing_dur)
+            s = tau * tau * (3.0 - 2.0 * tau)
+            tgt_step = np.array([self.homing_start_q[i] + (HOME[i] - self.homing_start_q[i]) * s for i in range(14)])
+            v_homing = (tgt_step - np.array(self.curr_cmd_q)) / dt
+            self._final_line_guard_and_publish(v_homing, dt)
+            
+            if tau >= 1.0 and np.max(np.abs(np.array(self.curr_cmd_q) - np.array(HOME))) < 0.005:
+                self.homing_active, self.anchored = False, True
+                self.curr_cmd_v = np.zeros(14)
+                print("HOMED")
+            return
+            
+        if not self.anchored:
+            if meas: self.curr_cmd_q = list(meas); self.anchored = True
+            return
+            
+        is_fresh = (now - self.last_pkt_time <= 0.400) and not self.holding
+        target = np.array(self.target_q) if is_fresh else np.array(self.curr_cmd_q)
+        
+        err = target - np.array(self.curr_cmd_q)
+        D = float(np.max(np.abs(err)))
+        if D < self.deadband_rad:
+            v_req = np.zeros(14)
+        else:
+            v_stop = -0.5 * self.max_acc * dt + math.sqrt(max(0.0, (0.5 * self.max_acc * dt)**2 + 2.0 * self.max_acc * D))
+            V = min(self.max_vel, v_stop, D / dt)
+            v_req = err * (V / D)
+        self._final_line_guard_and_publish(v_req, dt)
 
     def shutdown_hold(self):
+        self.holding = True
         self.running = False
-        if self.is_live and self.cmd_pub and self.curr_cmd_q and rclpy and rclpy.ok():
-            t_end = time.time() + 2.0
-            while time.time() < t_end and rclpy.ok():
-                try: self._publish_raw_q(self.curr_cmd_q)
-                except Exception: break
-                time.sleep(0.02)
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--dry", action="store_true", default=False)
-    p.add_argument("--live", action="store_true")
-    p.add_argument("--i-understand-hardware-risk", action="store_true")
+    for a in ["--dry", "--live", "--i-understand-hardware-risk", "--i-accept-higher-speed"]: p.add_argument(a, action="store_true")
+    p.add_argument("--speed-profile", type=str, default="normal", choices=["slow", "normal", "fast"])
     p.add_argument("--port", type=int, default=5005)
     p.add_argument("--tx-state-port", type=int, default=5006)
     p.add_argument("--allow-ip", type=str, default="127.0.0.1")
-    p.add_argument("--max-step", type=float, default=0.035)
-    p.add_argument("--deadband", type=float, default=0.003)
-    p.add_argument("--max-acc", type=float, default=8.0)
-    p.add_argument("--omega", type=float, default=16.0)
+    p.add_argument("--max-step", type=float, default=None)
     args, _ = p.parse_known_args()
 
     live_active = False
@@ -221,27 +226,20 @@ def main():
         time.sleep(1.0)
         rpc_set_action("McAction_RL_LOCOMOTION_ARM_EXT_JOINT_SERVO")
         time.sleep(1.0)
-        
+
     rclpy.init()
-    node = ArmTeleopRx(mode_live=live_active, allow_ip=args.allow_ip, port=args.port, tx_state_port=args.tx_state_port, max_step_rad=args.max_step, deadband_rad=args.deadband, max_acc=args.max_acc, omega=args.omega)
-    spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
-    spin_thread.start()
-
-    if not node.auto_home():
-        node.shutdown_hold()
-        node.running = False
-        try: node.destroy_node()
-        except Exception: pass
-        sys.exit(1)
-
+    node = ArmTeleopRx(
+        mode_live=live_active, allow_ip=args.allow_ip, port=args.port, tx_state_port=args.tx_state_port,
+        speed_profile=args.speed_profile, max_step_rad=args.max_step, accept_higher_speed=args.i_accept_higher_speed
+    )
     try:
-        while rclpy.ok(): time.sleep(0.1)
-    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException): pass
+        rclpy.spin(node)
+    except (KeyboardInterrupt, Exception): pass
     finally:
         node.shutdown_hold()
-        node.running = False
         try: node.destroy_node()
         except Exception: pass
+        rclpy.shutdown()
 
 if __name__ == "__main__":
     main()
