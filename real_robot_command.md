@@ -34,14 +34,13 @@ source venv/bin/activate
 export TELEOP_TOKEN="a2_teleop"
 
 # 2. Khởi động Teleop Server phát UDP sang Orin (mặc định headless, tắt hoàn toàn mô phỏng MuJoCo)
-# Chế độ mượt mà như arm.py (khuyên dùng):
-python3 main.py --backend real-udp --controller --real-max-vel 1.0 --i-understand-hardware-risk
+# Chế độ điều khiển tiêu chuẩn (khuyên dùng):
+python3 main.py --backend real-udp --controller --i-understand-hardware-risk
 
-# Hoặc chế độ tốc độ cao:
-# python3 main.py --backend real-udp --controller --real-max-vel 1.8 --i-accept-higher-speed --i-understand-hardware-risk
+# Nếu muốn mở cửa sổ hiển thị đồ họa desktop, thêm cờ --viewer:
+# python3 main.py --backend real-udp --controller --viewer --i-understand-hardware-risk
 ```
-*(Khi chạy `--backend real-udp`, hệ thống tự động tắt hàm mô phỏng vật lý `env.step()`, ngắt nạp lệnh motor ảo MuJoCo và chạy headless để tiết kiệm tối đa CPU laptop. Thêm cờ `--viewer` nếu bạn muốn mở cửa sổ đồ họa desktop)*.
-*(Hệ thống sẽ chạy WebXR server bảo mật tại cổng `8012` và stream UDP mượt mà sang `192.168.2.50:5005`)*.
+*(Khi chạy `--backend real-udp`, hệ thống tự động tắt hàm mô phỏng vật lý `env.step()`, ngắt nạp lệnh motor ảo MuJoCo và chạy headless để tiết kiệm tối đa CPU laptop. Laptop tự động kích hoạt bộ đệm phát 50 Hz monotonic, khóa single-sender `/tmp/a2_teleop.lock` và kiểm tra phiên bản protocol v2)*.
 
 ---
 
@@ -58,10 +57,10 @@ ssh agi@192.168.2.50
 aima em load-env
 bash /agibot/data/home/agi/Desktop/motion_player/disable_motion_player.sh
 
-# 3. Vào thư mục mc và chọn Action 12 (hoặc để script tự gọi RPC)
+# 3. Vào thư mục mc và kiểm tra mã băm SHA256 file receiver
 cd /agibot/data/home/agi/Desktop/mc
-python3 SetAction.py
-# (Chọn: McAction_RL_LOCOMOTION_ARM_EXT_JOINT_SERVO)
+sha256sum arm_teleop_rx.py
+# Kỳ vọng đúng mã: 5dd1cce57d748c1b65b6f16d5aba76231e668b6d66a30264d4d2e7bca331274a
 
 # 4. Nạp cấu hình ROS 2
 source /opt/ros/humble/setup.bash
@@ -69,27 +68,27 @@ export ROS_DOMAIN_ID=232
 export ROS_LOCALHOST_ONLY=0
 export FASTRTPS_DEFAULT_PROFILES_FILE=/agibot/software/v0/entry/bin/cfg/ros_dds_configuration.xml
 
-# 5. Kích hoạt nhận lệnh điều khiển động cơ thật (LIVE)
+# 5. Cài đặt token bảo mật phiên
 export TELEOP_TOKEN="a2_teleop"
 
-# Chế độ mượt mà như arm.py (khuyên dùng - êm ru, lọc sạch rung giật Wi-Fi):
-python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --max-step 0.02 --max-acc 5.0 --omega 12.0
+# (Khuyên dùng) Thử nghiệm dry-run trước khi bật động cơ thật:
+# python3 arm_teleop_rx.py --dry --allow-ip 192.168.2.75 --port 5005
 
-# Hoặc chế độ mặc định (nhanh & nhạy):
-# python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005
+# 6. Kích hoạt nhận lệnh điều khiển động cơ thật (LIVE)
+# Chế độ Tiêu Chuẩn (Profile Normal: 0.3 rad/s - êm ru, đã kiểm định an toàn):
+python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --speed-profile normal
+
+# Hoặc chế độ Rất Chậm để làm quen (Profile Slow: 0.2 rad/s):
+# python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --speed-profile slow
 ```
 
-> **Các tính năng tự động thông minh trong `arm_teleop_rx.py`:**
-> - **Bộ lọc dao động tắt dần bậc 2 (Critically Damped Follower):** $\ddot{q} = \omega^2 (q_{tgt} - q) - 2\omega \dot{q}$ với giới hạn gia tốc khắt khe ($|a| \le 5.0\text{ rad/s}^2$). Lọc phẳng hoàn toàn hiện tượng bậc thang, chuyển động êm ái như `arm.py`.
-> - **Tự động SetAction:** Script tự gửi lệnh RPC nội bộ chuyển Action 10 (`McAction_RL_JOINT_DEFAULT`) $\rightarrow$ Action 12 (`McAction_RL_LOCOMOTION_ARM_EXT_JOINT_SERVO`), bạn không cần chạy thủ công `python3 SetAction.py` nữa!
-> - **Tự động Auto-Homing:** Ngay khi chạy, robot tự đo góc khớp thực tế và lướt êm ái về vị trí HOME trong 2.5–5s (in chữ `HOMED` khi hoàn thành).
-> - **Deadband chống rung tay ($0.003\text{ rad} \approx 0.17^\circ$):** Triệt tiêu hoàn toàn hiện tượng rung lắc/wobble khi tay dừng ở đích.
-
-> **Mẹo tùy chỉnh độ mượt & tốc độ:**
-> - `--max-step 0.02` đến `0.035`: Vận tốc tối đa ($1.0 - 1.75\text{ rad/s} \approx 57^\circ - 100^\circ/\text{s}$).
-> - `--max-acc 5.0` (êm ru) hoặc `8.0` (nhanh hơn).
-> - `--omega 10.0` đến `14.0`: Độ nhạy phản hồi (tương đương $\tau \approx 70-100\text{ ms}$).
-> - `--deadband 0.003`: Ngưỡng lọc vi rung tay.
+> **Các tầng bảo vệ an toàn chuẩn hóa trong `arm_teleop_rx.py`:**
+> - **Cổng bảo vệ cuối (Final-Line Guard):** Đúng 1 vị trí publish lệnh duy nhất trên timer 50 Hz. Co giãn đồng tỉ lệ (uniform vector scaling) bảo toàn 100% hướng di chuyển, gia tốc khống chế $\le 1.05\text{ rad/s}^2$, bước nhảy tối đa $\le 0.010\text{ rad/chu kỳ}$.
+> - **Phanh hãm Parabolic rời rạc:** Tự động tính toán khoảng cách phanh trước khi tiếp cận giới hạn khớp (`LIMS`) hoặc vị trí đích, loại bỏ hoàn toàn hiện tượng va chạm biên gây giật nảy.
+> - **Xả sạch hàng đợi (Socket Backlog Drain):** Mỗi chu kỳ 20 ms xả sạch buffer và chỉ lấy gói tin mới nhất, triệt tiêu hiện tượng dồn ứ tạo vận tốc đột biến.
+> - **Khóa nguồn phát duy nhất (Single Sender Lock):** Khóa chặt phiên phát với IP + SessionID đầu tiên, tự động từ chối và hold an toàn nếu có máy khác cố tình xen lệnh.
+> - **Tự động SetAction:** Tự gửi lệnh RPC nội bộ chuyển Action 10 $\rightarrow$ Action 12 (`McAction_RL_LOCOMOTION_ARM_EXT_JOINT_SERVO`), không cần thao tác `SetAction.py` thủ công.
+> - **Tự động Auto-Homing:** Robot tự đo góc thực tế và di chuyển êm dịu về vị trí HOME trong 2.5–5s (báo chữ `HOMED` khi sẵn sàng nhận teleop).
 
 ---
 

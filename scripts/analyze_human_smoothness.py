@@ -48,3 +48,4 @@ def analyze_log(log_path):
 if __name__ == "__main__":
     p = sys.argv[1] if len(sys.argv) > 1 else "logs/real_20261110_094249.jsonl"
     analyze_log(p)
+

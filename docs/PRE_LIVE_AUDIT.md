@@ -56,3 +56,4 @@
 8. **Người giám sát nút E-Stop không dây**: Một người chuyên trách cầm nút E-stop vật lý.
    *Tiêu chí PASS*: Sẵn sàng ngắt nguồn ngay lập tức khi có hiệu lệnh.
 9. **Quy tắc dừng khẩn cấp**: Lập tức dừng nếu phát hiện bất kỳ va chạm, rung rần hoặc trạng thái chốt FAULT.
+
