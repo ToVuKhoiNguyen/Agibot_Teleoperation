@@ -21,14 +21,15 @@ HOME = [0.0, 1.2, 0.0, -0.5, 1.5, 0.0, 0.0, 0.0, -1.2, 0.0, 0.5, 1.5, 0.0, 0.0]
 PROFILES = {"slow": (0.2, 0.004), "normal": (0.3, 0.006), "fast": (0.48, 0.010)}
 PROTO_VER = 2
 
-def rpc_set_action(action_name, host="192.168.100.100", port=56322):
-    url = f"http://{host}:{port}/rpc/aimdk.protocol.McActionService/SetAction"
-    p = {"header": {"timestamp": {"seconds": int(time.time()), "nanos": 0}, "control_source": "ControlSource_SAFE"},
-         "command": {"action": "McAction_USE_EXT_CMD", "ext_action": action_name}}
+def rpc_get_action(host="192.168.100.100", port=56322):
+    url = f"http://{host}:{port}/rpc/aimdk.protocol.McActionService/GetAction"
     try:
-        r = urllib.request.Request(url, data=json.dumps(p).encode(), headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(r, timeout=1.5) as resp: return json.loads(resp.read().decode())
-    except Exception: return None
+        req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = json.loads(resp.read().decode())
+            return data.get("action", "") or data.get("ext_action", "") or str(data)
+    except Exception:
+        return ""
 
 class ArmTeleopRx(Node):
     def __init__(self, mode_live=False, allow_ip="127.0.0.1", port=5005, tx_state_port=5006,
@@ -95,15 +96,12 @@ class ArmTeleopRx(Node):
             except Exception: continue
             q = p.get("q", [])
             if len(q) != 14 or any(math.isnan(x) or math.isinf(x) for x in q): continue
-            
             sess_id = p.get("session_id", "default")
             sender_id = (addr[0], sess_id)
             if self.session_lock is None: self.session_lock = sender_id
             elif self.session_lock != sender_id:
                 self.foreign_sender_count += 1; self.holding = True; continue
-                
             newest_pkt = p
-            
         if newest_pkt is not None:
             self.target_q = [float(np.clip(newest_pkt["q"][i], LIMS_MIN[i], LIMS_MAX[i])) for i in range(14)]
             self.last_pkt_time = time.monotonic()
@@ -124,17 +122,14 @@ class ArmTeleopRx(Node):
                 scale_v = min(1.0, self.max_vel / max_req_v) if max_req_v > 1e-6 else 1.0
                 v_target = v_target_req * scale_v
         
-        # Accel cap with uniform scaling (max_acc <= 1.5 rad/s^2)
         dv = v_target - self.curr_cmd_v
         max_dv = float(np.max(np.abs(dv)))
         if max_dv > self.max_acc * dt:
             dv = dv * ((self.max_acc * dt) / max_dv)
         self.curr_cmd_v = self.curr_cmd_v + dv
-        
         max_v = float(np.max(np.abs(self.curr_cmd_v)))
         if max_v > self.max_vel:
             self.curr_cmd_v = self.curr_cmd_v * (self.max_vel / max_v)
-            
         next_cmd_q = np.array(self.curr_cmd_q) + self.curr_cmd_v * dt
         if np.any(np.isnan(next_cmd_q)) or np.any(np.isinf(next_cmd_q)):
             self.fault_latched = True
@@ -199,9 +194,7 @@ class ArmTeleopRx(Node):
             v_req = err * (V / D)
         self._final_line_guard_and_publish(v_req, dt)
 
-    def shutdown_hold(self):
-        self.holding = True
-        self.running = False
+    def shutdown_hold(self): self.holding = True; self.running = False
 
 def main():
     p = argparse.ArgumentParser()
@@ -217,18 +210,32 @@ def main():
     if args.live:
         if not (args.i_understand_hardware_risk and args.allow_ip):
             print("FATAL: --live requires hardware risk acknowledgment and allow-ip!"); sys.exit(1)
+        curr_act = rpc_get_action()
+        if "McAction_RL_LOCOMOTION_ARM_EXT_JOINT_SERVO" not in curr_act and curr_act != "402":
+            print(f"FATAL: Robot action is '{curr_act}'. Must set to McAction_RL_LOCOMOTION_ARM_EXT_JOINT_SERVO by hand with SetAction.py!")
+            sys.exit(1)
         live_active = True
-        print("[arm_teleop_rx] Tự động cấu hình SetAction -> 10 (Stand) -> 12 (Ext Servo)...")
-        rpc_set_action("McAction_RL_JOINT_DEFAULT")
-        time.sleep(1.0)
-        rpc_set_action("McAction_RL_LOCOMOTION_ARM_EXT_JOINT_SERVO")
-        time.sleep(1.0)
 
     rclpy.init()
     node = ArmTeleopRx(
         mode_live=live_active, allow_ip=args.allow_ip, port=args.port, tx_state_port=args.tx_state_port,
         speed_profile=args.speed_profile, max_step_rad=args.max_step, accept_higher_speed=args.i_accept_higher_speed
     )
+    if live_active:
+        pub_count = node.count_publishers("/motion/control/arm_joint_command")
+        if pub_count > 1:
+            print(f"FATAL: Topic has {pub_count-1} other publisher(s)! Refusing live."); node.destroy_node(); rclpy.shutdown(); sys.exit(1)
+        t_start, q_hist, settled = time.monotonic(), [], False
+        while time.monotonic() - t_start < 10.0:
+            rclpy.spin_once(node, timeout_sec=0.05)
+            if node.meas_q is not None:
+                q_hist.append((time.monotonic(), list(node.meas_q)))
+                q_hist = [it for it in q_hist if time.monotonic() - it[0] <= 1.0]
+                if len(q_hist) >= 15 and (q_hist[-1][0] - q_hist[0][0]) >= 0.8:
+                    if max(abs(q_hist[-1][1][i] - q_hist[0][1][i]) for i in range(14)) < 0.003:
+                        settled = True; break
+        if not settled and node.meas_q: print("WARN: Arm did not settle <0.003 rad in 10s.")
+        node.curr_cmd_q = list(node.meas_q) if node.meas_q else list(HOME); node.anchored = True
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, Exception): pass

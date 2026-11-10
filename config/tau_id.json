@@ -1,0 +1,21 @@
+{
+  "tau_arm": {
+    "Left Arm J1": 0.135,
+    "Left Arm J2": 0.13,
+    "Left Arm J3": 0.135,
+    "Left Arm J4": 0.135,
+    "Left Arm J5": 0.141,
+    "Left Arm J6": 0.132,
+    "Left Arm J7": 0.157,
+    "Right Arm J1": 0.135,
+    "Right Arm J2": 0.13,
+    "Right Arm J3": 0.135,
+    "Right Arm J4": 0.135,
+    "Right Arm J5": 0.141,
+    "Right Arm J6": 0.132,
+    "Right Arm J7": 0.157
+  },
+  "tau_max": 0.157,
+  "tau_mean": 0.138,
+  "source": "logs/real_20261110_180352.jsonl"
+}
