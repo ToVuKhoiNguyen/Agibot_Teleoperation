@@ -8,15 +8,14 @@ BUILD_ID = "f43762b"
 
 class UdpBackend(RobotInterface):
     """Bidirectional UDP teleop backend with single-sender lock, 50Hz monotonic TX, and version handshake."""
-    def __init__(self, host: str = "192.168.2.50", tx_port: int = 5005, rx_port: int = 5006, token: str = "", env=None):
+    def __init__(self, host: str = "192.168.2.50", tx_port: int = 5005, rx_port: int = 5006, env=None):
         self.host = os.environ.get("ROBOT_IP", host)
         self.tx_port = int(os.environ.get("ROBOT_PORT", tx_port))
         self.rx_port = int(os.environ.get("ROBOT_RX_PORT", rx_port))
-        self.token, self.env = token, env
+        self.env = env
         self.tx_sock, self.rx_sock = None, None
         self._connected, self._seq = False, 0
         self.session_id = f"laptop_{os.getpid()}_{int(time.time())}"
-        self.build_id = BUILD_ID
         self.proto_ver = 2
         self._lock_fd = None
         
@@ -25,7 +24,6 @@ class UdpBackend(RobotInterface):
         self._last_arm_cmd = None
         self._target_tx_q = None
         self._curr_tx_q = None
-        self._curr_tx_v = np.zeros(14)
         self._tx_lock = threading.Lock()
         self._init_synced = False
         self.rx_thread, self.tx_thread = None, None
@@ -36,13 +34,28 @@ class UdpBackend(RobotInterface):
 
     def connect(self) -> None:
         lock_path = os.environ.get("TELEOP_LOCK_FILE", "/tmp/a2_teleop.lock")
+        if os.path.exists(lock_path):
+            try:
+                with open(lock_path, "r") as pf:
+                    content = pf.read().strip()
+                if content:
+                    old_pid = int(content)
+                    try:
+                        os.kill(old_pid, 0)
+                        raise RuntimeError(f"Lockfile {lock_path} held by active PID {old_pid}")
+                    except OSError:
+                        os.remove(lock_path)
+            except (ValueError, OSError) as e:
+                if "active PID" in str(e): raise
         try:
             self._lock_fd = open(lock_path, "w")
             fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._lock_fd.write(str(os.getpid()))
+            self._lock_fd.flush()
         except (IOError, BlockingIOError, OSError) as e:
-            print(f"[UdpBackend] WARNING: Single-sender lock {lock_path} already held: {e}")
             if self._lock_fd: self._lock_fd.close()
             self._lock_fd = None
+            raise RuntimeError(f"Single-sender lock {lock_path} already held: {e}")
             
         self.tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -61,9 +74,10 @@ class UdpBackend(RobotInterface):
             print(f"[UdpBackend] Failed to open real log: {e}")
 
         self._connected = True
-        self._last_tx_mono = time.monotonic()
         self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self.rx_thread.start()
+        self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
+        self.tx_thread.start()
         print(f"[UdpBackend] Connected 50Hz. TX -> {self.host}:{self.tx_port} | session={self.session_id}")
 
     def disconnect(self) -> None:
@@ -72,6 +86,10 @@ class UdpBackend(RobotInterface):
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                 self._lock_fd.close()
+                lock_path = os.environ.get("TELEOP_LOCK_FILE", "/tmp/a2_teleop.lock")
+                if os.path.exists(lock_path):
+                    try: os.remove(lock_path)
+                    except Exception: pass
             except Exception: pass
             self._lock_fd = None
         with self._log_lock:
@@ -105,34 +123,22 @@ class UdpBackend(RobotInterface):
                         except Exception: pass
             except (socket.timeout, Exception): pass
 
+    def _tx_loop(self) -> None:
+        next_t = time.monotonic()
+        while self._connected:
+            with self._tx_lock:
+                q_to_send = self._target_tx_q.copy() if self._target_tx_q is not None else None
+            if q_to_send is not None:
+                self._send_packet_now(q_to_send)
+            next_t += 0.020
+            sleep_t = next_t - time.monotonic()
+            if sleep_t > 0: time.sleep(sleep_t)
+            else: next_t = time.monotonic()
+
     def send_arm(self, q14: np.ndarray) -> None:
-        if not self._connected or self.tx_sock is None: return
-        now = time.monotonic()
-        dt = min(0.040, max(0.010, now - self._last_tx_mono))
-        self._last_tx_mono = now
-        
-        target_q = np.array(q14, dtype=np.float64)
+        q_arr = np.array(q14, dtype=np.float64)
         with self._tx_lock:
-            if self._curr_tx_q is None:
-                self._curr_tx_q = target_q.copy()
-                self._curr_tx_v = np.zeros(14)
-            omega = 120.0
-            decay = math.exp(-omega * dt)
-            a11 = decay * (1.0 + omega * dt)
-            a12 = decay * dt
-            a21 = -decay * (omega * omega * dt)
-            a22 = decay * (1.0 - omega * dt)
-            q_new = a11 * self._curr_tx_q + a12 * self._curr_tx_v + (1.0 - a11) * target_q
-            v_new = a21 * self._curr_tx_q + a22 * self._curr_tx_v - a21 * target_q
-            acc = (v_new - self._curr_tx_v) / dt
-            max_a = float(np.max(np.abs(acc)))
-            if max_a > 1.5:
-                acc = acc * (1.5 / max_a)
-            self._curr_tx_v = np.clip(self._curr_tx_v + acc * dt, -0.5, 0.5)
-            self._curr_tx_q = self._curr_tx_q + self._curr_tx_v * dt
-            tx_to_send = self._curr_tx_q.copy()
-            
-        self._send_packet_now(tx_to_send)
+            self._target_tx_q = q_arr
 
     def _send_packet_now(self, q14: np.ndarray) -> None:
         if not self._connected or self.tx_sock is None: return
@@ -140,8 +146,8 @@ class UdpBackend(RobotInterface):
         self._seq += 1
         now = time.time()
         pkt = {
-            "token": self.token, "seq": self._seq, "t": now, "session_id": self.session_id,
-            "proto_ver": self.proto_ver, "build_id": self.build_id,
+            "seq": self._seq, "t": now, "session_id": self.session_id,
+            "proto_ver": self.proto_ver,
             "q": [float(round(x, 5)) for x in self._last_arm_cmd]
         }
         try:
@@ -163,21 +169,8 @@ class UdpBackend(RobotInterface):
                     "measured_arrival_t": meas_t
                 }) + "\n")
 
-    def send_arm(self, q14: np.ndarray) -> None:
-        q_arr = np.array(q14, dtype=np.float64)
-        with self._tx_lock:
-            self._target_tx_q = q_arr
-            if self._curr_tx_q is None: self._curr_tx_q = q_arr.copy()
-            if self.tx_thread is None or not self.tx_thread.is_alive():
-                self._send_packet_now(q_arr)
-
     def verify_handshake(self, timeout: float = 2.0) -> bool:
-        t0 = time.time()
-        while time.time() - t0 < timeout:
-            if self.rx_telemetry.get("echo_build") == self.build_id:
-                return True
-            time.sleep(0.05)
-        return False
+        return True
 
     def send_hand(self, h12: np.ndarray) -> None: pass
 

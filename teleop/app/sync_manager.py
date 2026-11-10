@@ -26,6 +26,8 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
 
         # 1. State: SYNC
         if app.sync_state == "SYNC":
+            if hasattr(app, "robot_backend") and hasattr(app.robot_backend, "_send_packet_now"):
+                app.robot_backend.send_arm(app.mirror_limiter.q_plan)
             if q_act is not None and age < 0.200:
                 app.last_arm_cmd_left = q_act[:7].copy()
                 app.last_arm_cmd_right = q_act[7:].copy()

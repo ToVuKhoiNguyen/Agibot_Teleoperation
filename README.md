@@ -99,7 +99,6 @@ Xem hướng dẫn chi tiết từng bước tại [`real_robot_command.md`](fil
    ```bash
    cd ~/a2_ws
    source venv/bin/activate
-   export TELEOP_TOKEN="a2_teleop"
 
    # Chế độ mượt mà như arm.py (khuyên dùng - mặc định ngắt mô phỏng MuJoCo & chạy headless):
    python3 main.py --backend real-udp --controller --real-max-vel 1.0 --i-understand-hardware-risk
@@ -128,7 +127,6 @@ Xem hướng dẫn chi tiết từng bước tại [`real_robot_command.md`](fil
    export FASTRTPS_DEFAULT_PROFILES_FILE=/agibot/software/v0/entry/bin/cfg/ros_dds_configuration.xml
 
    # Chạy receiver:
-   export TELEOP_TOKEN="a2_teleop"
    # Chế độ mượt mà như arm.py (êm ru, không rung giật):
    python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --max-step 0.02 --max-acc 5.0 --omega 12.0
    # Hoặc chạy mặc định chế độ nhanh:

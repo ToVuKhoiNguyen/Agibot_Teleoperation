@@ -47,7 +47,6 @@ class ArmTeleopRx(Node):
         self.curr_cmd_q = list(HOME)
         self.curr_cmd_v, self.curr_cmd_a = np.zeros(14), np.zeros(14)
         self.target_q = list(HOME)
-        self.token = os.environ.get("TELEOP_TOKEN", "")
         self.session_lock, self.foreign_sender_count = None, 0
         self.last_pkt_time, self.rx_count = 0.0, 0
         self.last_tick_t = time.monotonic()
@@ -55,7 +54,6 @@ class ArmTeleopRx(Node):
         self.fault_reason = ""
         
         with open(__file__, "rb") as f: self.file_sha = hashlib.sha256(f.read()).hexdigest()
-        self.sender_build_id = "unknown"
         self.meas_q = None
         
         qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
@@ -64,7 +62,8 @@ class ArmTeleopRx(Node):
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind(("0.0.0.0", port))
+        self.bind_ip = os.environ.get("ROBOT_BIND_IP", "127.0.0.1" if allow_ip in ("127.0.0.1", "localhost") else "0.0.0.0")
+        self.sock.bind((self.bind_ip, port))
         self.sock.setblocking(False)
         self.running = True
         
@@ -79,10 +78,9 @@ class ArmTeleopRx(Node):
         if all(k in name_map for k in ARM_NAMES_LONG): self.meas_q = [name_map[k] for k in ARM_NAMES_LONG]
         elif any("idx13" in k for k in name_map): self.meas_q = [name_map[k] for k in sorted(name_map.keys()) if "idx" in k][:14]
         elif len(msg.position) >= 14: self.meas_q = list(msg.position[:14])
-        if self.meas_q and self.allow_ip not in ("0.0.0.0", "127.0.0.1"):
+        if self.meas_q and self.allow_ip not in ("0.0.0.0",):
             try:
-                pkt = {"t": time.time(), "q": [float(round(x, 5)) for x in self.meas_q],
-                       "rx_sha": self.file_sha[:12], "echo_build": self.sender_build_id, "profile": self.profile}
+                pkt = {"t": time.time(), "q": [float(round(x, 5)) for x in self.meas_q], "profile": self.profile}
                 self.sock.sendto(json.dumps(pkt).encode(), (self.allow_ip, self.tx_state_port))
             except Exception: pass
 
@@ -95,7 +93,6 @@ class ArmTeleopRx(Node):
                 self.foreign_sender_count += 1; continue
             try: p = json.loads(data.decode("utf-8"))
             except Exception: continue
-            if self.token and p.get("token") != self.token: continue
             q = p.get("q", [])
             if len(q) != 14 or any(math.isnan(x) or math.isinf(x) for x in q): continue
             
@@ -105,7 +102,6 @@ class ArmTeleopRx(Node):
             elif self.session_lock != sender_id:
                 self.foreign_sender_count += 1; self.holding = True; continue
                 
-            self.sender_build_id = str(p.get("build_id", "unknown"))
             newest_pkt = p
             
         if newest_pkt is not None:
@@ -219,9 +215,8 @@ def main():
 
     live_active = False
     if args.live:
-        token = os.environ.get("TELEOP_TOKEN", "")
-        if not (args.i_understand_hardware_risk and args.allow_ip and token):
-            print("FATAL: --live requires 5 gates!"); sys.exit(1)
+        if not (args.i_understand_hardware_risk and args.allow_ip):
+            print("FATAL: --live requires hardware risk acknowledgment and allow-ip!"); sys.exit(1)
         live_active = True
         print("[arm_teleop_rx] Tự động cấu hình SetAction -> 10 (Stand) -> 12 (Ext Servo)...")
         rpc_set_action("McAction_RL_JOINT_DEFAULT")

@@ -40,8 +40,6 @@
 - [ ] **[ ] KIỂM TRA MÃ:** Chạy `grep -nE "set_action|ensure_action|SetAction" arm_teleop_rx.py` trên Orin, kết quả: **0 dòng**.
 - [ ] **[ ] CHẾ ĐỘ THỬ (--dry):** Chạy `python3 arm_teleop_rx.py --dry --allow-ip <IP>`, xác nhận topic `/motion/control/arm_joint_command` có đúng **0 message**.
 - [ ] **[ ] TRẠNG THÁI ACTION:** Kiểm tra action hiện tại của robot bằng RPC/giao diện vendor, xác nhận robot đã vào trạng thái `RL_LOCOMOTION_ARM_EXT_JOINT_SERVO`.
-- [ ] **[ ] BÍ MẬT TOKEN:** Biến môi trường `TELEOP_TOKEN` đã được export đồng nhất trên cả Laptop và Orin:
-  - Giá trị token: `________________________________________`
 - [ ] **[ ] THÔNG SỐ KHỞI CHẠY:**
   - Địa chỉ IP Laptop cho phép: `________________________`
   - Giới hạn vận tốc đặt (`--vel-limit`): `0.3 rad/s` (mặc định)

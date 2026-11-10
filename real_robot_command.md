@@ -9,7 +9,6 @@ Tài liệu hướng dẫn từng bước chi tiết từ lúc vừa bật máy 
 - **Máy tính nhúng Robot (Orin):** `192.168.2.50` *(SSH user: `agi`, mật khẩu: `1`)*
 - **Địa chỉ giao diện Web:** `https://192.168.2.75:8012`
 - **Cổng UDP stream góc khớp:** `5005`
-- **Mã bảo mật phiên:** `export TELEOP_TOKEN="a2_teleop"`
 
 ---
 
@@ -31,7 +30,6 @@ cd ~/a2_ws
 source venv/bin/activate
 
 # 1. Cài đặt token bảo mật môi trường
-export TELEOP_TOKEN="a2_teleop"
 
 # 2. Khởi động Teleop Server phát UDP sang Orin (mặc định headless, tắt hoàn toàn mô phỏng MuJoCo)
 # Chế độ điều khiển tiêu chuẩn (khuyên dùng):
@@ -69,7 +67,6 @@ export ROS_LOCALHOST_ONLY=0
 export FASTRTPS_DEFAULT_PROFILES_FILE=/agibot/software/v0/entry/bin/cfg/ros_dds_configuration.xml
 
 # 5. Cài đặt token bảo mật phiên
-export TELEOP_TOKEN="a2_teleop"
 
 # (Khuyên dùng) Thử nghiệm dry-run trước khi bật động cơ thật:
 # python3 arm_teleop_rx.py --dry --allow-ip 192.168.2.75 --port 5005

@@ -6,7 +6,7 @@ Real-robot teleop latency ladder bisect tool (Rungs B, C1, C2, C3):
 - Verifies safe start pose (<=0.05 rad from HOME) and peak speed <= max_step*50 rad/s
 - Measures lag (cross-corr), gain, tracking RMS, saturation, jitter, packet loss
 - Writes logs/ladder_<ts>.json (no secrets) and prints Vietnamese summary table
-Offline loopback & real-robot teleop diagnostic. NEVER prints TELEOP_TOKEN.
+Offline loopback & real-robot teleop diagnostic.
 """
 
 import os, sys, time, json, math, argparse, yaml
@@ -203,7 +203,7 @@ def main():
     args = parser.parse_args()
 
     max_step = args.max_step or load_max_step_config()
-    backend = UdpBackend(host=args.host, tx_port=args.port, rx_port=args.rx_port, token=os.environ.get("TELEOP_TOKEN", ""))
+    backend = UdpBackend(host=args.host, tx_port=args.port, rx_port=args.rx_port)
     backend.connect()
     rungs = [args.rung] if args.rung and args.rung != "ALL" else (["B", "C1", "C2", "C3"] if args.rung == "ALL" else None)
     results = []

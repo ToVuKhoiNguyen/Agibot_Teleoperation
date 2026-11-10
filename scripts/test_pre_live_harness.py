@@ -7,7 +7,6 @@ import os, sys, time, json, math, socket, threading, numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["ROS_DOMAIN_ID"] = "77"
-os.environ["TELEOP_TOKEN"] = "audit_token_secret"
 
 import rclpy
 from rclpy.node import Node

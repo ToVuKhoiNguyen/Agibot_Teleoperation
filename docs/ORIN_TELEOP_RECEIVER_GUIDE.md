@@ -38,7 +38,6 @@ Node thu an toàn được thiết kế với các nguyên tắc phòng vệ ngh
   1. Cờ dòng lệnh bắt buộc `--live`.
   2. Cờ xác nhận rủi ro vật lý `--i-understand-hardware-risk`.
   3. Chỉ định IP laptop cụ thể `--allow-ip <IP>` (từ chối tất cả các IP lạ).
-  4. Biến môi trường `TELEOP_TOKEN` phải khớp chính xác giữa laptop và Orin.
   5. Đã hoàn thành bước kiểm tra `--dry` trước đó không có lỗi.
 - **Neo trạng thái thực (Measured State Anchoring):** Lệnh đầu tiên phát ra bus luôn bằng chính xác góc đo thực tế hiện tại ($\Delta q < 10^{-6}\text{ rad}$). Tuyệt đối không giật vị trí khi bắt đầu.
 - **Giới hạn kép (Intersection Limits & Dynamic Rate Limiting):**
@@ -61,13 +60,11 @@ Node thu an toàn được thiết kế với các nguyên tắc phòng vệ ngh
 ### 3.2. Cấu trúc gói tin UDP JSON
 ```json
 {
-  "token": "<chuỗi TELEOP_TOKEN ngẫu nhiên>",
   "seq": 1042,
   "t": 1793951833.120,
   "q": [0.0, 0.0, 0.0, -0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0]
 }
 ```
-- `token`: Chuỗi bí mật chia sẻ qua biến môi trường `TELEOP_TOKEN`.
 - `seq`: Số thứ tự tăng đơn điệu. Bộ thu loại bỏ ngay các gói đến sau nhưng có seq nhỏ hơn (out-of-order).
 - `t`: Thời gian phát epoch giây. Loại bỏ gói nếu $|t_{\text{now}} - t| > 0.200\text{ s}$ (stale).
 - `q`: Mảng đúng 14 giá trị float tương ứng 14 khớp `idx13`..`idx26`. Loại bỏ nếu chứa NaN/Inf hoặc độ dài khác 14.
@@ -91,7 +88,6 @@ Lúc này Laptop gửi UDP đến `127.0.0.1:5005`, Orin cấu hình `--allow-ip
   2. Lệnh đầu tiên trong `--live` khớp góc đo thực: sai số lệch **$0.00000000\text{ rad}$**.
   3. Đáp ứng xung bước $0.3\text{ rad}$: vận tốc đỉnh đạt **$0.3019\text{ rad/s}$** (ngưỡng kẹp $\le 0.315\text{ rad/s}$); gia tốc đỉnh đạt **$2.1282\text{ rad/s}^2$** (ngưỡng kẹp $\le 2.25\text{ rad/s}^2$).
   4. Kẹp giới hạn biên: gửi mục tiêu vọt $5.0\text{ rad}$, bộ thu kẹp an toàn về **$0.3516\text{ rad} \le 2.91\text{ rad}$**.
-  5. Bộ đếm lọc rác: loại bỏ thành công 100% gói sai token, gói trễ $>200\text{ ms}$, gói đảo thứ tự seq, gói chứa NaN/Inf, gói sai độ dài.
   6. Tần số phát lệnh: **$100.0\text{ Hz}$** chu kỳ ổn định với độ trễ jitter phân vị **$p99 = 10.22\text{ ms} < 15\text{ ms}$**.
   7. Dừng an toàn khi nhận `SIGINT`: hoàn tất chu trình giữ vị trí và ngắt sạch.
   8. Kiểm tra tĩnh: 0 lời gọi tới `set_action`, `ensure_action`, hay `SetAction`.
@@ -146,9 +142,7 @@ Lúc này Laptop gửi UDP đến `127.0.0.1:5005`, Orin cấu hình `--allow-ip
 1. **ĐIỀU KIỆN TIÊN QUYẾT BẮT BUỘC:**
    - Robot đã được treo hoàn toàn trên cáp bảo hiểm (crane/gantry), hai chân không chạm sàn, vùng làm việc của hai tay cách xa mọi vật cản $\ge 1.5\text{ m}$.
    - Nút E-Stop vật lý nằm sẵn trên tay người quan sát.
-2. Thiết lập biến môi trường token trên Orin:
    ```bash
-   export TELEOP_TOKEN="<chuỗi_token_bảo_mật_sinh_ngẫu_nhiên>"
    ```
 3. Khởi chạy với đầy đủ 5 cổng an toàn:
    ```bash

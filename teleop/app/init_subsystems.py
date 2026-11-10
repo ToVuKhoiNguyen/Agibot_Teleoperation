@@ -115,7 +115,7 @@ def init_subsystems(
         app.robot_backend = Ros2DryBackend()
     elif backend_key in ("real-udp", "udp"):
         from teleop.robot.udp_backend import UdpBackend
-        app.robot_backend = UdpBackend(host="192.168.2.50", tx_port=5005, rx_port=5006, token=os.environ.get("TELEOP_TOKEN", ""), env=app.env)
+        app.robot_backend = UdpBackend(host="192.168.2.50", tx_port=5005, rx_port=5006, env=app.env)
         app.robot_backend.app = app
     elif backend_key == "replay":
         app.robot_backend = ReplayBackend()
