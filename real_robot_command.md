@@ -8,7 +8,8 @@ Tài liệu hướng dẫn từng bước chi tiết từ lúc vừa bật máy 
 - **Máy trạm Teleop (Laptop):** `192.168.2.75`
 - **Máy tính nhúng Robot (Orin):** `192.168.2.50` *(SSH user: `agi`, mật khẩu: `1`)*
 - **Địa chỉ giao diện Web:** `https://192.168.2.75:8012`
-- **Cổng UDP stream góc khớp:** `5005`
+- **Cổng UDP nhận lệnh từ Laptop sang Orin:** `5005`
+- **Cổng UDP phản hồi feedback từ Orin về Laptop:** `5006`
 
 ---
 
@@ -29,16 +30,17 @@ Mở **Terminal 1** trên Laptop:
 cd ~/a2_ws
 source venv/bin/activate
 
-# 1. Cài đặt token bảo mật môi trường
-
-# 2. Khởi động Teleop Server phát UDP sang Orin (mặc định headless, tắt hoàn toàn mô phỏng MuJoCo)
-# Chế độ điều khiển tiêu chuẩn (khuyên dùng):
+# Khởi động Teleop Server phát UDP sang Orin (mặc định headless, tắt mô phỏng MuJoCo step)
+# Chế độ điều khiển tay cầm Quest (khuyên dùng):
 python3 main.py --backend real-udp --controller --i-understand-hardware-risk
 
-# Nếu muốn mở cửa sổ hiển thị đồ họa desktop, thêm cờ --viewer:
+# Hoặc chế độ điều khiển chuột/gizmo 3D trên Web:
+# python3 main.py --backend real-udp --i-understand-hardware-risk
+
+# Nếu muốn mở kèm cửa sổ viewer đồ họa MuJoCo desktop, thêm cờ --viewer:
 # python3 main.py --backend real-udp --controller --viewer --i-understand-hardware-risk
 ```
-*(Khi chạy `--backend real-udp`, hệ thống tự động tắt hàm mô phỏng vật lý `env.step()`, ngắt nạp lệnh motor ảo MuJoCo và chạy headless để tiết kiệm tối đa CPU laptop. Laptop tự động kích hoạt bộ đệm phát 50 Hz monotonic, khóa single-sender `/tmp/a2_teleop.lock` và kiểm tra phiên bản protocol v2)*.
+*(Khi chạy `--backend real-udp`, hệ thống kết nối UDP 50 Hz monotonic với Orin, kích hoạt khóa single-sender `/tmp/a2_teleop.lock` (theo dõi PID sống), tự động đồng bộ tư thế robot đo thực khi kết nối và bảo vệ lệch khớp với Mirror Limiter)*.
 
 ---
 
@@ -58,7 +60,7 @@ bash /agibot/data/home/agi/Desktop/motion_player/disable_motion_player.sh
 # 3. Vào thư mục mc và kiểm tra mã băm SHA256 file receiver
 cd /agibot/data/home/agi/Desktop/mc
 sha256sum arm_teleop_rx.py
-# Kỳ vọng đúng mã: dbb71f2726a3a6a307bed919e102e91f442a8076e3b9ee13021b54c0fe3b49f1
+# Kỳ vọng đúng mã: ed8ff75ec839aa744ecb86feb0766b3ee0914ff220fea159cde91e2b85d14b0c
 
 # 4. Nạp cấu hình ROS 2
 source /opt/ros/humble/setup.bash
@@ -66,12 +68,7 @@ export ROS_DOMAIN_ID=232
 export ROS_LOCALHOST_ONLY=0
 export FASTRTPS_DEFAULT_PROFILES_FILE=/agibot/software/v0/entry/bin/cfg/ros_dds_configuration.xml
 
-# 5. Cài đặt token bảo mật phiên
-
-# (Khuyên dùng) Thử nghiệm dry-run trước khi bật động cơ thật:
-# python3 arm_teleop_rx.py --dry --allow-ip 192.168.2.75 --port 5005
-
-# 6. Kích hoạt nhận lệnh điều khiển động cơ thật (LIVE)
+# 5. Kích hoạt nhận lệnh điều khiển động cơ thật (LIVE)
 # Chế độ Tiêu Chuẩn (Profile Normal: 0.3 rad/s - êm ru, đã kiểm định an toàn):
 python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --speed-profile normal
 
@@ -89,16 +86,23 @@ python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.
 
 ---
 
-## BƯỚC 3: ĐEO KÍNH QUEST & BẮT ĐẦU ĐIỀU KHIỂN
+## BƯỚC 3: KÍCH HOẠT VÀ ĐIỀU KHIỂN
 
+### Cách A: Điều khiển bằng Kính Meta Quest 3 (VR)
 1. Đeo kính Meta Quest (đã kết nối cùng mạng Wifi với Laptop).
-2. Mở trình duyệt Browser trên kính, truy cập:
-   `https://192.168.2.75:8012`
+2. Mở trình duyệt Browser trên kính, truy cập: `https://192.168.2.75:8012`
    *(Nếu thấy cảnh báo chứng chỉ SSL tự ký, chọn **Advanced** $\rightarrow$ **Proceed to 192.168.2.75**)*.
 3. Bấm **ENTER VR**.
 4. **Thao tác tay cầm:**
    - Quan sát 2 tay robot **đứng yên hoàn toàn** tại vị trí ban đầu (Anchored pose).
    - Nhấn giữ nút **Trigger** (Cò ngón trỏ) hoặc **Grip** (Cò cạnh bàn tay) để bóp ly hợp (Clutch) và di chuyển: hai cánh tay robot thật sẽ bám theo chuyển động tay của bạn trong không gian!
+
+### Cách B: Điều khiển bằng Chuột / 3D Gizmo trên trình duyệt Laptop
+1. Mở trình duyệt trên máy trạm: `https://localhost:8012`
+2. Kiểm tra thanh trạng thái hiển thị `READY (NOT ENGAGED)`.
+3. Bấm nút **Engage** (hoặc nút **Home** / **T-Pose** / kéo Gizmo $\pm X, \pm Y, \pm Z$).
+4. Robot sẽ chuyển sang trạng thái `ENGAGED` và bám theo mục tiêu 1:1 mượt mà.
+5. Nếu gặp chướng ngại hoặc chạm biên vật lý gây FAULT: bấm nút **Clear Fault** trên banner để đưa cánh tay về trạng thái an toàn `READY`.
 
 ---
 

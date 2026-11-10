@@ -127,10 +127,10 @@ Xem hướng dẫn chi tiết từng bước tại [`real_robot_command.md`](fil
    export FASTRTPS_DEFAULT_PROFILES_FILE=/agibot/software/v0/entry/bin/cfg/ros_dds_configuration.xml
 
    # Chạy receiver:
-   # Chế độ mượt mà như arm.py (êm ru, không rung giật):
-   python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --max-step 0.02 --max-acc 5.0 --omega 12.0
-   # Hoặc chạy mặc định chế độ nhanh:
-   # python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005
+   # Chế độ tiêu chuẩn (Profile normal: 0.3 rad/s - êm ru, đã kiểm định an toàn):
+   python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --speed-profile normal
+   # Hoặc chế độ làm quen rất chậm (Profile slow: 0.2 rad/s):
+   # python3 arm_teleop_rx.py --live --i-understand-hardware-risk --allow-ip 192.168.2.75 --port 5005 --speed-profile slow
    ```
    - **Bộ lọc dao động tắt dần bậc 2 (Critically Damped)**: Bounded acceleration ($\le 5\text{ rad/s}^2$), lọc phẳng hoàn toàn jitter mạng Wi-Fi giúp chuyển động lướt êm ru như `arm.py`.
    - **Tự động Auto-Homing**: Tự nội suy mượt S-curve từ tư thế hiện tại về vị trí HOME trong 2.5–5s.
