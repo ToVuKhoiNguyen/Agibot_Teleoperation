@@ -1,44 +1,43 @@
 """UDP Teleoperation Backend streaming 14 DoF targets and receiving real robot state."""
-import os
-import sys
-import time
-import json
-import socket
-import threading
+import os, sys, time, json, math, socket, threading, fcntl
 from pathlib import Path
 import numpy as np
 from teleop.robot.interface import RobotInterface
 
+BUILD_ID = "f43762b"
+
 class UdpBackend(RobotInterface):
-    """Bidirectional UDP teleop backend with laptop-side logging:
-    - Streams arm targets to Orin arm_teleop_rx.py (port 5005)
-    - Receives actual robot joint state from Orin (port 5006)
-    - Logs (no secrets): t_laptop, seq, quest msg age, IK ms, target q[14], measured q[14]
-    """
+    """Bidirectional UDP teleop backend with single-sender lock, 50Hz monotonic TX, and version handshake."""
     def __init__(self, host: str = "192.168.2.50", tx_port: int = 5005, rx_port: int = 5006, token: str = "", env=None):
-        self.host = host
-        self.tx_port = tx_port
-        self.rx_port = rx_port
-        self.token = token
-        self.env = env
+        self.host, self.tx_port, self.rx_port, self.token, self.env = host, tx_port, rx_port, token, env
+        self.tx_sock, self.rx_sock = None, None
+        self._connected, self._seq = False, 0
+        self.session_id = f"laptop_{os.getpid()}_{int(time.time())}"
+        self.build_id = BUILD_ID
+        self.proto_ver = 2
+        self._lock_fd = None
         
-        self.tx_sock = None
-        self.rx_sock = None
-        self._connected = False
-        self._seq = 0
-        
-        self._real_q14 = None
-        self._real_q14_lock = threading.Lock()
+        self._real_q14, self._real_q14_lock = None, threading.Lock()
         self._last_state_t = 0.0
         self._last_arm_cmd = None
+        self._target_tx_q = None
+        self._curr_tx_q = None
+        self._curr_tx_v = np.zeros(14)
+        self._tx_lock = threading.Lock()
         self._init_synced = False
-        self.rx_thread = None
+        self.rx_thread, self.tx_thread = None, None
+        self.rx_telemetry = {}
 
-        self._log_file = None
-        self._log_lock = threading.Lock()
-        self.app = None  # Hooked by app if present
+        self._log_file, self._log_lock = None, threading.Lock()
+        self.app = None
 
     def connect(self) -> None:
+        try:
+            self._lock_fd = open("/tmp/a2_teleop.lock", "w")
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, BlockingIOError, OSError) as e:
+            print(f"[UdpBackend] WARNING: Single-sender lock /tmp/a2_teleop.lock already held: {e}")
+            
         self.tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -47,24 +46,29 @@ class UdpBackend(RobotInterface):
         except Exception as e:
             print(f"[UdpBackend] Bind RX port {self.rx_port} warning: {e}")
 
-        # Setup logging to logs/real_<timestamp>.jsonl
         try:
             logs_dir = Path(__file__).resolve().parents[2] / "logs"
             logs_dir.mkdir(parents=True, exist_ok=True)
             ts = time.strftime("%Y%m%d_%H%M%S")
-            log_path = logs_dir / f"real_{ts}.jsonl"
-            self._log_file = open(log_path, "a", buffering=1, encoding="utf-8")
-            print(f"[UdpBackend] Logging laptop telemetry to {log_path}")
+            self._log_file = open(logs_dir / f"real_{ts}.jsonl", "a", buffering=1, encoding="utf-8")
         except Exception as e:
             print(f"[UdpBackend] Failed to open real log: {e}")
 
         self._connected = True
         self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self.rx_thread.start()
-        print(f"[UdpBackend] Connected. TX -> {self.host}:{self.tx_port} | RX <- 0.0.0.0:{self.rx_port}")
+        self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
+        self.tx_thread.start()
+        print(f"[UdpBackend] Connected 50Hz. TX -> {self.host}:{self.tx_port} | session={self.session_id}")
 
     def disconnect(self) -> None:
         self._connected = False
+        if self._lock_fd:
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                self._lock_fd.close()
+            except Exception: pass
+            self._lock_fd = None
         with self._log_lock:
             if self._log_file:
                 try: self._log_file.close()
@@ -83,6 +87,7 @@ class UdpBackend(RobotInterface):
                 data, _ = self.rx_sock.recvfrom(2048)
                 arrival_t = time.time()
                 pkt = json.loads(data.decode("utf-8"))
+                self.rx_telemetry = pkt
                 q = pkt.get("q")
                 if q and len(q) == 14:
                     with self._real_q14_lock:
@@ -92,55 +97,88 @@ class UdpBackend(RobotInterface):
                         try:
                             self.env.set_arm_commands(self._real_q14[:7], self._real_q14[7:])
                             self._init_synced = True
-                        except Exception:
-                            pass
-            except socket.timeout:
-                pass
-            except Exception:
-                pass
+                        except Exception: pass
+            except (socket.timeout, Exception): pass
 
-    def send_arm(self, q14: np.ndarray) -> None:
-        if not self._connected or self.tx_sock is None:
-            return
+    def _tx_loop(self) -> None:
+        next_tick = time.monotonic()
+        last_t = next_tick
+        while self._connected and self.tx_sock:
+            now = time.monotonic()
+            dt = min(0.040, max(0.010, now - last_t))
+            last_t = now
+            
+            with self._tx_lock:
+                if self._target_tx_q is not None:
+                    if self._curr_tx_q is None:
+                        self._curr_tx_q = self._target_tx_q.copy()
+                    err = self._target_tx_q - self._curr_tx_q
+                    D = float(np.max(np.abs(err)))
+                    if D > 0.0001:
+                        v_stop = -0.5 * 1.5 * dt + math.sqrt(max(0.0, (0.5 * 1.5 * dt)**2 + 2.0 * 1.5 * D))
+                        V = min(0.50, v_stop, D / dt)
+                        v_req = err * (V / D)
+                    else:
+                        v_req = np.zeros(14)
+                    dv = v_req - self._curr_tx_v
+                    max_dv = float(np.max(np.abs(dv)))
+                    if max_dv > 1.5 * dt:
+                        dv = dv * ((1.5 * dt) / max_dv)
+                    self._curr_tx_v += dv
+                    self._curr_tx_q += self._curr_tx_v * dt
+                    self._send_packet_now(self._curr_tx_q)
+                    
+            next_tick += 0.02
+            sleep_t = next_tick - time.monotonic()
+            if sleep_t > 0: time.sleep(sleep_t)
+            else: next_tick = time.monotonic()
+
+    def _send_packet_now(self, q14: np.ndarray) -> None:
+        if not self._connected or self.tx_sock is None: return
         self._last_arm_cmd = np.array(q14, dtype=np.float64)
         self._seq += 1
         now = time.time()
-        
-        # Strip/omit secret token in any local logs
         pkt = {
-            "token": self.token,
-            "seq": self._seq,
-            "t": now,
+            "token": self.token, "seq": self._seq, "t": now, "session_id": self.session_id,
+            "proto_ver": self.proto_ver, "build_id": self.build_id,
             "q": [float(round(x, 5)) for x in self._last_arm_cmd]
         }
         try:
-            payload = json.dumps(pkt).encode("utf-8")
-            self.tx_sock.sendto(payload, (self.host, self.tx_port))
+            self.tx_sock.sendto(json.dumps(pkt).encode("utf-8"), (self.host, self.tx_port))
         except Exception as e:
             print(f"[UdpBackend] Send error: {e}")
-
-        # LAPTOP-SIDE LOGGING: t_laptop, seq, quest msg age, IK ms, target q[14], measured q[14]
         with self._log_lock:
             if self._log_file:
                 with self._real_q14_lock:
                     meas_q = list(self._real_q14) if self._real_q14 is not None else [0.0]*14
                     meas_t = float(self._last_state_t)
                 app = getattr(self, "app", None)
-                quest_age = float(getattr(app, "last_msg_age_ms", 0.0)) if app else 0.0
-                ik_ms = float(getattr(app, "last_ik_ms", 0.0)) if app else 0.0
-                log_entry = {
-                    "t_laptop": now,
-                    "seq": self._seq,
-                    "quest_msg_age_ms": quest_age,
-                    "ik_ms": ik_ms,
+                self._log_file.write(json.dumps({
+                    "t_laptop": now, "seq": self._seq,
+                    "quest_msg_age_ms": float(getattr(app, "last_msg_age_ms", 0.0)) if app else 0.0,
+                    "ik_ms": float(getattr(app, "last_ik_ms", 0.0)) if app else 0.0,
                     "target_q": [float(round(x, 5)) for x in self._last_arm_cmd],
                     "measured_q": [float(round(x, 5)) for x in meas_q],
                     "measured_arrival_t": meas_t
-                }
-                self._log_file.write(json.dumps(log_entry) + "\n")
+                }) + "\n")
 
-    def send_hand(self, h12: np.ndarray) -> None:
-        pass
+    def send_arm(self, q14: np.ndarray) -> None:
+        q_arr = np.array(q14, dtype=np.float64)
+        with self._tx_lock:
+            self._target_tx_q = q_arr
+            if self._curr_tx_q is None: self._curr_tx_q = q_arr.copy()
+            if self.tx_thread is None or not self.tx_thread.is_alive():
+                self._send_packet_now(q_arr)
+
+    def verify_handshake(self, timeout: float = 2.0) -> bool:
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if self.rx_telemetry.get("echo_build") == self.build_id:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def send_hand(self, h12: np.ndarray) -> None: pass
 
     def read_state(self) -> tuple[np.ndarray, np.ndarray, dict]:
         with self._real_q14_lock:
@@ -152,16 +190,12 @@ class UdpBackend(RobotInterface):
             try:
                 qp = self.env.get_arm_qpos()
                 return np.concatenate([qp["left"], qp["right"]]), np.zeros(12, dtype=np.float64), {}
-            except Exception:
-                pass
+            except Exception: pass
         return np.zeros(14, dtype=np.float64), np.zeros(12, dtype=np.float64), {}
 
-    def estop(self) -> None:
-        print("[UdpBackend] ESTOP triggered!")
-
+    def estop(self) -> None: print("[UdpBackend] ESTOP triggered!")
     def hold(self) -> None:
         if self._connected and self._last_arm_cmd is not None:
             self.send_arm(self._last_arm_cmd)
+    def is_alive(self) -> bool: return self._connected
 
-    def is_alive(self) -> bool:
-        return self._connected
