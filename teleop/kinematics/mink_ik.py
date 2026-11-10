@@ -19,6 +19,8 @@ try:
 except ImportError:
     mink = None
 
+from teleop.robot.aimdk_map import HOME
+
 
 # AimDK & hardware joint limits profile (rad) from physical manual Sec 3.4
 REAL_ROBOT_LIMITS = {
@@ -72,12 +74,12 @@ class AgibotMinkIK:
             self.joint_names = [f"idx{i}_left_arm_joint{i-12}" for i in range(13, 20)]
             self.site_name = "left_arm_ee"
             self.elbow_site_or_body = "left_arm_link04"
-            self.nominal_qpos = np.array([0.35, 0.35, 0.0, -1.20, 0.0, 0.15, 0.0], dtype=np.float64)
+            self.nominal_qpos = np.array(HOME[:7], dtype=np.float64)
         else:
             self.joint_names = [f"idx{i}_right_arm_joint{i-19}" for i in range(20, 27)]
             self.site_name = "right_arm_ee"
             self.elbow_site_or_body = "right_arm_link04"
-            self.nominal_qpos = np.array([0.35, -0.35, 0.0, 1.20, 0.0, 0.15, 0.0], dtype=np.float64)
+            self.nominal_qpos = np.array(HOME[7:], dtype=np.float64)
 
         self.site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, self.site_name)
         self.qpos_indices = [self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, j)] for j in self.joint_names]

@@ -22,13 +22,11 @@ from teleop.robot.aimdk_map import (
     ARM_JOINT_NAMES_AIMDK,
     HAND_JOINT_NAMES,
     align_joint_state_positions,
+    HOME,
 )
 
 # Reference MuJoCo scene 'home' keyframe arm postures (rad)
-SIM_HOME_ARM_Q14 = np.array([
-    0.35, 0.35, 0.0, -1.2, 0.0, 0.15, 0.0,   # Left Arm J1..J7
-    0.35, -0.35, 0.0, 1.2, 0.0, 0.15, 0.0,   # Right Arm J1..J7
-], dtype=np.float64)
+SIM_HOME_ARM_Q14 = np.array(HOME, dtype=np.float64)
 
 # Reference MuJoCo sim home hand postures (raw 0 = fully open)
 SIM_HOME_HAND_RAW12 = np.zeros(12, dtype=np.float64)

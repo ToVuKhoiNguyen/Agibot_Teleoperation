@@ -17,6 +17,7 @@ except ImportError:
 
 from .env_discovery import discover_joints, discover_actuators, precompute_visual_geoms, propagate_mimics
 from .env_poses import extract_ee_poses, extract_visual_body_poses
+from teleop.robot.aimdk_map import HOME
 
 
 class AgibotSimEnv:
@@ -50,8 +51,8 @@ class AgibotSimEnv:
         self.model.opt.disableflags |= mujoco.mjtDisableBit.mjDSBL_SENSOR
 
         # Nominal rest postures (arms bent forward in front of chest, hands open, legs standing)
-        self.default_arm_qpos_left = np.array([0.35, 0.35, 0.0, -1.20, 0.0, 0.15, 0.0], dtype=np.float64)
-        self.default_arm_qpos_right = np.array([0.35, -0.35, 0.0, 1.20, 0.0, 0.15, 0.0], dtype=np.float64)
+        self.default_arm_qpos_left = np.array(HOME[:7], dtype=np.float64)
+        self.default_arm_qpos_right = np.array(HOME[7:], dtype=np.float64)
 
         # Non-arm, non-hand joint indices to hold fixed at home
         self.non_manip_qpos_indices = [self.qpos_idx_map[j] for j in self.leg_joints + self.head_joints]

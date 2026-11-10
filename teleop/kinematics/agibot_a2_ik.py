@@ -8,6 +8,7 @@ import os
 import time
 import numpy as np
 import mujoco
+from teleop.robot.aimdk_map import HOME
 
 
 class AgibotA2IK:
@@ -30,11 +31,11 @@ class AgibotA2IK:
         if self.arm == "left":
             self.joint_names = [f"idx{i}_left_arm_joint{i-12}" for i in range(13, 20)]
             self.site_name = "left_arm_ee"
-            self.nominal_qpos = np.array([0.35, 0.35, 0.0, -1.20, 0.0, 0.15, 0.0], dtype=np.float64)
+            self.nominal_qpos = np.array(HOME[:7], dtype=np.float64)
         else:
             self.joint_names = [f"idx{i}_right_arm_joint{i-19}" for i in range(20, 27)]
             self.site_name = "right_arm_ee"
-            self.nominal_qpos = np.array([0.35, -0.35, 0.0, 1.20, 0.0, 0.15, 0.0], dtype=np.float64)
+            self.nominal_qpos = np.array(HOME[7:], dtype=np.float64)
 
         self.site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, self.site_name)
         if self.site_id < 0:

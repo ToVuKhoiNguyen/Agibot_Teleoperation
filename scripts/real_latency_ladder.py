@@ -17,8 +17,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from teleop.robot.udp_backend import UdpBackend
+from teleop.robot.aimdk_map import HOME
 
-HOME = np.array([0.0, 1.2, 0.0, -0.5, 1.5, 0.0, 0.0,  0.0, -1.2, 0.0, 0.5, 1.5, 0.0, 0.0], dtype=np.float64)
+HOME = np.array(HOME, dtype=np.float64)
 
 RUNGS = {
     "B": {"name": "Vendor Arm Replay (Tam giác)", "type": "triangle", "amp": 0.2, "speed": 0.10},

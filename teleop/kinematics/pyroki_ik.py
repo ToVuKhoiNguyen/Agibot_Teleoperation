@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from teleop.robot.aimdk_map import HOME
 
 try:
     import jax
@@ -89,11 +90,11 @@ class AgibotPyrokiIK:
         if self.arm == "left":
             self.joint_names = [f"idx{i}_left_arm_joint{i-12}" for i in range(13, 20)]
             self.ee_link_name = "left_arm_link07"
-            self.nominal_qpos = np.array([0.35, 0.35, 0.0, -1.20, 0.0, 0.15, 0.0], dtype=np.float64)
+            self.nominal_qpos = np.array(HOME[:7], dtype=np.float64)
         else:
             self.joint_names = [f"idx{i}_right_arm_joint{i-19}" for i in range(20, 27)]
             self.ee_link_name = "right_arm_link07"
-            self.nominal_qpos = np.array([0.35, -0.35, 0.0, 1.20, 0.0, 0.15, 0.0], dtype=np.float64)
+            self.nominal_qpos = np.array(HOME[7:], dtype=np.float64)
 
         self.ee_link_idx = jnp.array(self.robot.links.names.index(self.ee_link_name))
         self.arm_indices = [self.robot.joints.actuated_names.index(j) for j in self.joint_names]
