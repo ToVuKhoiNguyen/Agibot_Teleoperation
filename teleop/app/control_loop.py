@@ -204,6 +204,19 @@ def run_control_loop(app):
                 if hasattr(app, "target_tracer") and app.target_tracer:
                     app.target_tracer.tick(app)
 
+                # Periodic real-udp state logger (every ~2 s = 400 steps)
+                if is_real and step % 400 == 0:
+                    st_str = getattr(app, "sync_state", "READY")
+                    age_s = getattr(app, "last_state_feedback_age_s", 999.0)
+                    if st_str == "SYNC": reason = "WAITING FEEDBACK (no packet on UDP 5006)"
+                    elif st_str == "READY": reason = "NOT ENGAGED"
+                    elif getattr(getattr(app, "robot_safety", None), "fault_latched", False):
+                        reason = f"FAULT ({app.robot_safety.fault_reason})"
+                    elif getattr(app, "max_sim_real_gap_rad", 0.0) >= 0.095: reason = "LEAD LIMIT"
+                    elif age_s > 0.200: reason = f"STALE FEEDBACK ({age_s*1000:.0f}ms)"
+                    else: reason = "ACTIVE"
+                    print(f"[STATUS 2s] State: {st_str} | Arm not moving reason: {reason}")
+
             except Exception as e:
                 msg = str(e)
                 if msg != last_exc_logged:

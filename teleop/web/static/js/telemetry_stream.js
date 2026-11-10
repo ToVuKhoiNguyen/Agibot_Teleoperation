@@ -203,11 +203,11 @@ function updateUIStatus(s) {
   if (syncBadge) {
     let st = s.sync_state || (s.fault_latched ? 'FAULT' : 'READY');
     let sub = '';
-    if (s.fault_latched || st === 'FAULT') { st = 'FAULT'; sub = ' (Clear to resume)'; }
-    else if (st === 'SYNC') { sub = ' (Waiting for robot telemetry)'; }
-    else if (st === 'READY') { sub = ' (Click Engage to move robot)'; }
-    else if (s.feedback_age_ms > 200) { sub = ` (Stale feedback: ${s.feedback_age_ms.toFixed(0)}ms)`; }
-    else if (s.max_sim_real_gap_rad >= 0.095) { sub = ' (Lead limited)'; }
+    if (s.fault_latched || st === 'FAULT') { st = 'FAULT'; sub = ` (${s.fault_reason || 'Clear to resume'})`; }
+    else if (st === 'SYNC') { sub = ' (WAITING FEEDBACK: no packet on UDP 5006)'; }
+    else if (st === 'READY') { sub = ' (NOT ENGAGED)'; }
+    else if (s.feedback_age_ms > 200) { sub = ` (STALE FEEDBACK: ${s.feedback_age_ms.toFixed(0)}ms)`; }
+    else if (s.max_sim_real_gap_rad >= 0.095) { sub = ' (LEAD LIMIT)'; }
     const gap = (s.max_sim_real_gap_rad !== undefined && st === 'ENGAGED') ? ` • gap: ${s.max_sim_real_gap_rad.toFixed(3)} rad` : '';
     syncBadge.innerText = `${st}${sub}${gap}`;
     syncBadge.className = `tag tag-${st === 'ENGAGED' ? 'ok' : (st === 'READY' ? 'info' : (st === 'FAULT' ? 'danger' : 'warn'))}`;
