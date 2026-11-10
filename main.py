@@ -213,7 +213,8 @@ def main():
     parser.add_argument("--allow-handtracking-real", action="store_true", default=False, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    render_viewer = False if (args.headless or args.no_viewer) else (True if args.viewer is True else has_display)
+    is_real = args.backend in ("real", "ros2", "real-udp", "udp")
+    render_viewer = True if args.viewer is True else (False if (args.headless or args.no_viewer or is_real) else has_display)
     self_col_enabled = (args.self_collision.lower() == "on")
     effective_input_mode = args.input if args.input is not None else ("controllers" if args.controller else "controllers")
     is_real_follower = (args.sim_follower == "real") or getattr(args, "real_follower", False)

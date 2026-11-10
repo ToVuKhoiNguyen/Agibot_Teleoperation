@@ -156,5 +156,7 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
         app.last_arm_cmd_left = cand_left
         app.last_arm_cmd_right = cand_right
 
-    app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
+    backend_key = (getattr(app, "backend", "sim") or "sim").lower()
+    if backend_key not in ("real", "ros2", "real-udp", "udp"):
+        app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
 

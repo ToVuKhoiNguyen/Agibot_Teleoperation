@@ -15,11 +15,14 @@ def run_control_loop(app):
     dt = getattr(app, "control_dt", 0.01)
     step = 0
     local_ip = get_local_ip()
+    backend_key = (getattr(app, "backend", "sim") or "sim").lower()
+    is_real = backend_key in ("real", "ros2", "real-udp", "udp")
 
     has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     viewer_label = "Active (Passive GUI Window)" if (app.env.viewer is not None) else ("Disabled (No display)" if not has_display else "OFF")
+    sim_label = "Bypassed (Real Robot Hardware)" if is_real else "MuJoCo (home keyframe, legs locked, arms active)"
     initial_status = {
-        "sim": "MuJoCo (home keyframe, legs locked, arms active)",
+        "sim": sim_label,
         "viewer": viewer_label,
         "server": f"HTTPS/WSS Listening on 0.0.0.0:{app.port}",
         "panel": "Ready (3D Viewport + Gizmos + Buttons)",
@@ -124,7 +127,7 @@ def run_control_loop(app):
                 if app.hand_collision_blocked:
                     app.clamp_counter_hand = getattr(app, "clamp_counter_hand", 0) + 1
 
-                if hasattr(app, "robot_safety") and app.robot_safety is not None and getattr(app.robot_safety, "is_connected", False):
+                if is_real and hasattr(app, "robot_safety") and app.robot_safety is not None:
                     q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
                     h12 = np.concatenate([app.last_hand_cmd_left, app.last_hand_cmd_right])
                     app.robot_safety.context["input_mode"] = getattr(app, "input_mode", "mouse")
@@ -138,17 +141,22 @@ def run_control_loop(app):
                     app._logged_hand_close_trace = True
                     print(f"[HAND_CLOSE_TRACE] Commanded 6 joints L: {app.last_hand_cmd_left.round(3)}, R: {app.last_hand_cmd_right.round(3)}")
 
-                if getattr(app, "real_follower_mode", False):
-                    if not hasattr(app, "_sim_lag_queue"):
-                        app._sim_lag_queue = []
-                    app._sim_lag_queue.append((app.last_arm_cmd_left.copy(), app.last_arm_cmd_right.copy()))
-                    exec_l, exec_r = app._sim_lag_queue.pop(0) if len(app._sim_lag_queue) > 2 else app._sim_lag_queue[0]
-                else:
-                    exec_l, exec_r = app.last_arm_cmd_left, app.last_arm_cmd_right
-
-                app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=exec_l, hold_right_qpos=exec_r)
+                if not is_real:
+                    if getattr(app, "real_follower_mode", False):
+                        if not hasattr(app, "_sim_lag_queue"):
+                            app._sim_lag_queue = []
+                        app._sim_lag_queue.append((app.last_arm_cmd_left.copy(), app.last_arm_cmd_right.copy()))
+                        exec_l, exec_r = app._sim_lag_queue.pop(0) if len(app._sim_lag_queue) > 2 else app._sim_lag_queue[0]
+                    else:
+                        exec_l, exec_r = app.last_arm_cmd_left, app.last_arm_cmd_right
+                    app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=exec_l, hold_right_qpos=exec_r)
+                elif app.env.viewer is not None and app.env.viewer.is_running():
+                    app.env.viewer.sync()
             else:
-                app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=app.last_arm_cmd_left, hold_right_qpos=app.last_arm_cmd_right)
+                if not is_real:
+                    app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=app.last_arm_cmd_left, hold_right_qpos=app.last_arm_cmd_right)
+                elif app.env.viewer is not None and app.env.viewer.is_running():
+                    app.env.viewer.sync()
 
             # Performance tracking telemetry (lag and steady error)
             if step % 20 == 0 and (app.gizmo_active_l or app.gizmo_active_r):

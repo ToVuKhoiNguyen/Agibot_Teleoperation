@@ -97,13 +97,17 @@ Xem hướng dẫn chi tiết từng bước tại [`real_robot_command.md`](fil
 
 2. **Khởi động Teleop Server trên Laptop:**
    ```bash
+   cd ~/a2_ws
+   source venv/bin/activate
    export TELEOP_TOKEN="a2_teleop"
-   # Chế độ mượt mà như arm.py (khuyên dùng):
+
+   # Chế độ mượt mà như arm.py (khuyên dùng - mặc định ngắt mô phỏng MuJoCo & chạy headless):
    python3 main.py --backend real-udp --controller --real-max-vel 1.0 --i-understand-hardware-risk
+
    # Hoặc chế độ tốc độ cao:
    # python3 main.py --backend real-udp --controller --real-max-vel 1.8 --i-accept-higher-speed --i-understand-hardware-risk
    ```
-   *(Thêm `--headless` nếu muốn tắt hoàn toàn cửa sổ MuJoCo)*.
+   *(Khi chạy `--backend real-udp`, hệ thống tự động tắt hàm mô phỏng vật lý `env.step()`, ngắt nạp lệnh motor ảo MuJoCo và chạy headless để tiết kiệm tối đa CPU. Thêm cờ `--viewer` nếu bạn muốn mở cửa sổ giao diện desktop MuJoCo)*.
 
 3. **Khởi động Node điều khiển trên Orin (SSH vào robot):**
    ```bash
@@ -137,10 +141,11 @@ Xem hướng dẫn chi tiết từng bước tại [`real_robot_command.md`](fil
 ---
 
 ## 6. Kiểm Thử & Đo Kiểm Độ Trễ
-- **Chạy toàn bộ 14 bộ kiểm thử chấp nhận (Acceptance Tests)**:
+- **Chạy bộ kiểm thử chấp nhận (Acceptance Tests)**:
   ```bash
-  bash scripts/test_all.sh
+  python3 scripts/test_web_sync.py && python3 scripts/test_panel_api.py && python3 scripts/test_latency_ladder.py
   ```
+  *(Hoặc chạy toàn diện qua `bash scripts/test_all.sh`)*.
 - **Đo thang độ trễ robot thật (A/B/C/D Bisect)**:
   Xem hướng dẫn tại [`docs/LATENCY_LADDER.md`](file:///home/nguyen/a2_ws/docs/LATENCY_LADDER.md).
   ```bash
