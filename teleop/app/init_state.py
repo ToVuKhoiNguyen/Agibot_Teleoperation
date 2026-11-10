@@ -25,7 +25,20 @@ def init_state(app, project_root: Path):
 
     prof = getattr(app, "speed_profile", "normal")
     init_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
-    app.mirror_limiter = MirrorLimiter(speed_profile=prof, initial_q14=init_q14)
+    tau_cfg = None
+    cfg_p = project_root / "config" / "tau_id.json"
+    if cfg_p.exists():
+        try:
+            import json
+            with open(cfg_p, "r", encoding="utf-8") as f:
+                tau_cfg = json.load(f).get("tau_arm")
+        except Exception: pass
+    app.mirror_limiter = MirrorLimiter(
+        speed_profile=prof, initial_q14=init_q14,
+        accept_higher_speed=getattr(app, "i_accept_higher_speed", False),
+        gate_mode=getattr(app, "gate_mode", "legacy"),
+        tau_id=tau_cfg
+    )
     is_real_backend = getattr(app, "backend", "sim").lower() in ("real", "ros2", "real-udp", "udp")
     app.sync_state = "SYNC" if is_real_backend else "ENGAGED"
     app.arm_engaged_l = False if is_real_backend else True
@@ -109,18 +122,12 @@ def init_state(app, project_root: Path):
     app.xr_closure_rate = float(app.quest_cfg.get("finger_closure_rate", 1.0))
     app.xr_stick_deadband = float(app.quest_cfg.get("thumbstick_deadband", 0.15))
     app.xr_stick_x_deadband = float(app.quest_cfg.get("thumbstick_x_deadband", 0.40))
-    app.xr_rig_yaw = 0.0
-    app.xr_tracking_lost_l = False
-    app.xr_tracking_lost_r = False
-    app.xr_reengage_required_l = False
-    app.xr_reengage_required_r = False
+    app.xr_rig_yaw, app.xr_tracking_lost_l, app.xr_tracking_lost_r = 0.0, False, False
+    app.xr_reengage_required_l, app.xr_reengage_required_r = False, False
     app.input_mode = getattr(app, "input_mode", "controllers")
-    app.hand_follow_mode = "absolute"
-    app.hand_elbow_hint = False
+    app.hand_follow_mode, app.hand_elbow_hint = "absolute", False
     app.cal_head_pos = np.array([0.0, 1.5, 0.0], dtype=np.float64)
-    app.cal_head_yaw = 0.0
-    app.handtrack_clutch_l = False
-    app.handtrack_clutch_r = False
+    app.cal_head_yaw, app.handtrack_clutch_l, app.handtrack_clutch_r = 0.0, False, False
     app.xr_handtrack_status = None
     app.handtrack_diag_status = {"left": {}, "right": {}}
     app.fingers_follow_always = True

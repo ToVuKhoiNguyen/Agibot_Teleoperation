@@ -223,9 +223,14 @@ function updateUIStatus(s) {
 
   const hudProf = document.getElementById('hud-profile-stat');
   if (hudProf) {
-    const prof = (s.speed_profile || 'normal').toUpperCase();
-    const vel = s.speed_profile === 'slow' ? '0.2' : (s.speed_profile === 'fast' ? '0.48' : '0.3');
-    hudProf.innerText = `Profile: ${prof} (${vel} rad/s)`;
+    const prof = (s.speed_profile || 'normal').toLowerCase();
+    const actVel = s.profile_max_vel !== undefined ? s.profile_max_vel.toFixed(2) : '0.30';
+    let capMsg = `${prof.toUpperCase()} (${actVel} rad/s)`;
+    if (s.profile_v_cap !== undefined && s.profile_max_vel < (prof === 'fast2' ? 0.70 : (prof === 'fast' ? 0.50 : (prof === 'slow' ? 0.20 : 0.30)))) {
+      const tauStr = s.profile_tau ? `tau=${s.profile_tau.toFixed(3)}s` : 'unidentified';
+      capMsg = `${prof} capped to ${actVel} rad/s (${tauStr})`;
+    }
+    hudProf.innerText = `Profile: ${capMsg}`;
   }
 
   if (typeof updateTelemetryUI === 'function') updateTelemetryUI(s);

@@ -12,15 +12,17 @@ import numpy as np
 from teleop.robot.aimdk_map import ARM_LOWER_14, ARM_UPPER_14, HOME
 
 SPEED_PROFILES = {
-    "slow": 0.20,
-    "normal": 0.30,
-    "fast": 0.48,
+    "slow": (0.20, 1.05),
+    "normal": (0.30, 1.50),
+    "fast": (0.50, 2.00),
+    "fast2": (0.70, 2.50),
 }
-HARD_VEL_CEILING = 0.50
-DEFAULT_MAX_ACC = 0.95
+HARD_VEL_CEILING = 0.80
+HARD_ACC_CEILING = 3.00
+DEFAULT_MAX_ACC = 1.50
 DEFAULT_LEAD_MAX = 0.10
 LEAD_MAX_DEFAULT = DEFAULT_LEAD_MAX
-ASSUMED_TAU_S = 0.10
+ASSUMED_TAU_S = 0.138
 
 
 class MirrorLimiter:
@@ -30,15 +32,35 @@ class MirrorLimiter:
         self,
         speed_profile: str = "normal",
         max_vel: float = None,
-        max_acc: float = DEFAULT_MAX_ACC,
+        max_acc: float = None,
         lead_max: float = DEFAULT_LEAD_MAX,
         dt: float = 0.02,
         initial_q14: np.ndarray = None,
+        accept_higher_speed: bool = False,
+        gate_mode: str = "legacy",
+        tau_id = None,
     ):
         self.profile = speed_profile if speed_profile in SPEED_PROFILES else "normal"
-        base_vel = SPEED_PROFILES[self.profile]
-        self.max_vel = min(HARD_VEL_CEILING, max_vel if max_vel is not None else base_vel)
-        self.max_acc = float(max_acc)
+        if self.profile == "fast2" and not accept_higher_speed:
+            self.profile = "fast"
+        base_vel, base_acc = SPEED_PROFILES[self.profile]
+        ceiling = 0.80 if accept_higher_speed else (0.50 if self.profile != "fast2" else 0.80)
+        
+        # Calculate auto speed cap
+        tau_max = None
+        if tau_id is not None:
+            if isinstance(tau_id, dict): tau_max = max(tau_id.values())
+            elif isinstance(tau_id, (int, float)): tau_max = float(tau_id)
+        if tau_max is not None and tau_max > 0:
+            scale_const = 0.15 if gate_mode == "lagged" else 0.05
+            self.v_cap = 0.7 * scale_const / tau_max
+            self.tau_val = tau_max
+        else:
+            self.v_cap = SPEED_PROFILES["slow"][0]
+            self.tau_val = None
+            
+        self.max_vel = min(base_vel, ceiling, self.v_cap if max_vel is None else max_vel)
+        self.max_acc = min(HARD_ACC_CEILING, base_acc if max_acc is None else float(max_acc))
         self.lead_max = float(lead_max)
         self.dt = float(dt)
         self.lim_min = np.array(ARM_LOWER_14, dtype=np.float64)
