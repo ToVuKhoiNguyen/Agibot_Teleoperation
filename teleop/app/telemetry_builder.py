@@ -151,6 +151,7 @@ def build_status_packet(app) -> dict:
         "profile_max_vel": float(getattr(getattr(app, "mirror_limiter", None), "max_vel", 0.3)),
         "profile_v_cap": float(getattr(getattr(app, "mirror_limiter", None), "v_cap", 0.3)),
         "profile_tau": float(getattr(getattr(app, "mirror_limiter", None), "tau_val", 0.138)) if getattr(getattr(app, "mirror_limiter", None), "tau_val", None) is not None else None,
+        "overshoot_count": int(getattr(getattr(app, "mirror_limiter", None), "overshoot_count", 0)),
         "q_real_l": [float(x) for x in app.real_q14_measured[:7]] if getattr(app, "real_q14_measured", None) is not None else None,
         "q_real_r": [float(x) for x in app.real_q14_measured[7:]] if getattr(app, "real_q14_measured", None) is not None else None,
         "xr_status": {

@@ -3,6 +3,7 @@ teleop/app/ik_dispatcher.py
 Orchestrates dual-arm inverse kinematics solving, follower updates, and collision safety gating.
 """
 
+import os
 import numpy as np
 
 
@@ -14,17 +15,16 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
     slid_blocked_r = False
 
     is_hands = getattr(app, "input_mode", "") == "hands"
+    use_cart = os.environ.get("CART_FOLLOWER", "1") != "0"
 
     if arm in ("left", "both"):
         vel_l = getattr(app, "handtrack_vel_l", None) if is_hands else None
-        if is_hands and vel_l is not None:
+        if use_cart:
             follow_pos_l = app.gizmo_follower_l.update(app.cur_target_pos_l, app.control_dt, target_vel=vel_l)
             follow_rot_l = app.gizmo_rot_follower_l.update(app.cur_target_rot_l, app.control_dt)
         else:
             follow_pos_l = np.array(app.cur_target_pos_l, dtype=np.float64).copy()
             follow_rot_l = np.array(app.cur_target_rot_l, dtype=np.float64).copy()
-            if hasattr(app, "gizmo_follower_l"): app.gizmo_follower_l.reset(follow_pos_l)
-            if hasattr(app, "gizmo_rot_follower_l"): app.gizmo_rot_follower_l.reset(follow_rot_l)
         slid_pos_l, slid_blocked_l = app.collision_checker.project_target_tangent(
             ee_poses["left"]["pos"], follow_pos_l, app.env.data
         )
@@ -56,14 +56,12 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
 
     if arm in ("right", "both"):
         vel_r = getattr(app, "handtrack_vel_r", None) if is_hands else None
-        if is_hands and vel_r is not None:
+        if use_cart:
             follow_pos_r = app.gizmo_follower_r.update(app.cur_target_pos_r, app.control_dt, target_vel=vel_r)
             follow_rot_r = app.gizmo_rot_follower_r.update(app.cur_target_rot_r, app.control_dt)
         else:
             follow_pos_r = np.array(app.cur_target_pos_r, dtype=np.float64).copy()
             follow_rot_r = np.array(app.cur_target_rot_r, dtype=np.float64).copy()
-            if hasattr(app, "gizmo_follower_r"): app.gizmo_follower_r.reset(follow_pos_r)
-            if hasattr(app, "gizmo_rot_follower_r"): app.gizmo_rot_follower_r.reset(follow_rot_r)
         slid_pos_r, slid_blocked_r = app.collision_checker.project_target_tangent(
             ee_poses["right"]["pos"], follow_pos_r, app.env.data
         )

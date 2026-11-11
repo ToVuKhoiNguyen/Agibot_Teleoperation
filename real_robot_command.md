@@ -18,10 +18,11 @@ Tài liệu hướng dẫn từng bước chi tiết từ lúc vừa bật máy 
 Mở terminal trên Laptop và chạy lệnh:
 ```bash
 # Kiểm tra mã băm SHA256 trước khi gửi:
-sha256sum scripts/arm_teleop_rx.py
-# Kì vọng: 300f41ebf2c78462e6d34dab842b5b393dd403bfaad0afbb2457de4c64fed6ee
+sha256sum scripts/arm_teleop_rx.py scripts/orin_teleop_core.py scripts/orin_trace_logger.py scripts/async_writer.py
+# Kì vọng arm_teleop_rx.py: 10c4b70a5f361b0570903ba85896856d9d61b10cbd8dd8af20b84b13f3d5831c
 
-scp scripts/arm_teleop_rx.py agi@192.168.2.50:/agibot/data/home/agi/Desktop/mc/
+# Đồng bộ sang Orin (cả 4 tệp độc lập vào thư mục mc):
+scp scripts/arm_teleop_rx.py scripts/orin_teleop_core.py scripts/orin_trace_logger.py scripts/async_writer.py agi@192.168.2.50:/agibot/data/home/agi/Desktop/mc/
 ```
 
 ---
@@ -66,7 +67,7 @@ bash /agibot/data/home/agi/Desktop/motion_player/disable_motion_player.sh
 # 3. Vào thư mục mc và kiểm tra mã băm SHA256 file receiver
 cd /agibot/data/home/agi/Desktop/mc
 sha256sum arm_teleop_rx.py
-# Kỳ vọng đúng mã: 300f41ebf2c78462e6d34dab842b5b393dd403bfaad0afbb2457de4c64fed6ee
+# Kỳ vọng đúng mã: 10c4b70a5f361b0570903ba85896856d9d61b10cbd8dd8af20b84b13f3d5831c
 
 # 4. Nạp cấu hình ROS 2
 source /opt/ros/humble/setup.bash
@@ -165,3 +166,46 @@ python3 arm_teleop_rx.py
 
 - Khi kết thúc điều khiển: Bấm `Ctrl + C` trên Terminal SSH của Orin. Node sẽ tự động giữ nguyên vị trí đo thực trong 2 giây trước khi nhả lệnh.
 - Nếu có bất thường: **Dập ngay nút E-Stop vật lý trên tay người giám sát** hoặc bấm tổ hợp nút `B + Y` trên tay cầm Quest.
+
+---
+
+## PHỤ LỤC: BẢNG BISECT DAO ĐỘNG & BIẾN MÔI TRƯỜNG (BISECT MATRIX)
+
+Hệ thống hỗ trợ 6 cờ biến môi trường (mặc định giữ nguyên chuẩn, in rõ lúc khởi động trên cả Laptop và Orin):
+- `CART_FOLLOWER=0/1` (Mặc định `1`): Bật/tắt bộ lọc Cartesian critically-damped trước IK (bộ lọc tiền IK duy nhất).
+- `WRIST_SCALE=0.5/1.0` (Mặc định `0.5`): Hệ số giảm gia tốc cho 4 khớp cổ tay (Left: J5, J6; Right: J12, J13).
+- `WIRE_HZ=50/100` (Mặc định `100`): Tần số phát UDP qua mạng.
+- `PLAYOUT_MS=0/30` (Mặc định `30`): Độ trễ đệm khử jitter/drop gói tin trên Orin.
+
+### Kiến trúc Limiter Đơn điệu Không Overshoot (Monotone No-Overshoot Architecture):
+- **Thuật toán**: $v_{\text{des}} = \text{clamp}((target - x)/\tau, -v_{\max}, +v_{\max})$, $|dv/dt| \le a_{\max}$, $x \mathrel{+}= v \cdot dt$.
+- **Hệ số $\tau$**: $\tau = \max(0.15, 1.2 \cdot v_{\max} / (2 a_{\max}))$, triệt tiêu hoàn toàn overshoot theo thiết kế hình học.
+- **Cổ tay (J5, J6, J12, J13)**: $a_{\max} = a_{\max} \cdot \text{WRIST\_SCALE}$, sở hữu $\tau$ riêng tương ứng.
+- **Loại bỏ**: Phanh parabol khoảng cách, `END_APPROACH`, và bộ lọc trùng lặp FIR (chỉ giữ Cartesian follower trước IK).
+- **Đồng nhất Sim & Real**: Cả chế độ `--sim` và `real-udp` đều chạy chung một đường ống Limiter duy nhất.
+
+---
+
+## QUY TRÌNH THU THẬP TRACE & TỰ ĐỘNG CHẨN ĐOÁN
+1. **Terminal 1 (Orin - duy nhất 1 lệnh chạy receiver):**
+   ```bash
+   cd /agibot/data/home/agi/Desktop/mc
+   python3 arm_teleop_rx.py
+   # Tự động xuất logs/trace_orin_<ts>.jsonl và logs/trace_recorder_<ts>.jsonl
+   ```
+2. **Terminal 2 (Laptop - Teleop Server):**
+   ```bash
+   cd ~/a2_ws && source venv/bin/activate
+   python3 main.py
+   # Tự động xuất logs/trace_laptop_<ts>.jsonl khi truyền UDP
+   ```
+3. **Phân tích kết quả sau khi kéo di chuyển và dừng (Ctrl+C cả 2 terminal):**
+   ```bash
+   # Kéo 2 file log từ Orin về:
+   scp "agi@192.168.2.50:/agibot/data/home/agi/Desktop/mc/trace_*.jsonl" logs/
+   # Chạy phân tích:
+   python3 scripts/classify_arrival.py logs/trace_laptop_<ts>.jsonl logs/trace_orin_<ts>.jsonl logs/trace_recorder_<ts>.jsonl
+   ```
+   **Kỳ vọng chẩn đoán sau khi fix:**
+   - `SENT ptp < 0.003 rad` (hết hunting hoàn toàn trên Laptop).
+   - Phán quyết: `V4 (ROBOT_INNER_LOOP)` nếu khớp còn rung cơ học tự nhiên hoặc kết quả dừng ổn định hoàn hảo.

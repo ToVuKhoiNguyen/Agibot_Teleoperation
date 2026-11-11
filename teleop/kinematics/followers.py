@@ -138,7 +138,7 @@ class CriticallyDampedFollower:
         c1 = diff
         c2 = self.v + self.omega * diff
         new_x = tgt_eff + (c1 + c2 * h) * exp_wt
-        new_v = (self.v - (c1 * self.omega * self.omega + c2 * self.omega * h) * h) * exp_wt
+        new_v = (c2 - self.omega * (c1 + c2 * h)) * exp_wt
         self.x = new_x
         self.v = new_v
         return self.x

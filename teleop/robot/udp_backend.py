@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from teleop.robot.interface import RobotInterface
 from teleop.robot.aimdk_map import SIM_HAND_COMFORTABLE_LIMITS, sim_hand_to_robot_raw, HAND_SAFE_RAW_MAX
+from teleop.robot.trace_logger import LaptopTraceLogger
 
 BUILD_ID = "f43762b"
 
@@ -17,8 +18,10 @@ class UdpBackend(RobotInterface):
         self.tx_sock, self.rx_sock = None, None
         self._connected, self._seq = False, 0
         self.session_id = f"laptop_{os.getpid()}_{int(time.time())}"
-        self.proto_ver = 2
+        self.wire_hz = int(os.environ.get("WIRE_HZ", "100"))
+        self.proto_ver = 3
         self._lock_fd = None
+        self._warned_proto = False
         
         self._real_q14, self._real_q14_lock = None, threading.Lock()
         self._real_hand12, self._real_hand_lock = None, threading.Lock()
@@ -33,6 +36,7 @@ class UdpBackend(RobotInterface):
         self.rx_telemetry = {}
 
         self._log_file, self._log_lock = None, threading.Lock()
+        self._trace_logger = None
         self.app = None
 
     def connect(self) -> None:
@@ -42,14 +46,12 @@ class UdpBackend(RobotInterface):
                 with open(lock_path, "r") as pf:
                     content = pf.read().strip()
                 if content:
-                    old_pid = int(content)
-                    try:
-                        os.kill(old_pid, 0)
-                        raise RuntimeError(f"Lockfile {lock_path} held by active PID {old_pid}")
-                    except OSError:
-                        os.remove(lock_path)
+                    os.kill(int(content), 0)
+                    raise RuntimeError(f"Lockfile {lock_path} held by active PID {content}")
             except (ValueError, OSError) as e:
                 if "active PID" in str(e): raise
+                try: os.remove(lock_path)
+                except OSError: pass
         try:
             self._lock_fd = open(lock_path, "w")
             fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -73,15 +75,15 @@ class UdpBackend(RobotInterface):
             logs_dir.mkdir(parents=True, exist_ok=True)
             ts = time.strftime("%Y%m%d_%H%M%S")
             self._log_file = open(logs_dir / f"real_{ts}.jsonl", "a", buffering=1, encoding="utf-8")
+            self._trace_logger = LaptopTraceLogger(logs_dir, self.wire_hz, getattr(getattr(self, "app", None), "speed_level", 3))
         except Exception as e:
             print(f"[UdpBackend] Failed to open real log: {e}")
-
         self._connected = True
         self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self.rx_thread.start()
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self.tx_thread.start()
-        print(f"[UdpBackend] Connected 50Hz. TX -> {self.host}:{self.tx_port} | session={self.session_id}")
+        print(f"[UdpBackend] Connected {self.wire_hz}Hz (WIRE_HZ={self.wire_hz}). TX -> {self.host}:{self.tx_port} | session={self.session_id}")
 
     def disconnect(self) -> None:
         self._connected = False
@@ -89,10 +91,8 @@ class UdpBackend(RobotInterface):
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                 self._lock_fd.close()
-                lock_path = os.environ.get("TELEOP_LOCK_FILE", "/tmp/a2_teleop.lock")
-                if os.path.exists(lock_path):
-                    try: os.remove(lock_path)
-                    except Exception: pass
+                lock_p = os.environ.get("TELEOP_LOCK_FILE", "/tmp/a2_teleop.lock")
+                if os.path.exists(lock_p): os.remove(lock_p)
             except Exception: pass
             self._lock_fd = None
         with self._log_lock:
@@ -100,6 +100,10 @@ class UdpBackend(RobotInterface):
                 try: self._log_file.close()
                 except Exception: pass
                 self._log_file = None
+        if self._trace_logger:
+            try: self._trace_logger.close()
+            except Exception: pass
+            self._trace_logger = None
         for s in (self.tx_sock, self.rx_sock):
             if s:
                 try: s.close()
@@ -114,11 +118,16 @@ class UdpBackend(RobotInterface):
                 arrival_t = time.time()
                 pkt = json.loads(data.decode("utf-8"))
                 self.rx_telemetry = pkt
+                orin_ver = pkt.get("proto_ver")
+                orin_hz = pkt.get("wire_hz")
+                if not self._warned_proto and (orin_ver is not None or orin_hz is not None):
+                    if orin_ver != self.proto_ver or (orin_hz and orin_hz != self.wire_hz):
+                        print(f"[WARN] Protocol mismatch! Laptop(v{self.proto_ver}, {self.wire_hz}Hz) vs Orin(v{orin_ver}, {orin_hz}Hz, sha={str(pkt.get('sha'))[:8]})")
+                        self._warned_proto = True
                 q = pkt.get("q")
                 if q and len(q) == 14:
                     with self._real_q14_lock:
-                        self._real_q14 = np.array(q, dtype=np.float64)
-                        self._last_state_t = arrival_t
+                        self._real_q14, self._last_state_t = np.array(q, dtype=np.float64), arrival_t
                     if not self._init_synced and self.env is not None and hasattr(self.env, "set_arm_commands"):
                         try:
                             self.env.set_arm_commands(self._real_q14[:7], self._real_q14[7:])
@@ -131,19 +140,27 @@ class UdpBackend(RobotInterface):
             except (socket.timeout, Exception): pass
 
     def _tx_loop(self) -> None:
-        next_t = time.monotonic()
+        dt = 1.0 / self.wire_hz
+        next_t = time.perf_counter()
         while self._connected:
             with self._tx_lock:
-                q_to_send = self._target_tx_q.copy() if self._target_tx_q is not None else None
+                raw_target = self._target_tx_q.copy() if self._target_tx_q is not None else None
                 h_to_send = self._target_tx_h.copy() if self._target_tx_h is not None else None
             app = getattr(self, "app", None)
             sync_st = getattr(app, "sync_state", None) if app else None
-            if q_to_send is not None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
-                self._send_packet_now(q_to_send, h_to_send)
-            next_t += 0.010  # 100 Hz streaming
-            sleep_t = next_t - time.monotonic()
-            if sleep_t > 0: time.sleep(sleep_t)
-            else: next_t = time.monotonic()
+            if raw_target is not None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
+                if hasattr(app, "mirror_limiter") and app.mirror_limiter is not None:
+                    q_to_send = app.mirror_limiter.step(raw_target, dt=dt)
+                else:
+                    q_to_send = raw_target
+                self._send_packet_now(q_to_send, h_to_send, raw_target=raw_target, plan_q=q_to_send)
+            next_t += dt
+            now = time.perf_counter()
+            sleep_t = next_t - now
+            if sleep_t > 0.0001:
+                time.sleep(sleep_t)
+            elif sleep_t < -dt:
+                next_t = time.perf_counter()
 
     def send_arm(self, q14: np.ndarray) -> None:
         q_arr = np.array(q14, dtype=np.float64)
@@ -152,13 +169,14 @@ class UdpBackend(RobotInterface):
         app = getattr(self, "app", None)
         sync_st = getattr(app, "sync_state", None) if app else None
         if self.tx_thread is None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
-            self._send_packet_now(q_arr, self._target_tx_h)
+            self._send_packet_now(q_arr, self._target_tx_h, raw_target=q_arr, plan_q=q_arr)
 
-    def _send_packet_now(self, q14: np.ndarray, h12: np.ndarray = None) -> None:
+    def _send_packet_now(self, q14: np.ndarray, h12: np.ndarray = None, raw_target: np.ndarray = None, plan_q: np.ndarray = None) -> None:
         if not self._connected or self.tx_sock is None: return
         self._last_arm_cmd = np.array(q14, dtype=np.float64)
         self._seq += 1
         now = time.time()
+        t_perf = time.perf_counter()
         app = getattr(self, "app", None)
         engaged = [bool(getattr(app, "arm_engaged_l", False)), bool(getattr(app, "arm_engaged_r", False))] if app else [True, True]
         pkt = {
@@ -180,6 +198,10 @@ class UdpBackend(RobotInterface):
             self.tx_sock.sendto(json.dumps(pkt).encode("utf-8"), (self.host, self.tx_port))
         except Exception as e:
             print(f"[UdpBackend] Send error: {e}")
+        raw_t = raw_target if raw_target is not None else self._last_arm_cmd
+        pl_q = plan_q if plan_q is not None else self._last_arm_cmd
+        if self._trace_logger:
+            self._trace_logger.log_tick(self._seq, t_perf, raw_t, raw_t, pl_q, self._last_arm_cmd)
         with self._log_lock:
             if self._log_file:
                 with self._real_q14_lock:
@@ -223,7 +245,6 @@ class UdpBackend(RobotInterface):
 
     def estop(self) -> None: print("[UdpBackend] ESTOP triggered!")
     def hold(self) -> None:
-        if self._connected and self._last_arm_cmd is not None:
-            self.send_arm(self._last_arm_cmd)
+        if self._connected and self._last_arm_cmd is not None: self.send_arm(self._last_arm_cmd)
     def is_alive(self) -> bool: return self._connected
 

@@ -47,6 +47,7 @@ def init_state(app, project_root: Path):
         gate_mode=gate_m,
         tau_id=tau_cfg
     )
+    print("[CommandChain] Chain: Input(Gizmo/XR) -> CartesianFollower(critically-damped) -> IK -> MonotoneLimiter(per-joint, open-loop) -> UDP/Sim")
     is_real_backend = getattr(app, "backend", "sim").lower() in ("real", "ros2", "real-udp", "udp")
     app.sync_state = "SYNC" if is_real_backend else "ENGAGED"
     app.arm_engaged_l = False if is_real_backend else True

@@ -94,11 +94,6 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         if getattr(app, "status_warning", "").startswith("Tracking deviation"):
             app.status_warning = ""
 
-        q_plan = app.mirror_limiter.step(raw_target_q14, measured_q14=q_act, dt=dt, speed_scale=1.0)
-        app.last_arm_cmd_left = q_plan[:7].copy()
-        app.last_arm_cmd_right = q_plan[7:].copy()
-        app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
-
         # Update digital twin hand commands gated by ENGAGED
         eng_l = bool(getattr(app, "arm_engaged_l", False))
         eng_r = bool(getattr(app, "arm_engaged_r", False))
@@ -112,7 +107,7 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
                 app._hold_samples = []
             dq_sent = np.max(np.abs(getattr(app.mirror_limiter, "v_plan", np.zeros(14))))
             if dq_sent < 0.002 and q_act is not None:
-                app._hold_samples.append(q_act - q_plan)
+                app._hold_samples.append(q_act - last_plan)
                 if len(app._hold_samples) >= int(2.0 / dt):
                     raw_offset = np.median(app._hold_samples, axis=0)
                     clamped_offset = np.clip(raw_offset, -0.03, 0.03)
@@ -124,13 +119,13 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
             else:
                 app._hold_samples = []
 
-        # Pure open-loop: q_send is q_plan directly
-        q_send = q_plan.copy()
-
+        # Deliver raw target to backend; limiter runs at 100 Hz inside UdpBackend
+        cur_q = app.mirror_limiter.q_plan if hasattr(app, "mirror_limiter") else app.last_arm_cmd_left
+        app.env.set_arm_commands(cur_q[:7], cur_q[7:])
         h12 = np.concatenate([h_left, h_right])
         app.robot_safety.context["input_mode"] = getattr(app, "input_mode", "mouse")
         app.robot_safety.context["collision_gate"] = bool(getattr(app, "collision_blocked", False))
-        ok = app.robot_safety.send_arm(q_send, dt=dt)
+        ok = app.robot_safety.send_arm(raw_target_q14, dt=dt)
         if hasattr(app.robot_safety, "send_hand"):
             app.robot_safety.send_hand(h12)
     elif getattr(app, "real_follower_mode", False):
@@ -143,6 +138,11 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
         app.env.set_hand_commands(app.last_hand_cmd_left, app.last_hand_cmd_right)
     else:
-        # Default ideal sim mode
-        app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
+        # Default sim mode: step through the SAME mirror_limiter as real-udp
+        if hasattr(app, "mirror_limiter") and app.mirror_limiter is not None:
+            raw_target_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
+            q_plan = app.mirror_limiter.step(raw_target_q14, dt=dt)
+            app.env.set_arm_commands(q_plan[:7], q_plan[7:])
+        else:
+            app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
         app.env.set_hand_commands(app.last_hand_cmd_left, app.last_hand_cmd_right)

@@ -5,6 +5,7 @@ Initializes simulation environment, IK engines, servers, retargeters, and filter
 
 import os
 import sys
+import math
 from pathlib import Path
 import numpy as np
 import mujoco
@@ -178,13 +179,14 @@ def init_subsystems(
     app.output_filter_left.reset(app.env.get_left_arm_qpos())
     app.output_filter_right.reset(app.env.get_right_arm_qpos())
 
-    # Gizmo followers
-    app.gizmo_follower_l = CriticallyDampedFollower(natural_freq_hz=30.0, dt=app.control_dt)
-    app.gizmo_follower_r = CriticallyDampedFollower(natural_freq_hz=30.0, dt=app.control_dt)
+    # Gizmo followers (omega_n = 15.0 rad/s -> freq ~ 2.387 Hz)
+    gizmo_freq = 15.0 / (2.0 * math.pi)
+    app.gizmo_follower_l = CriticallyDampedFollower(natural_freq_hz=gizmo_freq, dt=app.control_dt)
+    app.gizmo_follower_r = CriticallyDampedFollower(natural_freq_hz=gizmo_freq, dt=app.control_dt)
     app.gizmo_follower_l.reset(app.robot_home_pos_l)
     app.gizmo_follower_r.reset(app.robot_home_pos_r)
-    app.gizmo_rot_follower_l = QuaternionSlerpFollower(bandwidth_hz=30.0, dt=app.control_dt)
-    app.gizmo_rot_follower_r = QuaternionSlerpFollower(bandwidth_hz=30.0, dt=app.control_dt)
+    app.gizmo_rot_follower_l = QuaternionSlerpFollower(bandwidth_hz=gizmo_freq, dt=app.control_dt)
+    app.gizmo_rot_follower_r = QuaternionSlerpFollower(bandwidth_hz=gizmo_freq, dt=app.control_dt)
     app.gizmo_rot_follower_l.reset(app.robot_home_rot_l)
     app.gizmo_rot_follower_r.reset(app.robot_home_rot_r)
     app.output_filter_left_gizmo = JointTrajectoryFilter(num_joints=7, max_vel=6.0, max_acc=80.0, max_jerk=250.0, dt=app.control_dt)
