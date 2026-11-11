@@ -143,6 +143,7 @@ def build_status_packet(app) -> dict:
         "fault_reason": str(getattr(getattr(app, "robot_safety", None), "fault_reason", "")),
         "warning": str(app.status_warning),
         "sync_state": str(getattr(app, "sync_state", "READY")),
+        "orin_rx_state": str(getattr(app, "orin_rx_state", "WAITING")),
         "arm_engaged_l": bool(getattr(app, "arm_engaged_l", False)),
         "arm_engaged_r": bool(getattr(app, "arm_engaged_r", False)),
         "max_sim_real_gap_rad": float(getattr(app, "max_sim_real_gap_rad", 0.0)),

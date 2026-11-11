@@ -24,14 +24,17 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         else:
             q_act = None
 
+        rx_st = meta.get("rx_state", "WAITING") if isinstance(meta, dict) else "WAITING"
+        app.orin_rx_state = rx_st
+
         # Check Orin robot node fault latch
-        if meta.get("robot_fault", False):
+        if meta.get("robot_fault", False) or rx_st.startswith("FAULT"):
             app.robot_safety.fault_latched = True
-            reason = meta.get("fault_reason", "")
+            reason = meta.get("fault_reason", "") or rx_st
             if "DUAL PUBLISHER" in reason:
                 app.robot_safety.fault_reason = "DUAL PUBLISHER: another node is publishing on robot topics!"
             else:
-                app.robot_safety.fault_reason = "ROBOT NODE FAULT: restart arm_teleop_rx.py"
+                app.robot_safety.fault_reason = f"ROBOT NODE FAULT ({reason}): restart arm_teleop_rx.py"
             app.sync_state = "FAULT"
             return
 
@@ -72,16 +75,21 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         # 2. State: READY
         if app.sync_state == "READY":
             if getattr(app, "arm_engaged_l", False) or getattr(app, "arm_engaged_r", False):
-                app.sync_state = "ENGAGED"
-            else:
-                return
+                if rx_st == "RX_OK" or rx_st == "NOT_ENGAGED":
+                    app.sync_state = "ENGAGED"
+            return
 
         # 3. State: FAULT
         if app.sync_state == "FAULT" or getattr(app.robot_safety, "fault_latched", False):
             app.sync_state = "FAULT"
             return
 
-        # 4. State: ENGAGED
+        # 4. State: ENGAGED - must never show ENGAGED while rx_state != RX_OK
+        if rx_st not in ("RX_OK", "WAITING"):
+            if rx_st.startswith("REJECT") or rx_st == "HOLDING":
+                app.sync_state = "READY"
+                app.status_warning = f"Orin state: {rx_st}"
+                return
         raw_target_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
         last_plan = app.mirror_limiter.q_plan
 

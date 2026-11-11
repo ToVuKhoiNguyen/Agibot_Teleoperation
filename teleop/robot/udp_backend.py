@@ -11,33 +11,15 @@ BUILD_ID = "f43762b"
 class UdpBackend(RobotInterface):
     """Bidirectional UDP teleop backend with single-sender lock, 50Hz monotonic TX, and version handshake."""
     def __init__(self, host: str = "192.168.2.50", tx_port: int = 5005, rx_port: int = 5006, env=None):
-        self.host = os.environ.get("ROBOT_IP", host)
-        self.tx_port = int(os.environ.get("ROBOT_PORT", tx_port))
-        self.rx_port = int(os.environ.get("ROBOT_RX_PORT", rx_port))
-        self.env = env
-        self.tx_sock, self.rx_sock = None, None
-        self._connected, self._seq = False, 0
+        self.host, self.tx_port, self.rx_port, self.env = os.environ.get("ROBOT_IP", host), int(os.environ.get("ROBOT_PORT", tx_port)), int(os.environ.get("ROBOT_RX_PORT", rx_port)), env
+        self.tx_sock, self.rx_sock, self._connected, self._seq = None, None, False, 0
         self.session_id = f"laptop_{os.getpid()}_{int(time.time())}"
-        self.wire_hz = int(os.environ.get("WIRE_HZ", "100"))
-        self.proto_ver = 3
-        self._lock_fd = None
-        self._warned_proto = False
-        
+        self.wire_hz, self.proto_ver, self._lock_fd, self._warned_proto = int(os.environ.get("WIRE_HZ", "100")), 3, None, False
         self._real_q14, self._real_q14_lock = None, threading.Lock()
         self._real_hand12, self._real_hand_lock = None, threading.Lock()
-        self._last_state_t = 0.0
-        self._last_arm_cmd = None
-        self._target_tx_q = None
-        self._target_tx_h = None
-        self._curr_tx_q = None
-        self._tx_lock = threading.Lock()
-        self._init_synced = False
-        self.rx_thread, self.tx_thread = None, None
-        self.rx_telemetry = {}
-
-        self._log_file, self._log_lock = None, threading.Lock()
-        self._trace_logger = None
-        self.app = None
+        self._last_state_t, self._last_arm_cmd, self._target_tx_q, self._target_tx_h, self._curr_tx_q = 0.0, None, None, None, None
+        self._tx_lock, self._init_synced, self.rx_thread, self.tx_thread, self.rx_telemetry = threading.Lock(), False, None, None, {}
+        self._log_file, self._log_lock, self._trace_logger, self.app = None, threading.Lock(), None, None
 
     def connect(self) -> None:
         lock_path = os.environ.get("TELEOP_LOCK_FILE", "/tmp/a2_teleop.lock")
@@ -230,18 +212,24 @@ class UdpBackend(RobotInterface):
             h_meas = self._real_hand12.copy() if self._real_hand12 is not None else np.zeros(12, dtype=np.float64)
         robot_fault = bool(self.rx_telemetry.get("robot_fault", False))
         fault_reason = self.rx_telemetry.get("fault_reason", "")
+        rx_st = self.rx_telemetry.get("rx_state", "WAITING")
+        meta = {"age_s": 0.0, "last_t": 0.0, "robot_fault": robot_fault, "fault_reason": fault_reason, "rx_state": rx_st}
         with self._real_q14_lock:
             if self._real_q14 is not None:
-                age = time.time() - self._last_state_t if self._last_state_t > 0 else 999.0
-                return self._real_q14.copy(), h_meas, {"age_s": age, "last_t": self._last_state_t, "robot_fault": robot_fault, "fault_reason": fault_reason}
+                meta["age_s"] = time.time() - self._last_state_t if self._last_state_t > 0 else 999.0
+                meta["last_t"] = self._last_state_t
+                return self._real_q14.copy(), h_meas, meta
         if self._last_arm_cmd is not None:
-            return self._last_arm_cmd.copy(), h_meas, {"age_s": 0.0, "last_t": time.time(), "robot_fault": robot_fault, "fault_reason": fault_reason}
+            meta["last_t"] = time.time()
+            return self._last_arm_cmd.copy(), h_meas, meta
         if self.env is not None and hasattr(self.env, "get_arm_qpos"):
             try:
                 qp = self.env.get_arm_qpos()
-                return np.concatenate([qp["left"], qp["right"]]), h_meas, {"age_s": 0.0, "last_t": time.time(), "robot_fault": robot_fault, "fault_reason": fault_reason}
+                meta["last_t"] = time.time()
+                return np.concatenate([qp["left"], qp["right"]]), h_meas, meta
             except Exception: pass
-        return np.zeros(14, dtype=np.float64), h_meas, {"age_s": 999.0, "last_t": 0.0, "robot_fault": robot_fault, "fault_reason": fault_reason}
+        meta["age_s"] = 999.0
+        return np.zeros(14, dtype=np.float64), h_meas, meta
 
     def estop(self) -> None: print("[UdpBackend] ESTOP triggered!")
     def hold(self) -> None:

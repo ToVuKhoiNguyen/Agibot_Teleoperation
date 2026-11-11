@@ -203,8 +203,10 @@ function updateUIStatus(s) {
   if (syncBadge) {
     let st = s.sync_state || (s.fault_latched ? 'FAULT' : 'READY');
     let sub = '';
+    const rxSt = s.orin_rx_state;
     if (s.fault_latched || st === 'FAULT') { st = 'FAULT'; sub = ` (${s.fault_reason || 'Clear to resume'})`; }
     else if (st === 'SYNC') { sub = ' (WAITING FEEDBACK: no packet on UDP 5006)'; }
+    else if (rxSt && rxSt !== 'RX_OK' && rxSt !== 'WAITING') { sub = ` (ROBOT: ${rxSt})`; }
     else if (st === 'READY') { sub = ' (NOT ENGAGED: Click Engage to move)'; }
     else if (s.feedback_age_ms > 200) { sub = ` (STALE FEEDBACK: ${s.feedback_age_ms.toFixed(0)}ms)`; }
     const gap = (s.max_sim_real_gap_rad !== undefined && st === 'ENGAGED') ? ` • gap: ${s.max_sim_real_gap_rad.toFixed(3)} rad` : '';

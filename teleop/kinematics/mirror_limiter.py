@@ -73,6 +73,8 @@ class MirrorLimiter:
         self.a_plan = np.zeros(14, dtype=np.float64)
         self.target_history = [self.q_plan.copy()]
         self.overshoot_count = 0
+        self.settled = np.ones(14, dtype=bool)
+        self.settled_target = self.q_plan.copy()
 
         self.lead_max = float(lead_max)
         self.lead_val = 0.0
@@ -92,6 +94,8 @@ class MirrorLimiter:
         self.a_plan = np.zeros(14, dtype=np.float64)
         self.target_history = [self.q_plan.copy()]
         self.overshoot_count = 0
+        self.settled = np.ones(14, dtype=bool)
+        self.settled_target = self.q_plan.copy()
         self.lead_val = 0.0
         self.lead_exceeded = False
         self.backoff_active = False
@@ -116,12 +120,26 @@ class MirrorLimiter:
 
         eff_max_vel = self.max_vel * max(0.0, min(1.0, speed_scale))
 
-        # Monotone law per joint: v_des = clamp((target - x)/tau, -vmax, +vmax); |dv/dt| <= amax
+        # Rest deadband with hysteresis: enter at |e|<=0.002, leave when |e|>0.004 or tgt moved >0.004
         for i in range(14):
             e = target[i] - self.q_plan[i]
-            if abs(e) < 0.001 and abs(self.v_plan[i]) < 0.005:
-                self.q_plan[i] = target[i]
-                self.v_plan[i] = 0.0
+            if self.settled[i]:
+                if abs(e) > 0.004 or abs(target[i] - self.settled_target[i]) > 0.004:
+                    self.settled[i] = False
+            elif abs(e) <= 0.002:
+                self.settled[i] = True
+                self.settled_target[i] = target[i]
+
+            if self.settled[i]:
+                if abs(self.v_plan[i]) > 1e-5:
+                    dv = -self.v_plan[i]
+                    max_dv = self.max_acc[i] * dt_eff
+                    self.v_plan[i] += np.clip(dv, -max_dv, max_dv)
+                    dx = np.clip(self.v_plan[i] * dt_eff, -self.step_cap, self.step_cap)
+                    self.v_plan[i] = dx / dt_eff
+                    self.q_plan[i] += dx
+                else:
+                    self.v_plan[i] = 0.0
             else:
                 v_des = np.clip(e / self.tau[i], -eff_max_vel, eff_max_vel)
                 dv = v_des - self.v_plan[i]

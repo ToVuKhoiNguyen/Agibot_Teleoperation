@@ -19,7 +19,7 @@ Mở terminal trên Laptop và chạy lệnh:
 ```bash
 # Kiểm tra mã băm SHA256 trước khi gửi:
 sha256sum scripts/arm_teleop_rx.py scripts/orin_teleop_core.py scripts/orin_trace_logger.py scripts/async_writer.py
-# Kì vọng arm_teleop_rx.py: 10c4b70a5f361b0570903ba85896856d9d61b10cbd8dd8af20b84b13f3d5831c
+# Kì vọng arm_teleop_rx.py: 2d66854067335775eb73dc3085a6e67e5a4e2b74db3c29a41e155305367f5ba9
 
 # Đồng bộ sang Orin (cả 4 tệp độc lập vào thư mục mc):
 scp scripts/arm_teleop_rx.py scripts/orin_teleop_core.py scripts/orin_trace_logger.py scripts/async_writer.py agi@192.168.2.50:/agibot/data/home/agi/Desktop/mc/
@@ -67,7 +67,7 @@ bash /agibot/data/home/agi/Desktop/motion_player/disable_motion_player.sh
 # 3. Vào thư mục mc và kiểm tra mã băm SHA256 file receiver
 cd /agibot/data/home/agi/Desktop/mc
 sha256sum arm_teleop_rx.py
-# Kỳ vọng đúng mã: 10c4b70a5f361b0570903ba85896856d9d61b10cbd8dd8af20b84b13f3d5831c
+# Kỳ vọng đúng mã: 2d66854067335775eb73dc3085a6e67e5a4e2b74db3c29a41e155305367f5ba9
 
 # 4. Nạp cấu hình ROS 2
 source /opt/ros/humble/setup.bash
@@ -183,6 +183,13 @@ Hệ thống hỗ trợ 6 cờ biến môi trường (mặc định giữ nguyê
 - **Cổ tay (J5, J6, J12, J13)**: $a_{\max} = a_{\max} \cdot \text{WRIST\_SCALE}$, sở hữu $\tau$ riêng tương ứng.
 - **Loại bỏ**: Phanh parabol khoảng cách, `END_APPROACH`, và bộ lọc trùng lặp FIR (chỉ giữ Cartesian follower trước IK).
 - **Đồng nhất Sim & Real**: Cả chế độ `--sim` và `real-udp` đều chạy chung một đường ống Limiter duy nhất.
+
+### Trạng Thái Orin rx_state & Khởi Động Lại:
+- `RX_OK`: Nhận lệnh bình thường và đang xuất điều khiển robot.
+- `NOT_ENGAGED`: Chưa bấm Engage trên Laptop / chưa bóp Grip.
+- `HOLDING`: Session lock bị giữ bởi phiên cũ hoặc IP lạ. Khắc phục: Dừng gửi 2s để Orin tự nhả lock, sau đó Engage lại.
+- `REJECT:<reason>`: Gói tin bị từ chối do quá cũ (>0.4s) hoặc sai định dạng.
+- `FAULT:<reason>`: Bị chốt lỗi an toàn (ví dụ phát hiện node khác gửi đè). Cần restart `arm_teleop_rx.py`.
 
 ---
 

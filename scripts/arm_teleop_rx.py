@@ -41,12 +41,10 @@ class ArmTeleopRx(Node):
         qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
         self.cmd_pub = self.create_publisher(JointState, "/motion/control/arm_joint_command", qos) if self.is_live else None
         self.hand_cmd_pub = self.create_publisher(JointState, "/motion/control/hand_joint_command", qos) if self.is_live else None
-        self.state_sub = self.create_subscription(JointState, "/motion/control/arm_joint_state", self._on_state, qos)
-        self.hand_state_sub = self.create_subscription(JointState, "/motion/control/hand_joint_state", self._on_hand_state, qos)
-        self.arm_cmd_monitor_sub = self.create_subscription(JointState, "/motion/control/arm_joint_command", self._on_arm_cmd_seen, qos)
+        for top, cb in [("/motion/control/arm_joint_state", self._on_state), ("/motion/control/hand_joint_state", self._on_hand_state), ("/motion/control/arm_joint_command", self._on_arm_cmd_seen)]:
+            self.create_subscription(JointState, top, cb, qos)
         self.pub_sample_timer = self.create_timer(1.0, self._sample_pub_count)
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.bind_ip = os.environ.get("ROBOT_BIND_IP", "127.0.0.1" if allow_ip in ("127.0.0.1", "localhost") else "0.0.0.0")
         self.sock.bind((self.bind_ip, port))
         self.sock.setblocking(False)
@@ -57,18 +55,14 @@ class ArmTeleopRx(Node):
         print(f"[arm_teleop_rx] SHA256: {self.file_sha} | {self.wire_hz}Hz | playout={int(self.playout_delay*1000)}ms | lvl={self.speed_level}")
 
     def _sample_pub_count(self):
-        try:
-            pubs = self.get_publishers_info_by_topic("/motion/control/arm_joint_command")
-            self.cmd_pub_count_sampled = len(pubs)
+        try: self.cmd_pub_count_sampled = len(self.get_publishers_info_by_topic("/motion/control/arm_joint_command"))
         except Exception: pass
 
     def _on_arm_cmd_seen(self, msg: JointState):
         self.total_arm_cmd_count += 1
         if hasattr(self, "trace_logger") and self.trace_logger:
             q = extract_q14_from_msg(msg)
-            if len(q) == 14:
-                stamp_sec = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-                self.trace_logger.log_recorded_cmd(time.monotonic(), stamp_sec, q, self.cmd_pub_count_sampled)
+            if len(q) == 14: self.trace_logger.log_recorded_cmd(time.monotonic(), msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9, q, self.cmd_pub_count_sampled)
     def _on_hand_state(self, msg: JointState):
         fid = getattr(getattr(msg, "header", None), "frame_id", "")
         self.hand_enabled = (not fid or fid == "AgiHand")
@@ -89,14 +83,22 @@ class ArmTeleopRx(Node):
                 self.trace_logger.log_recorded_state(time.monotonic(), self.meas_stamp, self.meas_q)
             if self.allow_ip not in ("0.0.0.0",):
                 try:
+                    rx_st = self._compute_rx_state()
                     pkt = {"t": time.time(), "q": [float(round(x, 5)) for x in self.meas_q],
                            "speed_level": self.speed_level, "robot_fault": bool(self.fault_latched),
-                           "fault_reason": str(self.fault_reason), "proto_ver": 3,
+                           "fault_reason": str(self.fault_reason), "rx_state": rx_st, "proto_ver": 3,
                            "wire_hz": self.wire_hz, "playout_ms": int(self.playout_delay * 1000),
                            "sha": self.file_sha[:12]}
                     if self.meas_h is not None: pkt["hand"] = [float(round(x, 1)) for x in self.meas_h]
                     self.sock.sendto(json.dumps(pkt).encode(), (self.allow_ip, self.tx_state_port))
                 except Exception: pass
+
+    def _compute_rx_state(self) -> str:
+        if self.fault_latched: return f"FAULT:{self.fault_reason}"
+        if self.holding: return "HOLDING"
+        if not any(self.target_engaged): return "NOT_ENGAGED"
+        if time.monotonic() - self.last_pkt_time > 0.400: return "REJECT:stale_target"
+        return "RX_OK"
 
     def _drain_socket(self):
         newest_pkt = None
@@ -111,6 +113,9 @@ class ArmTeleopRx(Node):
             q = p.get("q", [])
             if len(q) != 14 or any(math.isnan(x) or math.isinf(x) for x in q): continue
             sender_id = (addr[0], p.get("session_id", "default"))
+            if self.session_lock is not None and (time.monotonic() - self.last_pkt_time > 2.0):
+                self.session_lock = None; self.holding = False
+                self.has_published_engaged = False; self.target_engaged = [False, False]
             if self.session_lock is None: self.session_lock = sender_id
             elif self.session_lock != sender_id:
                 self.foreign_sender_count += 1; self.holding = True; continue
@@ -218,29 +223,24 @@ class ArmTeleopRx(Node):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--dry", action="store_true", help="Dry-run")
-    p.add_argument("--speed", type=int, default=3, choices=[1, 2, 3, 4])
-    p.add_argument("--port", type=int, default=5005)
-    p.add_argument("--tx-state-port", type=int, default=5006)
+    for flg, dflt, typ in [("--speed", 3, int), ("--port", 5005, int), ("--tx-state-port", 5006, int)]: p.add_argument(flg, type=typ, default=dflt)
     p.add_argument("--allow-ip", type=str, default="192.168.2.75")
-    p.add_argument("--no-thumb-swing", action="store_true")
-    args, _ = p.parse_known_args()
-    live = not args.dry
+    p.add_argument("--dry", action="store_true"); p.add_argument("--no-thumb-swing", action="store_true")
+    args, _ = p.parse_known_args(); live = not args.dry
     if live:
         print("="*60 + f"\n  WARNING: REAL ROBOT TELEOP (IP: {args.allow_ip}, Speed: {args.speed})\n" + "="*60)
         curr_act = rpc_get_action()
         if not any(k in curr_act for k in ("RL_LOCOMOTION_ARM_EXT_JOINT_SERVO", "402")):
-            print(f"FATAL: Robot action is '{curr_act}'. Must set to RL_LOCOMOTION_ARM_EXT_JOINT_SERVO (12)!"); sys.exit(1)
+            print(f"FATAL: Robot action is '{curr_act}'. Must set to 402!"); sys.exit(1)
     rclpy.init()
     node = ArmTeleopRx(mode_live=live, allow_ip=args.allow_ip, port=args.port, tx_state_port=args.tx_state_port, speed_level=args.speed, enable_thumb_swing=not args.no_thumb_swing)
     if live:
-        arm_pubs, hand_pubs = check_other_publishers(node, "/motion/control/arm_joint_command"), check_other_publishers(node, "/motion/control/hand_joint_command")
-        print(f"[PUB_CHECK] publishers: arm={arm_pubs or 'clean'}, hand={hand_pubs or 'clean'}")
-        arm_rate, hand_rate = check_topic_rate_preflight(node, "/motion/control/arm_joint_command", 1.5), check_topic_rate_preflight(node, "/motion/control/hand_joint_command", 1.5)
-        print(f"[PREFLIGHT] arm: {arm_rate:.1f} msg/s, hand: {hand_rate:.1f} msg/s")
-        if arm_rate > 0.0 or hand_rate > 0.0:
-            print(f"FATAL: Active publisher detected on robot command topic! arm={arm_pubs}, hand={hand_pubs}"); sys.exit(1)
-    print(f"[arm_teleop_rx] Ready and listening for UDP packets from {args.allow_ip}:{args.port}...")
+        arm_p, h_p = check_other_publishers(node, "/motion/control/arm_joint_command"), check_other_publishers(node, "/motion/control/hand_joint_command")
+        print(f"[PUB_CHECK] publishers: arm={arm_p or 'clean'}, hand={h_p or 'clean'}")
+        arm_r, h_r = check_topic_rate_preflight(node, "/motion/control/arm_joint_command", 1.5), check_topic_rate_preflight(node, "/motion/control/hand_joint_command", 1.5)
+        print(f"[PREFLIGHT] arm: {arm_r:.1f} msg/s, hand: {h_r:.1f} msg/s")
+        if arm_r > 0.0 or h_r > 0.0: print(f"FATAL: Active pub: arm={arm_p}, hand={h_p}"); sys.exit(1)
+    print(f"[arm_teleop_rx] Ready and listening on {args.allow_ip}:{args.port}...")
     try: rclpy.spin(node)
     except (KeyboardInterrupt, Exception): pass
     finally:

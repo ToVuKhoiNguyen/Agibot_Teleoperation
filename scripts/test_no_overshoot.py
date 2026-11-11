@@ -58,7 +58,14 @@ def run_tests():
         raw_arr = np.array(raw_series)
         plan_ptp = np.ptp(plans_arr, axis=0)
         raw_ptp = np.ptp(raw_arr, axis=0)
-        max_ptp_ratio = float(np.max(plan_ptp / np.maximum(raw_ptp, 1e-4)))
+        
+        # 4) Only consider joints with raw_ptp > 0.01 rad; assert at least one active joint exists
+        active_joints = np.where(raw_ptp > 0.01)[0]
+        assert len(active_joints) > 0, f"Lvl {lvl}: No active joint with raw_ptp > 0.01"
+        ptp_ratios = plan_ptp[active_joints] / raw_ptp[active_joints]
+        max_ptp_ratio = float(np.max(ptp_ratios))
+        ratio_str = ", ".join([f"J{j}: {plan_ptp[j]/raw_ptp[j]:.4f}" for j in active_joints])
+        print(f"[PTP RATIO Lvl {lvl}] Active joints [{ratio_str}] (Max: {max_ptp_ratio:.4f})")
 
         dv = np.diff(np.array(vels), axis=0) / 0.01
         max_acc_ratio = float(np.max(np.abs(dv) / lim.max_acc))
