@@ -124,6 +124,7 @@ function setupGizmoPair(transCtrl, rotCtrl, targetObj, arm) {
   }, true);
 
   transCtrl.addEventListener('dragging-changed', function(e) {
+    if (e.value && typeof cancelGizmoRecall === 'function') cancelGizmoRecall(arm);
     orbitControls.enabled = !e.value;
     rotCtrl.enabled = !e.value;
     isDraggingGizmo = e.value;
@@ -132,6 +133,7 @@ function setupGizmoPair(transCtrl, rotCtrl, targetObj, arm) {
   });
 
   rotCtrl.addEventListener('dragging-changed', function(e) {
+    if (e.value && typeof cancelGizmoRecall === 'function') cancelGizmoRecall(arm);
     orbitControls.enabled = !e.value;
     transCtrl.enabled = !e.value;
     isDraggingGizmo = e.value;

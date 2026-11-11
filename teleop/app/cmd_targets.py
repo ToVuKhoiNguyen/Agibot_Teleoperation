@@ -73,6 +73,22 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
             if tl:
                 seq = getattr(app.robot_backend, "_seq", None)
                 tl.log_event("GIZMO_END", seq=seq, arm=arm)
+
+        from teleop.kinematics.reach_projection import project_to_reachable_workspace
+        arms_to_check = ["left", "right"] if arm in ("both", "all") else [arm]
+        for a in arms_to_check:
+            cur_p = getattr(app, f"cur_target_pos_{'l' if a == 'left' else 'r'}")
+            clamped_p, is_c, d_beyond = project_to_reachable_workspace(cur_p, side=a)
+            if is_c and d_beyond > 0.01:
+                setattr(app, f"cur_target_pos_{'l' if a == 'left' else 'r'}", clamped_p)
+                if hasattr(app, "server") and hasattr(app.server, "broadcast_event"):
+                    app.server.broadcast_event({
+                        "type": "gizmo_recall",
+                        "arm": a,
+                        "pos": clamped_p.tolist(),
+                        "duration_ms": 250
+                    })
+
         from teleop.app.ik_dispatcher import freeze_arm_target
         freeze_arm_target(app, arm)
         return True

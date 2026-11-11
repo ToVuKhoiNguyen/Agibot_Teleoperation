@@ -81,6 +81,14 @@ def set_status_impl(server, status_dict: dict):
                 asyncio.run_coroutine_threadsafe(ws.send_str(msg), server.loop)
 
 
+def broadcast_event_impl(server, event_dict: dict):
+    if server.loop is not None and len(server.ws_clients) > 0:
+        msg = json.dumps(event_dict, default=_json_default)
+        for ws in list(server.ws_clients):
+            if not ws.closed:
+                asyncio.run_coroutine_threadsafe(ws.send_str(msg), server.loop)
+
+
 def broadcast_poses_impl(server, poses_dict: dict):
     now_ts = time.time()
     arr = []

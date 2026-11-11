@@ -28,6 +28,8 @@ function connectWS() {
         applyMuJoCoPoses(data.poses);
       } else if (data.type === 'status') {
         updateUIStatus(data.status);
+      } else if (data.type === 'gizmo_recall') {
+        if (typeof handleGizmoRecall === 'function') handleGizmoRecall(data);
       } else if (data.ee_l) {
         updateUIStatus(data);
       }

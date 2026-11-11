@@ -37,6 +37,7 @@ from teleop.web.server.panel_routes import (
 from teleop.web.server.ws_broadcaster import (
     handle_ws_impl,
     set_status_impl,
+    broadcast_event_impl,
     broadcast_poses_impl,
     pose_stream_worker_impl,
     dispatch_immediate_stream_impl,
@@ -119,10 +120,8 @@ class WebPanelServer:
         self.app.router.add_post("/api/quest/launch", self.handle_post_quest_launch)
 
         # Serve static assets
-        if os.path.exists(STATIC_DIR):
-            self.app.router.add_static("/static", STATIC_DIR)
-        if os.path.exists(WEB_MESHES_DIR):
-            self.app.router.add_static("/web_meshes", WEB_MESHES_DIR)
+        if os.path.exists(STATIC_DIR): self.app.router.add_static("/static", STATIC_DIR)
+        if os.path.exists(WEB_MESHES_DIR): self.app.router.add_static("/web_meshes", WEB_MESHES_DIR)
 
         self.loop = None
         self.thread = None
@@ -203,6 +202,9 @@ class WebPanelServer:
 
     def set_status(self, status_dict: dict):
         set_status_impl(self, status_dict)
+
+    def broadcast_event(self, event_dict: dict):
+        broadcast_event_impl(self, event_dict)
 
     def broadcast_poses(self, poses_dict: dict):
         broadcast_poses_impl(self, poses_dict)

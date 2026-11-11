@@ -104,8 +104,11 @@ function animate(currentTime) {
   }
 
   // Active rendering while robot moves; on-demand when idle > 1.0s
+  const isRecalling = (typeof isGizmoRecalling !== 'undefined' && isGizmoRecalling());
   const isMoving = (currentTime - lastMovementTime < 1000);
-  if (isMoving || sceneNeedsRender || orbitControls.state !== -1 || isDraggingGizmo) {
+  if (isMoving || sceneNeedsRender || orbitControls.state !== -1 || isDraggingGizmo || isRecalling) {
+    if (typeof updateGizmoRecallAnimation === 'function') updateGizmoRecallAnimation(currentTime);
+    if (typeof updateGhostReachVisuals === 'function') updateGhostReachVisuals();
     const t0 = performance.now();
     orbitControls.update();
     renderer.render(scene, camera);

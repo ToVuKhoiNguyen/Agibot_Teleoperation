@@ -5,6 +5,7 @@ teleop/app/xr_clutch_mapper.py
 
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from teleop.kinematics.reach_projection import project_to_reachable_workspace
 
 
 def get_effective_axis_map(app) -> np.ndarray:
@@ -53,16 +54,18 @@ def _process_arm_clutch(app, side: str, pkt: dict, rot_enabled: bool, axis_map: 
         return
 
     # Trigger & Grip detection with hysteresis (Trigger: rise 0.5, fall 0.4; Grip: rise 0.5, fall 0.4 or bool)
-    t_val = getattr(app, f"xr_trig_val_{s}", 0.0)
-    g_val = getattr(app, f"xr_grip_val_{s}", 0.0)
+    pkt_grip_raw = pkt.get("grip")
+    pkt_trig_raw = pkt.get("trigger")
+    t_val = float(pkt_trig_raw) if pkt_trig_raw is not None else getattr(app, f"xr_trig_val_{s}", 0.0)
+    g_val = float(pkt_grip_raw) if pkt_grip_raw is not None else getattr(app, f"xr_grip_val_{s}", 0.0)
     cur_trig_down = getattr(app, f"xr_trig_down_{s}", False)
     cur_grip_down = getattr(app, f"xr_grip_down_{s}", False)
 
     # If pkt explicitly gives boolean grip/trigger, honor them as fallbacks
     pkt_grip = bool(pkt.get("grip", False))
-    pkt_trig = bool(pkt.get("trigger_pressed", False) or (pkt.get("trigger", 0.0) >= 0.5))
+    pkt_trig = bool(pkt.get("trigger_pressed", False) or (t_val >= 0.5))
 
-    new_trig_down = (t_val >= 0.5 or pkt_trig) if not cur_trig_down else (t_val >= 0.4)
+    new_trig_down = (t_val >= 0.5 or pkt_trig) if not cur_trig_down else (t_val >= 0.4 or pkt_trig)
     new_grip_down = (g_val >= 0.5 or pkt_grip) if not cur_grip_down else (g_val >= 0.4 or pkt_grip)
     setattr(app, f"xr_trig_down_{s}", new_trig_down)
     setattr(app, f"xr_grip_down_{s}", new_grip_down)
@@ -142,6 +145,21 @@ def _process_arm_clutch(app, side: str, pkt: dict, rot_enabled: bool, axis_map: 
         new_pos[0] = np.clip(new_pos[0], -0.2, 0.9)
         new_pos[1] = np.clip(new_pos[1], -0.9, 0.9)
         new_pos[2] = np.clip(new_pos[2], 0.5, 1.8)
+
+        # Reach projection & tether anchor shifting
+        clamped_pos, is_clamped, d_beyond = project_to_reachable_workspace(new_pos, side=side)
+        if is_clamped:
+            excess_m = new_pos - clamped_pos
+            max_shift = float(getattr(app, "max_anchor_shift_m", 0.30))
+            if np.linalg.norm(excess_m) > max_shift:
+                excess_m = excess_m * (max_shift / np.linalg.norm(excess_m))
+            anchor_marker_pos = anchor_marker_pos - excess_m
+            setattr(app, f"xr_anchor_marker_pos_{s}", anchor_marker_pos)
+            new_pos = clamped_pos
+            setattr(app, f"reach_warning_{s}", f"Target out of reach ({d_beyond*100:.0f} cm beyond)")
+        else:
+            setattr(app, f"reach_warning_{s}", "")
+
         setattr(app, f"cur_target_pos_{s}", new_pos)
         setattr(app, f"gizmo_active_{s}", True)
         if hasattr(app, "target_tracer"):
@@ -168,13 +186,6 @@ def update_xr_clutch(app, left_pkt: dict, right_pkt: dict, rot_enabled: bool):
 
     _process_arm_clutch(app, "left", left_pkt, rot_enabled, axis_map, rot_axis_map)
     _process_arm_clutch(app, "right", right_pkt, rot_enabled, axis_map, rot_axis_map)
-
-    if app.xr_grip_active_l and app.xr_grip_active_r:
-        app._solve_arm_ik("both")
-    elif app.xr_grip_active_l:
-        app._solve_arm_ik("left")
-    elif app.xr_grip_active_r:
-        app._solve_arm_ik("right")
 
     if app.xr_grip_active_l and app.xr_grip_active_r:
         app._solve_arm_ik("both")
