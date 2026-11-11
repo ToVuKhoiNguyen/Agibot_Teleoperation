@@ -17,6 +17,17 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
         arm = cmd.get("arm", cmd.get("side", "left"))
         pos = cmd.get("pos")
         rot_quat = cmd.get("rot_quat")
+        now_t = time.time()
+        was_idle = not getattr(app, "gizmo_active_l", False) and not getattr(app, "gizmo_active_r", False)
+        app.last_gizmo_cmd_time = now_t
+        if was_idle:
+            if hasattr(app, "robot_backend") and hasattr(app.robot_backend, "_trace_logger"):
+                tl = app.robot_backend._trace_logger
+                if tl:
+                    seq = getattr(app.robot_backend, "_seq", None)
+                    tl.log_event("GIZMO_START", seq=seq, arm=arm)
+        if getattr(app, "status_warning", "") == "TARGET_FROZEN":
+            app.status_warning = ""
         if pos is not None and len(pos) == 3:
             p = np.array(pos, dtype=np.float64)
             p_orig = p.copy()
@@ -57,10 +68,13 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
 
     elif name in ("gizmo_end", "gizmo_release", "stop_drag"):
         arm = cmd.get("arm", "both")
-        if arm in ("left", "both"):
-            app.gizmo_active_l = False
-        if arm in ("right", "both"):
-            app.gizmo_active_r = False
+        if hasattr(app, "robot_backend") and hasattr(app.robot_backend, "_trace_logger"):
+            tl = app.robot_backend._trace_logger
+            if tl:
+                seq = getattr(app.robot_backend, "_seq", None)
+                tl.log_event("GIZMO_END", seq=seq, arm=arm)
+        from teleop.app.ik_dispatcher import freeze_arm_target
+        freeze_arm_target(app, arm)
         return True
 
     elif name in ("hand", "hand_l", "hand_r"):

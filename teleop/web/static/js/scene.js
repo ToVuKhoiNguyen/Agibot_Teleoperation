@@ -81,6 +81,7 @@ let pendingTargetR = null;
 let rafScheduled = false;
 
 function queueTargetUpdate(side, pos, quat) {
+  if (!isDraggingGizmo) return; // Drop updates after gizmo_end
   const data = {
     cmd: 'set_wrist_target',
     side: side,

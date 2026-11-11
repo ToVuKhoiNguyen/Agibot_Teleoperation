@@ -73,6 +73,13 @@ def run_control_loop(app):
                         app.handtrack_clutch_l = False
                         app.handtrack_clutch_r = False
 
+                # Gizmo timeout: if active with no pose message for 150 ms, freeze target
+                if (getattr(app, "gizmo_active_l", False) or getattr(app, "gizmo_active_r", False)) and (not getattr(app, "xr_input_active", False)):
+                    last_g_t = getattr(app, "last_gizmo_cmd_time", 0.0)
+                    if last_g_t > 0 and (now_t - last_g_t) > 0.150:
+                        from teleop.app.ik_dispatcher import freeze_arm_target
+                        freeze_arm_target(app, "both")
+
                 if hasattr(app, "robot_safety") and app.robot_safety is not None:
                     app.robot_safety.check_watchdog(now=now_t)
 
@@ -109,20 +116,14 @@ def run_control_loop(app):
                     if np.max(np.abs(cand_hand_l - app.current_safe_hand_l)) < 1e-4:
                         safe_hand_l, blocked_l, dist_l = app.current_safe_hand_l, False, 0.005
                     else:
-                        safe_hand_l, blocked_l, dist_l = app.collision_checker.filter_hand_step(
-                            "left", app.current_safe_hand_l, cand_hand_l, margin=0.001
-                        )
+                        safe_hand_l, blocked_l, dist_l = app.collision_checker.filter_hand_step("left", app.current_safe_hand_l, cand_hand_l, margin=0.001)
 
                     if np.max(np.abs(cand_hand_r - app.current_safe_hand_r)) < 1e-4:
                         safe_hand_r, blocked_r, dist_r = app.current_safe_hand_r, False, 0.005
                     else:
-                        safe_hand_r, blocked_r, dist_r = app.collision_checker.filter_hand_step(
-                            "right", app.current_safe_hand_r, cand_hand_r, margin=0.001
-                        )
-                    app.current_safe_hand_l = safe_hand_l
-                    app.current_safe_hand_r = safe_hand_r
-                    app.last_hand_cmd_left = safe_hand_l
-                    app.last_hand_cmd_right = safe_hand_r
+                        safe_hand_r, blocked_r, dist_r = app.collision_checker.filter_hand_step("right", app.current_safe_hand_r, cand_hand_r, margin=0.001)
+                    app.current_safe_hand_l, app.last_hand_cmd_left = safe_hand_l, safe_hand_l
+                    app.current_safe_hand_r, app.last_hand_cmd_right = safe_hand_r, safe_hand_r
                     app.hand_collision_blocked = bool(blocked_l or blocked_r)
                     app.min_hand_distance_m = min(dist_l, dist_r)
                     if app.collision_blocked:

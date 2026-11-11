@@ -184,6 +184,13 @@ Hệ thống hỗ trợ 6 cờ biến môi trường (mặc định giữ nguyê
 - **Loại bỏ**: Phanh parabol khoảng cách, `END_APPROACH`, và bộ lọc trùng lặp FIR (chỉ giữ Cartesian follower trước IK).
 - **Đồng nhất Sim & Real**: Cả chế độ `--sim` và `real-udp` đều chạy chung một đường ống Limiter duy nhất.
 
+### Cơ Chế Dừng Đột Ngột / Thả Chuột (Freeze-On-Release Architecture):
+- **Trình duyệt (UI 8012)**: Bắt trọn gói các sự kiện nhả/mất thao tác (`pointerup`, `pointercancel`, `lostpointercapture`, `mouseleave`, `blur`, `Escape`), lập tức gửi `gizmo_end` với pose mục tiêu cuối cùng và chặn toàn bộ các gói tọa độ phát sinh sau đó cho đến khi có thao tác kéo mới.
+- **Laptop (Server)**: Khi nhận `gizmo_end` (hoặc timeout không có gói tọa độ sau 150 ms), hệ thống đóng băng (freeze) tọa độ Descartes, giải IK đúng 1 lần với độ chính xác cao (`max_iters=50`, dung sai $10^{-4}$ m) ra $q_{\text{final}}$, sau đó ngắt cập nhật Cartesian follower và giải IK định kỳ.
+- **Mirror Limiter**: Nhận mục tiêu khớp tĩnh $q_{\text{final}}$, hội tụ đơn điệu dưới gia tốc cho phép $a_{\max}$ và kích hoạt chốt tĩnh rest deadband/hold ($|e| \le 0.002$ rad, std = 0 qua 3s).
+- **Tay cầm Quest VR**: Khi nhả Grip/Trigger chuyển về trạng thái `LOCKED`, tự động kích hoạt `freeze_arm_target` chốt cứng mục tiêu ngay lập tức.
+- **Sự kiện Trace**: Laptop tự động ghi các sự kiện `GIZMO_START`, `GIZMO_END`, `TARGET_FROZEN`, `ARRIVED` (kèm `seq`) vào file `trace_laptop_<ts>.jsonl`.
+
 ### Trạng Thái Orin rx_state & Khởi Động Lại:
 - `RX_OK`: Nhận lệnh bình thường và đang xuất điều khiển robot.
 - `NOT_ENGAGED`: Chưa bấm Engage trên Laptop / chưa bóp Grip.

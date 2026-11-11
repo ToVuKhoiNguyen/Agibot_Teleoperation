@@ -1,5 +1,4 @@
 function initGizmos() {
-  // Target Markers (Spheres) - mesh is transparent anchor; origin grey sphere is rendered by gizmo
   const sphereGeo = new THREE.SphereGeometry(0.005, 8, 8);
   const sphereMatL = new THREE.MeshStandardMaterial({ color: 0x00e676, emissive: 0x00a844, roughness: 0.3, transparent: true, opacity: 0.0, depthTest: false, visible: false });
   targetSphereL = new THREE.Mesh(sphereGeo, sphereMatL);
@@ -27,7 +26,6 @@ function initGizmos() {
   labelSpriteR.raycast = function() {};
   targetSphereR.add(labelSpriteR);
 
-  // Actual EE feedback spheres (small translucent)
   const actualGeo = new THREE.SphereGeometry(0.008, 12, 12);
   const actualMatL = new THREE.MeshBasicMaterial({ color: 0x69f0ae, wireframe: true });
   actualSphereL = new THREE.Mesh(actualGeo, actualMatL);
@@ -38,7 +36,6 @@ function initGizmos() {
   (vrRig || scene).add(actualSphereR);
 
   // Setup Combined TransformControls with unified GIZMO_SIZE
-  // Left Marker Controls
   transformControlsL_trans = new THREE.TransformControls(camera, renderer.domElement);
   transformControlsL_trans.size = GIZMO_SIZE;
   transformControlsL_trans.space = gizmoSpace;
@@ -84,6 +81,27 @@ function initGizmos() {
 
   // Keyboard shortcuts: W = translate, E = rotate, R = both (default), Q = toggle local/world
   window.addEventListener('keydown', onKeyDown);
+
+  // Freeze-on-release events: pointerup, pointercancel, lostpointercapture, blur, mouseleave
+  function stopActiveGizmoDrag() {
+    if (isDraggingGizmo) {
+      isDraggingGizmo = false;
+      const armToFlush = activeGizmoArm || 'both';
+      orbitControls.enabled = true;
+      if (transformControlsL_trans) transformControlsL_trans.enabled = (gizmoMode === 'both' || gizmoMode === 'translate') && (showGizmoL !== false);
+      if (transformControlsL_rot) transformControlsL_rot.enabled = (gizmoMode === 'both' || gizmoMode === 'rotate') && (showGizmoL !== false);
+      if (transformControlsR_trans) transformControlsR_trans.enabled = (gizmoMode === 'both' || gizmoMode === 'translate') && (showGizmoR !== false);
+      if (transformControlsR_rot) transformControlsR_rot.enabled = (gizmoMode === 'both' || gizmoMode === 'rotate') && (showGizmoR !== false);
+      flushTargetUpdates(armToFlush);
+    }
+  }
+  const domEl = renderer.domElement;
+  domEl.addEventListener('pointerup', stopActiveGizmoDrag);
+  domEl.addEventListener('pointercancel', stopActiveGizmoDrag);
+  domEl.addEventListener('lostpointercapture', stopActiveGizmoDrag);
+  domEl.addEventListener('mouseleave', stopActiveGizmoDrag);
+  window.addEventListener('blur', stopActiveGizmoDrag);
+  window.stopActiveGizmoDrag = stopActiveGizmoDrag;
 
   window.addEventListener('resize', onWindowResize);
   animate();
@@ -143,25 +161,24 @@ function configureGizmo(ctrl) {
 }
 
 function addGizmoToScene(ctrl) {
-  if (typeof ctrl.getHelper === 'function') {
-    scene.add(ctrl.getHelper());
-  }
+  if (typeof ctrl.getHelper === 'function') scene.add(ctrl.getHelper());
   scene.add(ctrl);
 }
 
 function onKeyDown(event) {
+  if (event.key === 'Escape') {
+    if (typeof stopActiveGizmoDrag === 'function') stopActiveGizmoDrag();
+    return;
+  }
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
   const key = event.key.toUpperCase();
-  if (key === 'W') {
-    setGizmoMode('translate');
-  } else if (key === 'E') {
-    setGizmoMode('rotate');
-  } else if (key === 'R') {
+  if (key === 'W') setGizmoMode('translate');
+  else if (key === 'E') setGizmoMode('rotate');
+  else if (key === 'R') {
     setGizmoMode('both');
     if (typeof recenterHandAction === 'function') recenterHandAction();
-  } else if (key === 'Q') {
-    toggleGizmoSpace();
-  } else if (key === 'C') {
+  } else if (key === 'Q') toggleGizmoSpace();
+  else if (key === 'C') {
     if (typeof calibratePoseAction === 'function') calibratePoseAction();
   } else if (key === 'T') {
     if (typeof startHandSelfTest === 'function') startHandSelfTest();
@@ -190,25 +207,20 @@ function setGizmoMode(mode) {
 function updateGizmoVisibility() {
   const showTrans = (gizmoMode === 'both' || gizmoMode === 'translate');
   const showRot = (gizmoMode === 'both' || gizmoMode === 'rotate');
-
   const visL = (showGizmoL !== false);
   const visR = (showGizmoR !== false);
 
   if (transformControlsL_trans) {
-    transformControlsL_trans.visible = showTrans && visL;
-    transformControlsL_trans.enabled = showTrans && visL;
+    transformControlsL_trans.visible = transformControlsL_trans.enabled = showTrans && visL;
   }
   if (transformControlsL_rot) {
-    transformControlsL_rot.visible = showRot && visL;
-    transformControlsL_rot.enabled = showRot && visL;
+    transformControlsL_rot.visible = transformControlsL_rot.enabled = showRot && visL;
   }
   if (transformControlsR_trans) {
-    transformControlsR_trans.visible = showTrans && visR;
-    transformControlsR_trans.enabled = showTrans && visR;
+    transformControlsR_trans.visible = transformControlsR_trans.enabled = showTrans && visR;
   }
   if (transformControlsR_rot) {
-    transformControlsR_rot.visible = showRot && visR;
-    transformControlsR_rot.enabled = showRot && visR;
+    transformControlsR_rot.visible = transformControlsR_rot.enabled = showRot && visR;
   }
 }
 

@@ -46,6 +46,7 @@ class LaptopTraceLogger:
         arrived, first_arr = self.detector.update(sent_q, raw_target, seq)
         if first_arr:
             self.writer.log({"event": "ARRIVAL", "seq": seq, "t": t_perf})
+            self.writer.log({"event": "ARRIVED", "seq": seq, "t": t_perf})
         entry = {
             "seq": seq, "t": t_perf,
             "raw_target_q14": [float(round(x, 5)) for x in raw_target],
@@ -54,6 +55,14 @@ class LaptopTraceLogger:
             "sent_q14": [float(round(x, 5)) for x in sent_q],
             "dq": dq, "arrived": arrived
         }
+        self.writer.log(entry)
+
+    def log_event(self, event_name: str, seq: int = None, **kwargs):
+        if not self.writer: return
+        entry = {"event": event_name, "t": time.perf_counter()}
+        if seq is not None:
+            entry["seq"] = seq
+        entry.update(kwargs)
         self.writer.log(entry)
 
     def close(self):

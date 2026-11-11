@@ -134,3 +134,45 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
     if backend_key not in ("real", "ros2", "real-udp", "udp"):
         app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
 
+
+def freeze_arm_target(app, arm: str = "both"):
+    """Latches final Cartesian target pose and solves IK once to high-precision convergence."""
+    ee_poses = app.env.get_ee_poses() if hasattr(app, "env") else None
+    arms_to_freeze = ["left", "right"] if arm in ("both", "all") else [arm]
+
+    for a in arms_to_freeze:
+        setattr(app, f"gizmo_active_{'l' if a == 'left' else 'r'}", False)
+        ik_solver = getattr(app, f"ik_{a}", None)
+        follower_pos = getattr(app, f"gizmo_follower_{'l' if a == 'left' else 'r'}", None)
+        follower_rot = getattr(app, f"gizmo_rot_follower_{'l' if a == 'left' else 'r'}", None)
+        cur_pos = getattr(app, f"cur_target_pos_{'l' if a == 'left' else 'r'}")
+        cur_rot = getattr(app, f"cur_target_rot_{'l' if a == 'left' else 'r'}")
+
+        if follower_pos:
+            follower_pos.reset(cur_pos)
+        if follower_rot:
+            follower_rot.reset(cur_rot)
+
+        if ik_solver:
+            warm_q = getattr(app, f"last_ik_sol_{a}", getattr(app, f"last_arm_cmd_{a}"))
+            q_conv, _, pos_err, _, _ = ik_solver.solve(
+                target_pos=cur_pos,
+                target_rot=cur_rot,
+                init_qpos=warm_q,
+                max_iters=50,
+                pos_tol=1e-4,
+                rot_tol=1e-3,
+            )
+            setattr(app, f"last_ik_sol_{a}", q_conv.copy())
+            setattr(app, f"last_arm_cmd_{a}", q_conv.copy())
+
+    app.status_warning = "TARGET_FROZEN"
+    seq = None
+    if hasattr(app, "robot_backend") and hasattr(app.robot_backend, "_trace_logger"):
+        tl = app.robot_backend._trace_logger
+        if tl:
+            seq = getattr(app.robot_backend, "_seq", None)
+            tl.log_event("TARGET_FROZEN", seq=seq)
+    print(f"[FREEZE] Target frozen for {arm}: status=TARGET_FROZEN")
+
+

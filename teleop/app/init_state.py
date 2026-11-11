@@ -233,6 +233,7 @@ def init_state(app, project_root: Path):
     app.homing_start_rot_r = app.robot_home_rot_r.copy()
     app.homing_start_q_l = app.robot_home_q_l.copy()
     app.homing_start_q_r = app.robot_home_q_r.copy()
+    app.last_gizmo_cmd_time = 0.0
 
     # Hand Safety Gate State
     app.current_safe_hand_l = np.zeros(6, dtype=np.float64)

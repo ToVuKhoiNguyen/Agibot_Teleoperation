@@ -123,9 +123,13 @@ def _process_arm_clutch(app, side: str, pkt: dict, rot_enabled: bool, axis_map: 
             app._log_xr_event(f"{side.upper()} clutch rotation re-anchored")
 
     if next_state == "LOCKED":
+        was_active = getattr(app, f"xr_anchor_ctrl_pos_{s}") is not None or getattr(app, f"xr_anchor_ctrl_rot_{s}") is not None
         setattr(app, f"xr_anchor_ctrl_pos_{s}", None)
         setattr(app, f"xr_anchor_ctrl_rot_{s}", None)
         setattr(app, f"gizmo_active_{s}", False)
+        if was_active:
+            from teleop.app.ik_dispatcher import freeze_arm_target
+            freeze_arm_target(app, side)
 
     # While held: apply relative displacement
     anchor_ctrl_pos = getattr(app, f"xr_anchor_ctrl_pos_{s}")
