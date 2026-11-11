@@ -8,6 +8,23 @@ import time
 import numpy as np
 
 
+def _eval_soft_collision(app, cur_plan: np.ndarray) -> float:
+    """Evaluates proxy soft collision at <= 50 Hz, returns limiter speed scale."""
+    if not hasattr(app, "proxy_collision") or app.proxy_collision is None:
+        return 1.0
+    now_t = time.time()
+    if now_t - getattr(app.proxy_collision, "last_check_t", 0.0) >= 0.020:
+        scale, d_m, dec = app.proxy_collision.evaluate_scale(cur_plan)
+        app.proxy_collision.last_check_t = now_t
+        app.proxy_min_distance_m = d_m
+        app.proxy_collision_scale = scale
+        app.proxy_collision_warning = f"⚠️ Arm proximity: {d_m*1000:.0f} mm" if d_m <= 0.05 else ""
+        if now_t - getattr(app, "_last_proxy_log_t", 0.0) >= 1.0:
+            app._last_proxy_log_t = now_t
+            print(f"[SOFT_COLLISION] min_dist: {d_m*1000:.1f} mm | scale: {scale:.2f} | dec: {dec}")
+    return getattr(app, "proxy_collision_scale", 1.0)
+
+
 def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
     """Processes state machine transitions, mirror limiter plan, and backend send."""
     if not hasattr(app, "mirror_limiter"):
@@ -127,6 +144,11 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
             else:
                 app._hold_samples = []
 
+        # Evaluate proxy soft collision on PLAN at <= 50 Hz
+        cur_plan = app.mirror_limiter.q_plan if hasattr(app, "mirror_limiter") else raw_target_q14
+        soft_scale = _eval_soft_collision(app, cur_plan)
+        app.robot_safety.proxy_scale = soft_scale
+
         # Deliver raw target to backend; limiter runs at 100 Hz inside UdpBackend
         cur_q = app.mirror_limiter.q_plan if hasattr(app, "mirror_limiter") else app.last_arm_cmd_left
         app.env.set_arm_commands(cur_q[:7], cur_q[7:])
@@ -140,7 +162,8 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         # Sim mode with real follower enabled (--sim-follower real): self-tracking via sim qpos
         raw_target_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
         meas_q14 = np.concatenate([app.env.get_left_arm_qpos(), app.env.get_right_arm_qpos()])
-        q_plan = app.mirror_limiter.step(raw_target_q14, measured_q14=meas_q14, dt=dt)
+        soft_scale = _eval_soft_collision(app, app.mirror_limiter.q_plan)
+        q_plan = app.mirror_limiter.step(raw_target_q14, measured_q14=meas_q14, dt=dt, speed_scale=soft_scale)
         app.last_arm_cmd_left = q_plan[:7].copy()
         app.last_arm_cmd_right = q_plan[7:].copy()
         app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
@@ -149,7 +172,8 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         # Default sim mode: step through the SAME mirror_limiter as real-udp
         if hasattr(app, "mirror_limiter") and app.mirror_limiter is not None:
             raw_target_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
-            q_plan = app.mirror_limiter.step(raw_target_q14, dt=dt)
+            soft_scale = _eval_soft_collision(app, app.mirror_limiter.q_plan)
+            q_plan = app.mirror_limiter.step(raw_target_q14, dt=dt, speed_scale=soft_scale)
             app.env.set_arm_commands(q_plan[:7], q_plan[7:])
         else:
             app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)

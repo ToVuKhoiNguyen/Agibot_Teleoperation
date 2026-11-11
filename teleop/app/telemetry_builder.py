@@ -142,6 +142,8 @@ def build_status_packet(app) -> dict:
         "fault_latched": bool(getattr(getattr(app, "robot_safety", None), "fault_latched", False)),
         "fault_reason": str(getattr(getattr(app, "robot_safety", None), "fault_reason", "")),
         "warning": str(app.status_warning),
+        "proxy_collision_warning": str(getattr(app, "proxy_collision_warning", "")),
+        "proxy_min_distance_mm": float(getattr(app, "proxy_min_distance_m", 0.999) * 1000.0),
         "sync_state": str(getattr(app, "sync_state", "READY")),
         "orin_rx_state": str(getattr(app, "orin_rx_state", "WAITING")),
         "arm_engaged_l": bool(getattr(app, "arm_engaged_l", False)),

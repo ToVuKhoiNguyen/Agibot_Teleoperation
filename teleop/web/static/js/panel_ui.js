@@ -106,14 +106,21 @@ function updateMimicJointsUI(sideHs) {
   if (el && out) el.addEventListener('input', () => { out.innerText = el.value + '°'; });
 });
 
+window.isDraggingSliderL = false;
+window.isDraggingSliderR = false;
+
 const sliderHandL = document.getElementById('slider_hand_l');
 if (sliderHandL) {
+  sliderHandL.addEventListener('pointerdown', () => { window.isDraggingSliderL = true; });
+  sliderHandL.addEventListener('pointerup', () => { window.isDraggingSliderL = false; });
   sliderHandL.addEventListener('input', (e) => {
     sendCmd({cmd: 'hand', arm: 'left', action: 'slider', value: e.target.value / 100.0});
   });
 }
 const sliderHandR = document.getElementById('slider_hand_r');
 if (sliderHandR) {
+  sliderHandR.addEventListener('pointerdown', () => { window.isDraggingSliderR = true; });
+  sliderHandR.addEventListener('pointerup', () => { window.isDraggingSliderR = false; });
   sliderHandR.addEventListener('input', (e) => {
     sendCmd({cmd: 'hand', arm: 'right', action: 'slider', value: e.target.value / 100.0});
   });

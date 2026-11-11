@@ -203,8 +203,10 @@ def init_subsystems(
     app.last_ik_residual_l = 0.0
     app.last_ik_residual_r = 0.0
 
-    # Self-Collision Checker
+    # Self-Collision Checker & Proxy Soft Collision
     app.collision_checker = CollisionChecker(app.env.model, enabled=app.self_collision)
+    from teleop.safety.proxy_collision import ProxyCollisionChecker
+    app.proxy_collision = ProxyCollisionChecker(app.env.model, config_path=project_root / "config" / "safety.yaml")
     app.left_arm_qadr = [app.env.model.jnt_qposadr[mujoco.mj_name2id(app.env.model, mujoco.mjtObj.mjOBJ_JOINT, f"idx{13+i}_left_arm_joint{i+1}")] for i in range(7)]
     app.right_arm_qadr = [app.env.model.jnt_qposadr[mujoco.mj_name2id(app.env.model, mujoco.mjtObj.mjOBJ_JOINT, f"idx{20+i}_right_arm_joint{i+1}")] for i in range(7)]
 

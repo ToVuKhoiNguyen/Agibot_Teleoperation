@@ -185,11 +185,26 @@ Hệ thống hỗ trợ 6 cờ biến môi trường (mặc định giữ nguyê
 - **Đồng nhất Sim & Real**: Cả chế độ `--sim` và `real-udp` đều chạy chung một đường ống Limiter duy nhất.
 
 ### Cơ Chế Dừng Đột Ngột / Thả Chuột (Freeze-On-Release Architecture):
-- **Trình duyệt (UI 8012)**: Bắt trọn gói các sự kiện nhả/mất thao tác (`pointerup`, `pointercancel`, `lostpointercapture`, `mouseleave`, `blur`, `Escape`), lập tức gửi `gizmo_end` với pose mục tiêu cuối cùng và chặn toàn bộ các gói tọa độ phát sinh sau đó cho đến khi có thao tác kéo mới.
-- **Laptop (Server)**: Khi nhận `gizmo_end` (hoặc timeout không có gói tọa độ sau 150 ms), hệ thống đóng băng (freeze) tọa độ Descartes, giải IK đúng 1 lần với độ chính xác cao (`max_iters=50`, dung sai $10^{-4}$ m) ra $q_{\text{final}}$, sau đó ngắt cập nhật Cartesian follower và giải IK định kỳ.
+- **Trình duyệt (UI 8012)**: Gizmo thuộc quyền sở hữu của client trong và sau khi kéo (server không đẩy pose đè lên gizmo trừ nút Home/T-pose/Sync). Bắt trọn gói các sự kiện nhả/mất thao tác (`pointerup`, `pointercancel`, `lostpointercapture`, `mouseleave`, `blur`, `Escape`), lập tức gửi `gizmo_end` với pose mục tiêu cuối cùng và chặn toàn bộ các gói tọa độ phát sinh sau đó cho đến khi có thao tác kéo mới.
+- **Laptop (Server)**: Khi nhận `gizmo_end` (hoặc timeout không có gói tọa độ sau 150 ms), hệ thống đóng băng (freeze) tọa độ Descartes, giải IK đúng 1 lần với độ chính xác cao ra $q_{\text{final}}$, sau đó ngắt cập nhật Cartesian follower và giải IK định kỳ.
 - **Mirror Limiter**: Nhận mục tiêu khớp tĩnh $q_{\text{final}}$, hội tụ đơn điệu dưới gia tốc cho phép $a_{\max}$ và kích hoạt chốt tĩnh rest deadband/hold ($|e| \le 0.002$ rad, std = 0 qua 3s).
 - **Tay cầm Quest VR**: Khi nhả Grip/Trigger chuyển về trạng thái `LOCKED`, tự động kích hoạt `freeze_arm_target` chốt cứng mục tiêu ngay lập tức.
 - **Sự kiện Trace**: Laptop tự động ghi các sự kiện `GIZMO_START`, `GIZMO_END`, `TARGET_FROZEN`, `ARRIVED` (kèm `seq`) vào file `trace_laptop_<ts>.jsonl`.
+
+### Cơ Chế Tự Va Chạm Mềm & Nhẹ (Soft Self-Collision Avoidance):
+- **Proxy Capsules/Spheres**: 4 hình viên con nhộng (capsule) cho mỗi tay (cánh tay trên, khuỷu, cẳng tay, cổ tay) và 4 hình cầu (sphere) cho thân/đầu (3 sphere trên `base_link`, 1 sphere trên `head_link02`). Bỏ qua các ngón tay và các cặp khớp liền kề.
+- **Tần số & Tải**: Tính toán khoảng cách tối thiểu trực tiếp trên vector lệnh (PLAN) ở tần số $\le 50$ Hz với chi phí $< 0.35$ ms/lần kiểm tra.
+- **Ngưỡng & Hành vi (cấu hình trong `config/safety.yaml`)**:
+  - $d > 0.05$ m ($50$ mm): Không giảm tốc (tỉ lệ $1.0$).
+  - $0.02 < d \le 0.05$ m ($20 - 50$ mm): Giảm tuyến tính $v_{\max}$ của limiter xuống $0.40$ CHỈ KHI khoảng cách đang giảm dần.
+  - $d \le 0.02$ m ($20$ mm): Tỉ lệ giảm tốc $0.15$ khi đang tiến lại gần. Nếu di chuyển ra xa ($d$ tăng), KHÔNG BAO GIỜ bị làm chậm (tỉ lệ $1.0$).
+  - Không bao giờ gây FAULT, không dừng cứng vector mục tiêu, chỉ điều tiết vận tốc mượt mà.
+- **Cảnh báo UI**: Hiển thị cảnh báo chữ vàng `⚠️ Arm proximity: XX mm` trên HUD (không hiển thị banner đỏ lỗi).
+
+### Thanh Trượt Điều Khiển Bàn Tay (Hand Slider):
+- **Hiệu lực tức thì**: Thanh trượt bàn tay hoạt động ngay lập tức từ khi vừa bật máy (`fresh start`) ở cả `--sim` và `real-udp` mà không cần bấm Open/Close trước.
+- **Thứ tự thao tác**: Có thể tự do xen kẽ thanh trượt và các nút Open / Close / Pinch / Home / T-pose theo bất kỳ thứ tự nào.
+- **Giới hạn an toàn**: Lệnh bàn tay được mã hóa trong khoảng $[0..800]$ raw (tối đa 800) với dòng lực an toàn default 1140 (20%), được kiểm tra va chạm ngón tay trước khi xuất lệnh.
 
 ### Trạng Thái Orin rx_state & Khởi Động Lại:
 - `RX_OK`: Nhận lệnh bình thường và đang xuất điều khiển robot.

@@ -131,8 +131,9 @@ class UdpBackend(RobotInterface):
             app = getattr(self, "app", None)
             sync_st = getattr(app, "sync_state", None) if app else None
             if raw_target is not None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
+                scale = getattr(getattr(app, "robot_safety", None), "proxy_scale", 1.0)
                 if hasattr(app, "mirror_limiter") and app.mirror_limiter is not None:
-                    q_to_send = app.mirror_limiter.step(raw_target, dt=dt)
+                    q_to_send = app.mirror_limiter.step(raw_target, dt=dt, speed_scale=scale)
                 else:
                     q_to_send = raw_target
                 self._send_packet_now(q_to_send, h_to_send, raw_target=raw_target, plan_q=q_to_send)

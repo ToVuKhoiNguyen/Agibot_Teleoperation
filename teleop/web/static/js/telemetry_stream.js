@@ -44,6 +44,9 @@ function connectWS() {
 }
 
 function sendCmd(obj) {
+  if (obj && (obj.cmd === 'preset' || obj.cmd === 'go_home' || obj.cmd === 'home' || obj.cmd === 'reset')) {
+    window._allowGizmoServerSync = true;
+  }
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(obj));
   } else {
@@ -97,32 +100,22 @@ function updateUIStatus(s) {
   window._lastSyncState = s.sync_state;
   window._lastFaultLatched = Boolean(s.fault_latched);
 
-  // Sync target marker positions when not dragging
-  if (!isDraggingGizmo) {
-    const clutchedL = Boolean(s.xr_grip_l || s.held);
-    const clutchedR = Boolean(s.xr_grip_r || s.held);
-
-    if (targetSphereL) {
-      const pL = (followActualWrist && s.ee_l) ? s.ee_l : (s.tgt_l || s.ee_l);
-      if (pL) targetSphereL.position.set(pL[0], pL[1], pL[2]);
-      const rL = (clutchedL && s.tgt_rot_l) ? s.tgt_rot_l : (s.rot_l || s.tgt_rot_l);
-      if (rL && gizmoMode !== 'rotate') {
-        const m = new THREE.Matrix4();
-        m.set(rL[0][0], rL[0][1], rL[0][2], 0, rL[1][0], rL[1][1], rL[1][2], 0, rL[2][0], rL[2][1], rL[2][2], 0, 0, 0, 0, 1);
-        targetSphereL.quaternion.setFromRotationMatrix(m);
-      }
+  // Sync target marker positions ONLY on explicit server sync triggers (Home, T-pose, Sync transition)
+  const allowSync = Boolean(window._allowGizmoServerSync || (window._lastSyncState === 'SYNC' && s.sync_state === 'READY'));
+  if (allowSync && !isDraggingGizmo) {
+    if (targetSphereL && s.tgt_l) targetSphereL.position.set(s.tgt_l[0], s.tgt_l[1], s.tgt_l[2]);
+    if (targetSphereR && s.tgt_r) targetSphereR.position.set(s.tgt_r[0], s.tgt_r[1], s.tgt_r[2]);
+    if (targetSphereL && s.tgt_rot_l && gizmoMode !== 'rotate') {
+      const m = new THREE.Matrix4();
+      m.set(s.tgt_rot_l[0][0], s.tgt_rot_l[0][1], s.tgt_rot_l[0][2], 0, s.tgt_rot_l[1][0], s.tgt_rot_l[1][1], s.tgt_rot_l[1][2], 0, s.tgt_rot_l[2][0], s.tgt_rot_l[2][1], s.tgt_rot_l[2][2], 0, 0, 0, 0, 1);
+      targetSphereL.quaternion.setFromRotationMatrix(m);
     }
-
-    if (targetSphereR) {
-      const pR = (followActualWrist && s.ee_r) ? s.ee_r : (s.tgt_r || s.ee_r);
-      if (pR) targetSphereR.position.set(pR[0], pR[1], pR[2]);
-      const rR = (clutchedR && s.tgt_rot_r) ? s.tgt_rot_r : (s.rot_r || s.tgt_rot_r);
-      if (rR && gizmoMode !== 'rotate') {
-        const m = new THREE.Matrix4();
-        m.set(rR[0][0], rR[0][1], rR[0][2], 0, rR[1][0], rR[1][1], rR[1][2], 0, rR[2][0], rR[2][1], rR[2][2], 0, 0, 0, 0, 1);
-        targetSphereR.quaternion.setFromRotationMatrix(m);
-      }
+    if (targetSphereR && s.tgt_rot_r && gizmoMode !== 'rotate') {
+      const m = new THREE.Matrix4();
+      m.set(s.tgt_rot_r[0][0], s.tgt_rot_r[0][1], s.tgt_rot_r[0][2], 0, s.tgt_rot_r[1][0], s.tgt_rot_r[1][1], s.tgt_rot_r[1][2], 0, s.tgt_rot_r[2][0], s.tgt_rot_r[2][1], s.tgt_rot_r[2][2], 0, 0, 0, 0, 1);
+      targetSphereR.quaternion.setFromRotationMatrix(m);
     }
+    window._allowGizmoServerSync = false;
   }
 
   // Update HUD gizmo feedback pill (IK Error + Clamping + Collision)
@@ -140,6 +133,11 @@ function updateUIStatus(s) {
       hudFeedback.style.color = '#ff9100';
       hudFeedback.style.borderColor = '#ff9100';
       hudFeedback.style.backgroundColor = 'rgba(255, 145, 0, 0.2)';
+    } else if (s.proxy_collision_warning) {
+      txt = s.proxy_collision_warning;
+      hudFeedback.style.color = '#ffd600';
+      hudFeedback.style.borderColor = '#ffd600';
+      hudFeedback.style.backgroundColor = 'rgba(255, 214, 0, 0.15)';
     } else if (s.warning && s.warning.toLowerCase().includes('clamp')) {
       txt += ` ⚠️ CLAMPED`;
       hudFeedback.style.color = '#ff5252';
@@ -178,13 +176,13 @@ function updateUIStatus(s) {
   }
 
 
-  // Sync sliders
+  // Sync sliders (only when user is not actively dragging them)
   const sL = document.getElementById('slider_hand_l'), sLv = document.getElementById('slider_hand_l_val');
-  if (sL) sL.value = Math.round(s.hand_closure_l * 100);
-  if (sLv) sLv.innerText = Math.round(s.hand_closure_l * 100) + '%';
+  if (sL && !window.isDraggingSliderL) sL.value = Math.round(s.hand_closure_l * 100);
+  if (sLv && !window.isDraggingSliderL) sLv.innerText = Math.round(s.hand_closure_l * 100) + '%';
   const sR = document.getElementById('slider_hand_r'), sRv = document.getElementById('slider_hand_r_val');
-  if (sR) sR.value = Math.round(s.hand_closure_r * 100);
-  if (sRv) sRv.innerText = Math.round(s.hand_closure_r * 100) + '%';
+  if (sR && !window.isDraggingSliderR) sR.value = Math.round(s.hand_closure_r * 100);
+  if (sRv && !window.isDraggingSliderR) sRv.innerText = Math.round(s.hand_closure_r * 100) + '%';
 
   // Update persistent Hardware Fault Banner
   const faultBanner = document.getElementById('fault-banner');
