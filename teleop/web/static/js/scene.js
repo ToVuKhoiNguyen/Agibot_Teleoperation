@@ -100,7 +100,7 @@ function queueTargetUpdate(side, pos, quat) {
   }
 }
 
-function flushTargetUpdates() {
+function flushTargetUpdates(dragEndArm) {
   rafScheduled = false;
   if (pendingTargetL) {
     sendCmd(pendingTargetL);
@@ -109,6 +109,9 @@ function flushTargetUpdates() {
   if (pendingTargetR) {
     sendCmd(pendingTargetR);
     pendingTargetR = null;
+  }
+  if (dragEndArm) {
+    sendCmd({cmd: 'gizmo_end', arm: dragEndArm});
   }
 }
 

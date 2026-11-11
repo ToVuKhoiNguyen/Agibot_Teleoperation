@@ -208,14 +208,20 @@ def run_control_loop(app):
                 if is_real and step % 400 == 0:
                     st_str = getattr(app, "sync_state", "READY")
                     age_s = getattr(app, "last_state_feedback_age_s", 999.0)
-                    if st_str == "SYNC": reason = "WAITING FEEDBACK (no packet on UDP 5006)"
-                    elif st_str == "READY": reason = "NOT ENGAGED"
+                    gap_rad = getattr(app, "max_sim_real_gap_rad", 0.0)
+                    if st_str in ("SYNC", "READY"): reason = "not ENGAGED"
                     elif getattr(getattr(app, "robot_safety", None), "fault_latched", False):
                         reason = f"FAULT ({app.robot_safety.fault_reason})"
-                    elif getattr(app, "max_sim_real_gap_rad", 0.0) >= 0.095: reason = "LEAD LIMIT"
-                    elif age_s > 0.200: reason = f"STALE FEEDBACK ({age_s*1000:.0f}ms)"
-                    else: reason = "ACTIVE"
-                    print(f"[STATUS 2s] State: {st_str} | Arm not moving reason: {reason}")
+                    elif age_s > 0.200: reason = f"stale feedback ({age_s*1000:.0f}ms)"
+                    else:
+                        raw_tgt = np.concatenate([getattr(app, "last_arm_cmd_left", np.zeros(7)), getattr(app, "last_arm_cmd_right", np.zeros(7))])
+                        cur_plan = getattr(app.mirror_limiter, "q_plan", raw_tgt)
+                        diff = float(np.max(np.abs(raw_tgt - cur_plan)))
+                        if diff < 0.001: reason = "target==current"
+                        elif np.any(cur_plan <= app.mirror_limiter.lim_min + 1e-4) or np.any(cur_plan >= app.mirror_limiter.lim_max - 1e-4):
+                            reason = "at joint limit"
+                        else: reason = "none"
+                    print(f"[STATUS 2s] State: {st_str} | Arm not moving reason: {reason} | Lead: {gap_rad:.3f} rad")
 
             except Exception as e:
                 msg = str(e)

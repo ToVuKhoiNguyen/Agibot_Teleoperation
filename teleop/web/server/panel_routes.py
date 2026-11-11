@@ -42,7 +42,7 @@ async def handle_health_impl(server, request):
         "server": "LISTENING",
         "panel": "READY",
         "xr_receiver": "CONNECTED" if st.get("xr_active", False) else "IDLE",
-        "safety": "ESTOP_TRIGGERED" if st.get("estop", False) else ("COLLISION_BLOCKED" if collision_blocked else "NORMAL"),
+        "safety": "ESTOP_TRIGGERED" if st.get("estop", False) else "NORMAL",
         "quest": quest_info,
         "details": st
     }

@@ -55,6 +55,14 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
         app._solve_arm_ik(arm)
         return True
 
+    elif name in ("gizmo_end", "gizmo_release", "stop_drag"):
+        arm = cmd.get("arm", "both")
+        if arm in ("left", "both"):
+            app.gizmo_active_l = False
+        if arm in ("right", "both"):
+            app.gizmo_active_r = False
+        return True
+
     elif name in ("hand", "hand_l", "hand_r"):
         arm = cmd.get("arm", "left" if name == "hand_l" else "right")
         action = cmd.get("action", "")

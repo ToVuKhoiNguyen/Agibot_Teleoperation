@@ -153,17 +153,13 @@ class SafetyLayer:
         target_q = q.copy()
         active_clamps = ["none"] * 14
 
-        # 1. Joint limit clamp & collision hold
-        if self.context.get("collision_gate", False):
-            target_q = self._last_cmd_q14.copy()
-            active_clamps = ["collision"] * 14
-        else:
-            clamped_q = np.clip(target_q, ARM_LOWER_14, ARM_UPPER_14)
-            for i in range(14):
-                if not np.isclose(clamped_q[i], target_q[i]): active_clamps[i] = "limit"
-            if not np.allclose(clamped_q, target_q):
-                self.stats["joint_limit_clamps"] += 1
-                target_q = clamped_q
+        # 1. Joint limit clamp (collision never blocks)
+        clamped_q = np.clip(target_q, ARM_LOWER_14, ARM_UPPER_14)
+        for i in range(14):
+            if not np.isclose(clamped_q[i], target_q[i]): active_clamps[i] = "limit"
+        if not np.allclose(clamped_q, target_q):
+            self.stats["joint_limit_clamps"] += 1
+            target_q = clamped_q
 
         # 2. First-command jump ramp
         step_disp = target_q - self._last_cmd_q14

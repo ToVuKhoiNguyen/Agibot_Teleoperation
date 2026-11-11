@@ -3,6 +3,7 @@ import os, sys, time, json, math, socket, threading, fcntl
 from pathlib import Path
 import numpy as np
 from teleop.robot.interface import RobotInterface
+from teleop.robot.aimdk_map import SIM_HAND_COMFORTABLE_LIMITS, sim_hand_to_robot_raw, HAND_SAFE_RAW_MAX
 
 BUILD_ID = "f43762b"
 
@@ -20,9 +21,11 @@ class UdpBackend(RobotInterface):
         self._lock_fd = None
         
         self._real_q14, self._real_q14_lock = None, threading.Lock()
+        self._real_hand12, self._real_hand_lock = None, threading.Lock()
         self._last_state_t = 0.0
         self._last_arm_cmd = None
         self._target_tx_q = None
+        self._target_tx_h = None
         self._curr_tx_q = None
         self._tx_lock = threading.Lock()
         self._init_synced = False
@@ -121,6 +124,10 @@ class UdpBackend(RobotInterface):
                             self.env.set_arm_commands(self._real_q14[:7], self._real_q14[7:])
                             self._init_synced = True
                         except Exception: pass
+                h = pkt.get("hand")
+                if h and len(h) == 12:
+                    with self._real_hand_lock:
+                        self._real_hand12 = (np.clip(np.array(h, dtype=np.float64), 0.0, 2000.0) / 2000.0) * SIM_HAND_COMFORTABLE_LIMITS
             except (socket.timeout, Exception): pass
 
     def _tx_loop(self) -> None:
@@ -128,11 +135,12 @@ class UdpBackend(RobotInterface):
         while self._connected:
             with self._tx_lock:
                 q_to_send = self._target_tx_q.copy() if self._target_tx_q is not None else None
+                h_to_send = self._target_tx_h.copy() if self._target_tx_h is not None else None
             app = getattr(self, "app", None)
             sync_st = getattr(app, "sync_state", None) if app else None
             if q_to_send is not None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
-                self._send_packet_now(q_to_send)
-            next_t += 0.020
+                self._send_packet_now(q_to_send, h_to_send)
+            next_t += 0.010  # 100 Hz streaming
             sleep_t = next_t - time.monotonic()
             if sleep_t > 0: time.sleep(sleep_t)
             else: next_t = time.monotonic()
@@ -144,18 +152,30 @@ class UdpBackend(RobotInterface):
         app = getattr(self, "app", None)
         sync_st = getattr(app, "sync_state", None) if app else None
         if self.tx_thread is None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
-            self._send_packet_now(q_arr)
+            self._send_packet_now(q_arr, self._target_tx_h)
 
-    def _send_packet_now(self, q14: np.ndarray) -> None:
+    def _send_packet_now(self, q14: np.ndarray, h12: np.ndarray = None) -> None:
         if not self._connected or self.tx_sock is None: return
         self._last_arm_cmd = np.array(q14, dtype=np.float64)
         self._seq += 1
         now = time.time()
+        app = getattr(self, "app", None)
+        engaged = [bool(getattr(app, "arm_engaged_l", False)), bool(getattr(app, "arm_engaged_r", False))] if app else [True, True]
         pkt = {
             "seq": self._seq, "t": now, "session_id": self.session_id,
             "proto_ver": self.proto_ver,
-            "q": [float(round(x, 5)) for x in self._last_arm_cmd]
+            "q": [float(round(x, 5)) for x in self._last_arm_cmd],
+            "engaged": engaged,
         }
+        if h12 is not None and len(h12) == 12:
+            h_arr = np.asarray(h12, dtype=np.float64)
+            if np.max(np.abs(h_arr)) <= 3.14:
+                raw_h = sim_hand_to_robot_raw(h_arr, raw_max=HAND_SAFE_RAW_MAX)
+            else:
+                raw_h = np.clip(np.round(h_arr), 0, HAND_SAFE_RAW_MAX).astype(int)
+            pkt["hand"] = [int(x) for x in raw_h]
+        else:
+            pkt["hand"] = [0] * 12
         try:
             self.tx_sock.sendto(json.dumps(pkt).encode("utf-8"), (self.host, self.tx_port))
         except Exception as e:
@@ -178,21 +198,28 @@ class UdpBackend(RobotInterface):
     def verify_handshake(self, timeout: float = 2.0) -> bool:
         return True
 
-    def send_hand(self, h12: np.ndarray) -> None: pass
+    def send_hand(self, h12: np.ndarray) -> None:
+        h_arr = np.array(h12, dtype=np.float64)
+        with self._tx_lock:
+            self._target_tx_h = h_arr
 
     def read_state(self) -> tuple[np.ndarray, np.ndarray, dict]:
+        with self._real_hand_lock:
+            h_meas = self._real_hand12.copy() if self._real_hand12 is not None else np.zeros(12, dtype=np.float64)
+        robot_fault = bool(self.rx_telemetry.get("robot_fault", False))
+        fault_reason = self.rx_telemetry.get("fault_reason", "")
         with self._real_q14_lock:
             if self._real_q14 is not None:
                 age = time.time() - self._last_state_t if self._last_state_t > 0 else 999.0
-                return self._real_q14.copy(), np.zeros(12, dtype=np.float64), {"age_s": age, "last_t": self._last_state_t}
+                return self._real_q14.copy(), h_meas, {"age_s": age, "last_t": self._last_state_t, "robot_fault": robot_fault, "fault_reason": fault_reason}
         if self._last_arm_cmd is not None:
-            return self._last_arm_cmd.copy(), np.zeros(12, dtype=np.float64), {"age_s": 0.0, "last_t": time.time()}
+            return self._last_arm_cmd.copy(), h_meas, {"age_s": 0.0, "last_t": time.time(), "robot_fault": robot_fault, "fault_reason": fault_reason}
         if self.env is not None and hasattr(self.env, "get_arm_qpos"):
             try:
                 qp = self.env.get_arm_qpos()
-                return np.concatenate([qp["left"], qp["right"]]), np.zeros(12, dtype=np.float64), {"age_s": 0.0, "last_t": time.time()}
+                return np.concatenate([qp["left"], qp["right"]]), h_meas, {"age_s": 0.0, "last_t": time.time(), "robot_fault": robot_fault, "fault_reason": fault_reason}
             except Exception: pass
-        return np.zeros(14, dtype=np.float64), np.zeros(12, dtype=np.float64), {"age_s": 999.0, "last_t": 0.0}
+        return np.zeros(14, dtype=np.float64), h_meas, {"age_s": 999.0, "last_t": 0.0, "robot_fault": robot_fault, "fault_reason": fault_reason}
 
     def estop(self) -> None: print("[UdpBackend] ESTOP triggered!")
     def hold(self) -> None:

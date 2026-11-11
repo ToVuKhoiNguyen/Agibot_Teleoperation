@@ -1,9 +1,5 @@
 """
-teleop/simulation/mujoco_env.py
-MuJoCo simulation wrapper for AGIBOT A2 Ultra:
-- Loads official MJCF scene model
-- Handles joint actuation and mimic-coupling for 5-finger hands
-- Exposes end-effector and visual geom transforms
+teleop/simulation/mujoco_env.py - MuJoCo simulation wrapper for AGIBOT A2 Ultra.
 """
 
 import os
@@ -54,9 +50,11 @@ class AgibotSimEnv:
         self.default_arm_qpos_left = np.array(HOME[:7], dtype=np.float64)
         self.default_arm_qpos_right = np.array(HOME[7:], dtype=np.float64)
 
-        # Non-arm, non-hand joint indices to hold fixed at home
-        self.non_manip_qpos_indices = [self.qpos_idx_map[j] for j in self.leg_joints + self.head_joints]
+        # Non-arm, non-hand joint indices to hold fixed at standing home
+        self.non_manip_qpos_indices = [self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, j)] for j in self.leg_joints + self.head_joints]
         self.non_manip_qvel_indices = [self.qvel_idx_map[j] for j in self.leg_joints + self.head_joints]
+        st_legs = {"idx03_left_hip_pitch": -0.30, "idx04_left_tarsus": 0.60, "idx05_left_toe_pitch": -0.30, "idx09_right_hip_pitch": -0.30, "idx10_right_tarsus": 0.60, "idx11_right_toe_pitch": -0.30}
+        self.non_manip_home_qpos = np.array([st_legs.get(j, 0.0) for j in self.leg_joints + self.head_joints], dtype=np.float64)
 
         self.arm_qpos_indices = []
         self.arm_dof_indices = []
@@ -94,6 +92,8 @@ class AgibotSimEnv:
             for i, jname in enumerate(self.right_arm_joints):
                 self.data.qpos[self.qpos_idx_map[jname]] = self.default_arm_qpos_right[i]
 
+        if hasattr(self, "non_manip_qpos_indices"):
+            self.data.qpos[self.non_manip_qpos_indices] = self.non_manip_home_qpos
         self.cached_home_qpos = self.data.qpos.copy()
         for jname in self.left_arm_joints + self.right_arm_joints:
             act_idx = self.actuator_map.get(jname)
@@ -151,6 +151,7 @@ class AgibotSimEnv:
                     self.data.ctrl[act_idx] = val
                     self.data.qpos[self.qpos_idx_map[jname]] = val
             propagate_mimics(self.data, self.qpos_idx_map, "R", self.right_hand_mimic_joints)
+        mujoco.mj_forward(self.model, self.data)
 
     def set_left_arm_qpos(self, qpos: np.ndarray):
         for i, jname in enumerate(self.left_arm_joints):
@@ -214,7 +215,7 @@ class AgibotSimEnv:
                 self.data.qvel[self.qvel_idx_map[jname]] = 0.0
 
             if hasattr(self, "non_manip_qpos_indices"):
-                self.data.qpos[self.non_manip_qpos_indices] = 0.0
+                self.data.qpos[self.non_manip_qpos_indices] = self.non_manip_home_qpos
                 self.data.qvel[self.non_manip_qvel_indices] = 0.0
             mujoco.mj_forward(self.model, self.data)
             if self.viewer is not None and self.viewer.is_running():
@@ -223,16 +224,16 @@ class AgibotSimEnv:
 
         for _ in range(num_substeps):
             if hasattr(self, "non_manip_qpos_indices"):
-                self.data.qpos[self.non_manip_qpos_indices] = 0.0
+                self.data.qpos[self.non_manip_qpos_indices] = self.non_manip_home_qpos
                 self.data.qvel[self.non_manip_qvel_indices] = 0.0
-            for jname in self.leg_joints + self.head_joints:
+            for i, jname in enumerate(self.leg_joints + self.head_joints):
                 if jname in self.actuator_map:
-                    self.data.ctrl[self.actuator_map[jname]] = 0.0
+                    self.data.ctrl[self.actuator_map[jname]] = self.non_manip_home_qpos[i]
 
             mujoco.mj_step(self.model, self.data)
 
             if hasattr(self, "non_manip_qpos_indices"):
-                self.data.qpos[self.non_manip_qpos_indices] = 0.0
+                self.data.qpos[self.non_manip_qpos_indices] = self.non_manip_home_qpos
                 self.data.qvel[self.non_manip_qvel_indices] = 0.0
 
         if self.viewer is not None and self.viewer.is_running():

@@ -14,7 +14,7 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         return
 
     if is_real and hasattr(app, "robot_safety") and app.robot_safety is not None:
-        q_act, _, meta = app.robot_safety.read_state()
+        q_act, h_act, meta = app.robot_safety.read_state()
         age = meta.get("age_s", 999.0) if isinstance(meta, dict) else 0.0
         app.last_state_feedback_age_s = age
 
@@ -24,6 +24,17 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         else:
             q_act = None
 
+        # Check Orin robot node fault latch
+        if meta.get("robot_fault", False):
+            app.robot_safety.fault_latched = True
+            reason = meta.get("fault_reason", "")
+            if "DUAL PUBLISHER" in reason:
+                app.robot_safety.fault_reason = "DUAL PUBLISHER: another node is publishing on robot topics!"
+            else:
+                app.robot_safety.fault_reason = "ROBOT NODE FAULT: restart arm_teleop_rx.py"
+            app.sync_state = "FAULT"
+            return
+
         # 1. State: SYNC
         if app.sync_state == "SYNC":
             if q_act is not None and age < 0.200:
@@ -31,6 +42,12 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
                 app.last_arm_cmd_right = q_act[7:].copy()
                 app.mirror_limiter.reset(q_act)
                 app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
+                if h_act is not None and len(h_act) == 12:
+                    app.last_hand_cmd_left = h_act[:6].copy()
+                    app.last_hand_cmd_right = h_act[6:].copy()
+                    app.current_safe_hand_l = h_act[:6].copy()
+                    app.current_safe_hand_r = h_act[6:].copy()
+                    app.env.set_hand_commands(app.last_hand_cmd_left, app.last_hand_cmd_right)
                 ee_poses = app.env.get_ee_poses()
                 app.cur_target_pos_l = ee_poses["left"]["pos"].copy()
                 app.cur_target_rot_l = ee_poses["left"]["rot"].copy()
@@ -72,34 +89,50 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         if np.any(np.isnan(raw_target_q14)) or np.any(np.isinf(raw_target_q14)):
             raw_target_q14 = last_plan.copy()
 
-        # Soft back-off at 0.035 rad
+        # Deviation is log-only (NEVER slowdowns or scales command rate)
         lead = float(np.max(np.abs(last_plan - q_act))) if q_act is not None else 0.0
-        if lead > 0.035:
-            speed_scale = max(0.1, 1.0 - (lead - 0.035) / 0.015)
-        else:
-            speed_scale = 1.0
+        if getattr(app, "status_warning", "").startswith("Tracking deviation"):
+            app.status_warning = ""
 
-        q_plan = app.mirror_limiter.step(raw_target_q14, measured_q14=q_act, dt=dt, speed_scale=speed_scale)
+        q_plan = app.mirror_limiter.step(raw_target_q14, measured_q14=q_act, dt=dt, speed_scale=1.0)
         app.last_arm_cmd_left = q_plan[:7].copy()
         app.last_arm_cmd_right = q_plan[7:].copy()
         app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
 
-        # Bounded velocity feedforward: lead = min(v_plan * tau, 0.05 rad), uniform across joints
-        tau_ff = getattr(app.mirror_limiter, "tau_val", 0.138) or 0.138
-        v_plan = getattr(app.mirror_limiter, "v_plan", np.zeros(14))
-        raw_ff = v_plan * tau_ff
-        max_ff = float(np.max(np.abs(raw_ff)))
-        if max_ff > 0.05 and max_ff > 1e-6:
-            ff_lead = raw_ff * (0.05 / max_ff)
-        else:
-            ff_lead = raw_ff
-        q_send = np.clip(q_plan + ff_lead, app.mirror_limiter.lim_min, app.mirror_limiter.lim_max)
+        # Update digital twin hand commands gated by ENGAGED
+        eng_l = bool(getattr(app, "arm_engaged_l", False))
+        eng_r = bool(getattr(app, "arm_engaged_r", False))
+        h_left = app.last_hand_cmd_left if eng_l else (h_act[:6] if h_act is not None else np.zeros(6))
+        h_right = app.last_hand_cmd_right if eng_r else (h_act[6:] if h_act is not None else np.zeros(6))
+        app.env.set_hand_commands(h_left, h_right)
 
-        h12 = np.concatenate([app.last_hand_cmd_left, app.last_hand_cmd_right])
+        # Static offset calibration during hold phase (>= 2 s stationary after ENGAGED)
+        if not getattr(app, "_static_offset_calibrated", False):
+            if not hasattr(app, "_hold_samples"):
+                app._hold_samples = []
+            dq_sent = np.max(np.abs(getattr(app.mirror_limiter, "v_plan", np.zeros(14))))
+            if dq_sent < 0.002 and q_act is not None:
+                app._hold_samples.append(q_act - q_plan)
+                if len(app._hold_samples) >= int(2.0 / dt):
+                    raw_offset = np.median(app._hold_samples, axis=0)
+                    clamped_offset = np.clip(raw_offset, -0.03, 0.03)
+                    if hasattr(app.robot_safety, "dev_checker"):
+                        app.robot_safety.dev_checker.static_offset = clamped_offset.copy()
+                    app._static_offset_calibrated = True
+                    off_str = " ".join(f"{x:+.4f}" for x in clamped_offset)
+                    print(f"[OFFSET] Static offset calibrated ({len(app._hold_samples)} samples, clamped <= 0.03): {off_str}")
+            else:
+                app._hold_samples = []
+
+        # Pure open-loop: q_send is q_plan directly
+        q_send = q_plan.copy()
+
+        h12 = np.concatenate([h_left, h_right])
         app.robot_safety.context["input_mode"] = getattr(app, "input_mode", "mouse")
         app.robot_safety.context["collision_gate"] = bool(getattr(app, "collision_blocked", False))
         ok = app.robot_safety.send_arm(q_send, dt=dt)
-        app.robot_safety.send_hand(h12)
+        if hasattr(app.robot_safety, "send_hand"):
+            app.robot_safety.send_hand(h12)
     elif getattr(app, "real_follower_mode", False):
         # Sim mode with real follower enabled (--sim-follower real): self-tracking via sim qpos
         raw_target_q14 = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])

@@ -33,10 +33,18 @@ def init_state(app, project_root: Path):
             with open(cfg_p, "r", encoding="utf-8") as f:
                 tau_cfg = json.load(f).get("tau_arm")
         except Exception: pass
+    gate_m = getattr(app, "gate_mode", "legacy")
+    if gate_m == "lagged" and tau_cfg is None:
+        print("[WARNING] --gate-mode lagged requested but config/tau_id.json is missing! Falling back to slow/legacy mode (never guessing tau).")
+        gate_m = "legacy"
+        app.gate_mode = "legacy"
+        if hasattr(app, "robot_safety") and app.robot_safety is not None:
+            app.robot_safety.gate_mode = "legacy"
+
     app.mirror_limiter = MirrorLimiter(
         speed_profile=prof, initial_q14=init_q14,
         accept_higher_speed=getattr(app, "i_accept_higher_speed", False),
-        gate_mode=getattr(app, "gate_mode", "legacy"),
+        gate_mode=gate_m,
         tau_id=tau_cfg
     )
     is_real_backend = getattr(app, "backend", "sim").lower() in ("real", "ros2", "real-udp", "udp")
@@ -189,19 +197,9 @@ def init_state(app, project_root: Path):
     app.xr_btn_x = False
     app.xr_btn_y = False
     app.xr_btn_a = False
-    app.xr_btn_b = False
-    app.xr_btn_menu_l = False
-    app.xr_btn_menu_r = False
-    app.xr_grip_val_l = 0.0
-    app.xr_grip_val_r = 0.0
-    app.xr_trig_val_l = 0.0
-    app.xr_trig_val_r = 0.0
-    app.xr_stick_x_l = 0.0
-    app.xr_stick_y_l = 0.0
-    app.xr_stick_x_r = 0.0
-    app.xr_stick_y_r = 0.0
-    app.xr_thumb_click_l = False
-    app.xr_thumb_click_r = False
+    app.xr_btn_b = app.xr_btn_menu_l = app.xr_btn_menu_r = app.xr_thumb_click_l = app.xr_thumb_click_r = False
+    app.xr_grip_val_l = app.xr_grip_val_r = app.xr_trig_val_l = app.xr_trig_val_r = 0.0
+    app.xr_stick_x_l = app.xr_stick_y_l = app.xr_stick_x_r = app.xr_stick_y_r = 0.0
 
     # Event log (last 8 events)
     app.xr_event_log = []

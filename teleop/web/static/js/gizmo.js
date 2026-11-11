@@ -110,7 +110,7 @@ function setupGizmoPair(transCtrl, rotCtrl, targetObj, arm) {
     rotCtrl.enabled = !e.value;
     isDraggingGizmo = e.value;
     if (e.value) activeGizmoArm = arm;
-    if (!e.value) flushTargetUpdates();
+    if (!e.value) flushTargetUpdates(arm);
   });
 
   rotCtrl.addEventListener('dragging-changed', function(e) {
@@ -118,7 +118,7 @@ function setupGizmoPair(transCtrl, rotCtrl, targetObj, arm) {
     transCtrl.enabled = !e.value;
     isDraggingGizmo = e.value;
     if (e.value) activeGizmoArm = arm;
-    if (!e.value) flushTargetUpdates();
+    if (!e.value) flushTargetUpdates(arm);
   });
 
   transCtrl.addEventListener('objectChange', function() {

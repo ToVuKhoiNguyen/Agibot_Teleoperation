@@ -133,7 +133,7 @@ def init_subsystems(
     else:
         app.robot_backend = SimBackend(app.env)
 
-    max_vel = real_max_vel if backend_key in ("real", "ros2", "real-udp", "udp") else 3.0
+    max_vel = 0.80 if backend_key in ("real", "ros2", "real-udp", "udp") else 3.0
     max_acc = 3.0 if backend_key in ("real", "ros2", "real-udp", "udp") else 15.0
     app.robot_safety = SafetyLayer(app.robot_backend, max_velocity_rad_s=max_vel, max_accel_rad_s2=max_acc)
     app.robot_safety.gate_mode = getattr(app, "gate_mode", "legacy")
