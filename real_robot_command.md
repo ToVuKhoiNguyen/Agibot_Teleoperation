@@ -105,7 +105,7 @@ python3 arm_teleop_rx.py
 - **Nguyên nhân FAULT còn lại duy nhất:** Chỉ kích hoạt khi vi phạm an toàn phần cứng: vi phạm trần bước nhảy (`max_step > 0.02 rad`), lệnh chứa NaN/inf, xung đột địa chỉ IP phát, hoặc mất kết nối gói tin telemetry (`stale feedback > 300 ms`).
 - **LƯU Ý RỦI RO QUAN TRỌNG:** Khi robot di chuyển chậm hơn lệnh mong muốn, cánh tay robot có thể **tiếp tục di chuyển một đoạn ngắn sau khi nhả cò/ly hợp** để bám đuổi kịp vị trí đích (quán tính bám đuổi). **Bắt buộc người thứ hai phải cầm nút E-Stop vật lý trên tay** sẵn sàng dập nút khẩn cấp nếu có bất thường!
 - **Trạng thái "Arm not moving reason":** Chỉ hiển thị các lý do thực tế gồm: `not ENGAGED`, `FAULT`, `stale feedback (>200ms)`, `at joint limit`, `target==current`, hoặc `none` khi đang chuyển động bình thường.
-- **Self-collision:** Đã được loại bỏ khỏi luồng chặn lệnh và giao diện; không gây khóa cánh tay hay hiện banner cản trở.
+- **Tự va chạm mềm & nhẹ (Soft Self-Collision):** Sử dụng các capsule/sphere đại diện để tính khoảng cách tối thiểu ở $\le 50$ Hz trên PLAN. Khi $0.02 < d \le 0.05$ m và khoảng cách đang giảm, vận tốc tự động hạ mượt xuống 0.40; khi $d \le 0.02$ m hạ xuống 0.15. Khi di chuyển ra xa, tốc độ luôn phục hồi 100% (scale 1.0). Không bao giờ gây FAULT, không dừng cứng vector mục tiêu, chỉ hiện chữ vàng `⚠️ Arm proximity: XX mm` trên HUD.
 
 > **Các tầng bảo vệ an toàn chuẩn hóa trong `arm_teleop_rx.py`:**
 > - **Cổng bảo vệ cuối (Final-Line Guard):** Đúng 1 vị trí publish lệnh duy nhất trên timer 50 Hz. Co giãn đồng tỉ lệ (uniform vector scaling) bảo toàn 100% hướng di chuyển, gia tốc khống chế $\le 3.0\text{ rad/s}^2$, bước nhảy tối đa theo cấp tốc độ: Level 1 $\le 0.008$, Level 2 $\le 0.012$, Level 3 $\le 0.016$, Level 4 $\le 0.020\text{ rad/chu kỳ}$.
@@ -152,13 +152,17 @@ python3 arm_teleop_rx.py
 4. **Thao tác tay cầm:**
    - Quan sát 2 tay robot **đứng yên hoàn toàn** tại vị trí ban đầu (Anchored pose).
    - Nhấn giữ nút **Trigger** (Cò ngón trỏ) hoặc **Grip** (Cò cạnh bàn tay) để bóp ly hợp (Clutch) và di chuyển: hai cánh tay robot thật sẽ bám theo chuyển động tay của bạn trong không gian!
+   - Khi nhả Grip/Trigger: cánh tay robot bám tới vị trí đích cuối cùng, hội tụ êm và khóa đứng yên hoàn toàn (`TARGET_FROZEN`, không bị giật, không hunting).
 
 ### Cách B: Điều khiển bằng Chuột / 3D Gizmo trên trình duyệt Laptop
 1. Mở trình duyệt trên máy trạm: `https://localhost:8012`
 2. Kiểm tra thanh trạng thái hiển thị `READY (NOT ENGAGED)`.
 3. Bấm nút **Engage** (hoặc nút **Home** / **T-Pose** / kéo Gizmo $\pm X, \pm Y, \pm Z$).
 4. Robot sẽ chuyển sang trạng thái `ENGAGED` và bám theo mục tiêu 1:1 mượt mà.
-5. Nếu gặp chướng ngại hoặc chạm biên vật lý gây FAULT: bấm nút **Clear Fault** trên banner để đưa cánh tay về trạng thái an toàn `READY`.
+5. Khi nhả chuột (`pointerup`, `pointercancel`, `blur`, `Escape`): Gizmo dừng đúng vị trí nhả chuột, robot bám tới đích và đứng yên tuyệt đối (`TARGET_FROZEN`).
+6. Thanh trượt bàn tay (Hand Close) có tác dụng ngay từ đầu trên cả Sim và Robot thật.
+7. Nếu di chuyển 2 tay lại quá gần ($< 50$ mm): HUD hiển thị cảnh báo chữ vàng `⚠️ Arm proximity: XX mm`, robot tự động giảm tốc mềm (không giật dừng, không khóa FAULT) và cho phép di chuyển lùi ra ngoài hoàn toàn tự do.
+8. Nếu gặp chướng ngại hoặc chạm biên vật lý gây FAULT: bấm nút **Clear Fault** trên banner để đưa cánh tay về trạng thái an toàn `READY`.
 
 ---
 
