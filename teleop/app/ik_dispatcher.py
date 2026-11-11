@@ -4,7 +4,9 @@ Orchestrates dual-arm inverse kinematics solving, follower updates, and collisio
 """
 
 import os
+import time
 import numpy as np
+from teleop.kinematics.reach_projection import project_to_reachable_workspace
 
 
 def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hint_r: np.ndarray = None):
@@ -25,30 +27,37 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
         else:
             follow_pos_l = np.array(app.cur_target_pos_l, dtype=np.float64).copy()
             follow_rot_l = np.array(app.cur_target_rot_l, dtype=np.float64).copy()
+
+        reach_pos_l, clamped_l, d_beyond_l = project_to_reachable_workspace(follow_pos_l, side="left")
+        app.reach_warning_l = f"Target out of reach ({d_beyond_l*100:.0f} cm beyond)" if clamped_l else ""
+
         slid_pos_l, slid_blocked_l = app.collision_checker.project_target_tangent(
-            ee_poses["left"]["pos"], follow_pos_l, app.env.data
+            ee_poses["left"]["pos"], reach_pos_l, app.env.data
         )
         warm_q_l = getattr(app, "last_ik_sol_left", app.env.get_left_arm_qpos())
         hint_l = posture_hint_l if posture_hint_l is not None else (warm_q_l if is_hands else None)
         kwargs_l = {"elbow_hint": hint_l} if (hint_l is not None and hasattr(app.ik_left, "set_elbow_hint")) else {}
-        q_sol_l, _, pos_err_l, _, _ = app.ik_left.solve(
+        q_sol_l, succ_l, pos_err_l, _, _ = app.ik_left.solve(
             target_pos=slid_pos_l,
             target_rot=follow_rot_l,
             init_qpos=warm_q_l,
             max_iters=14,
-            pos_tol=0.001, rot_tol=0.035,
+            pos_tol=0.005, rot_tol=0.040,
             **kwargs_l
         )
         app.last_ik_residual_l = float(pos_err_l)
-        last_ee_l = getattr(app, "_last_ee_target_l", None)
-        last_rot_l = getattr(app, "_last_ee_rot_l", None)
-        ee_move_l = float(np.linalg.norm(slid_pos_l - last_ee_l)) if last_ee_l is not None else 1.0
-        rot_move_l = float(np.linalg.norm(follow_rot_l - last_rot_l)) if last_rot_l is not None else 1.0
-        if float(np.max(np.abs(q_sol_l - warm_q_l))) > 0.10 and ee_move_l < 0.005 and rot_move_l < 0.05:
+        if not succ_l:
             q_sol_l = warm_q_l.copy()
         else:
-            app._last_ee_target_l = np.array(slid_pos_l).copy()
-            app._last_ee_rot_l = np.array(follow_rot_l).copy()
+            last_ee_l = getattr(app, "_last_ee_target_l", None)
+            last_rot_l = getattr(app, "_last_ee_rot_l", None)
+            ee_move_l = float(np.linalg.norm(slid_pos_l - last_ee_l)) if last_ee_l is not None else 1.0
+            rot_move_l = float(np.linalg.norm(follow_rot_l - last_rot_l)) if last_rot_l is not None else 1.0
+            if float(np.max(np.abs(q_sol_l - warm_q_l))) > 0.10 and ee_move_l < 0.005 and rot_move_l < 0.05:
+                q_sol_l = warm_q_l.copy()
+            else:
+                app._last_ee_target_l = np.array(slid_pos_l).copy()
+                app._last_ee_rot_l = np.array(follow_rot_l).copy()
         app.last_ik_sol_left = q_sol_l.copy()
         cand_left = q_sol_l.copy()
     else:
@@ -62,34 +71,48 @@ def solve_arm_ik(app, arm="both", posture_hint_l: np.ndarray = None, posture_hin
         else:
             follow_pos_r = np.array(app.cur_target_pos_r, dtype=np.float64).copy()
             follow_rot_r = np.array(app.cur_target_rot_r, dtype=np.float64).copy()
+
+        reach_pos_r, clamped_r, d_beyond_r = project_to_reachable_workspace(follow_pos_r, side="right")
+        app.reach_warning_r = f"Target out of reach ({d_beyond_r*100:.0f} cm beyond)" if clamped_r else ""
+
         slid_pos_r, slid_blocked_r = app.collision_checker.project_target_tangent(
-            ee_poses["right"]["pos"], follow_pos_r, app.env.data
+            ee_poses["right"]["pos"], reach_pos_r, app.env.data
         )
         warm_q_r = getattr(app, "last_ik_sol_right", app.env.get_right_arm_qpos())
         hint_r = posture_hint_r if posture_hint_r is not None else (warm_q_r if is_hands else None)
         kwargs_r = {"elbow_hint": hint_r} if (hint_r is not None and hasattr(app.ik_right, "set_elbow_hint")) else {}
-        q_sol_r, _, pos_err_r, _, _ = app.ik_right.solve(
+        q_sol_r, succ_r, pos_err_r, _, _ = app.ik_right.solve(
             target_pos=slid_pos_r,
             target_rot=follow_rot_r,
             init_qpos=warm_q_r,
             max_iters=14,
-            pos_tol=0.001, rot_tol=0.035,
+            pos_tol=0.005, rot_tol=0.040,
             **kwargs_r
         )
         app.last_ik_residual_r = float(pos_err_r)
-        last_ee_r = getattr(app, "_last_ee_target_r", None)
-        last_rot_r = getattr(app, "_last_ee_rot_r", None)
-        ee_move_r = float(np.linalg.norm(slid_pos_r - last_ee_r)) if last_ee_r is not None else 1.0
-        rot_move_r = float(np.linalg.norm(follow_rot_r - last_rot_r)) if last_rot_r is not None else 1.0
-        if float(np.max(np.abs(q_sol_r - warm_q_r))) > 0.10 and ee_move_r < 0.005 and rot_move_r < 0.05:
+        if not succ_r:
             q_sol_r = warm_q_r.copy()
         else:
-            app._last_ee_target_r = np.array(slid_pos_r).copy()
-            app._last_ee_rot_r = np.array(follow_rot_r).copy()
+            last_ee_r = getattr(app, "_last_ee_target_r", None)
+            last_rot_r = getattr(app, "_last_ee_rot_r", None)
+            ee_move_r = float(np.linalg.norm(slid_pos_r - last_ee_r)) if last_ee_r is not None else 1.0
+            rot_move_r = float(np.linalg.norm(follow_rot_r - last_rot_r)) if last_rot_r is not None else 1.0
+            if float(np.max(np.abs(q_sol_r - warm_q_r))) > 0.10 and ee_move_r < 0.005 and rot_move_r < 0.05:
+                q_sol_r = warm_q_r.copy()
+            else:
+                app._last_ee_target_r = np.array(slid_pos_r).copy()
+                app._last_ee_rot_r = np.array(follow_rot_r).copy()
         app.last_ik_sol_right = q_sol_r.copy()
         cand_right = q_sol_r.copy()
     else:
         cand_right = app.last_arm_cmd_right.copy()
+
+    app.reach_warning = getattr(app, "reach_warning_l", "") or getattr(app, "reach_warning_r", "")
+    if app.reach_warning:
+        now_t = time.time()
+        if now_t - getattr(app, "_last_reach_log_t", 0.0) >= 1.0:
+            app._last_reach_log_t = now_t
+            print(f"[REACH] {app.reach_warning}")
 
     # Gate 3: SafetyLayer self-collision verification & shadow follower evaluation
     if app.self_collision and app.collision_checker.enabled:
@@ -155,8 +178,9 @@ def freeze_arm_target(app, arm: str = "both"):
 
         if ik_solver:
             warm_q = getattr(app, f"last_ik_sol_{a}", getattr(app, f"last_arm_cmd_{a}"))
+            proj_pos, _, _ = project_to_reachable_workspace(cur_pos, side=a)
             q_conv, _, pos_err, _, _ = ik_solver.solve(
-                target_pos=cur_pos,
+                target_pos=proj_pos,
                 target_rot=cur_rot,
                 init_qpos=warm_q,
                 max_iters=50,

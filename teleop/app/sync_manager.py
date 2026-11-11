@@ -178,3 +178,15 @@ def process_arm_sync_and_dispatch(app, is_real: bool, dt: float):
         else:
             app.env.set_arm_commands(app.last_arm_cmd_left, app.last_arm_cmd_right)
         app.env.set_hand_commands(app.last_hand_cmd_left, app.last_hand_cmd_right)
+
+    # Sync armor status and log
+    if hasattr(app, "mirror_limiter") and getattr(app.mirror_limiter, "armor_blocked", False):
+        d_mm = app.mirror_limiter.armor_min_dist * 1000.0
+        pair = app.mirror_limiter.armor_pair
+        app.armor_warning = f"Collision armor: BLOCKED {pair} ({d_mm:.0f} mm)"
+        now_t = time.time()
+        if now_t - getattr(app, "_last_armor_log_t", 0.0) >= 1.0:
+            app._last_armor_log_t = now_t
+            print(f"[ARMOR] BLOCKED {pair} ({d_mm:.1f} mm)")
+    else:
+        app.armor_warning = ""

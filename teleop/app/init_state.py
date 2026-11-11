@@ -45,7 +45,8 @@ def init_state(app, project_root: Path):
         speed_profile=prof, initial_q14=init_q14,
         accept_higher_speed=getattr(app, "i_accept_higher_speed", False),
         gate_mode=gate_m,
-        tau_id=tau_cfg
+        tau_id=tau_cfg,
+        armor_checker=getattr(app, "armor_collision", None),
     )
     print("[CommandChain] Chain: Input(Gizmo/XR) -> CartesianFollower(critically-damped) -> IK -> MonotoneLimiter(per-joint, open-loop) -> UDP/Sim")
     is_real_backend = getattr(app, "backend", "sim").lower() in ("real", "ros2", "real-udp", "udp")

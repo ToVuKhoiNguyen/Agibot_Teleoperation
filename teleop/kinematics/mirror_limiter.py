@@ -41,7 +41,12 @@ class MirrorLimiter:
         accept_higher_speed: bool = False,
         gate_mode: str = "legacy",
         tau_id = None,
+        armor_checker = None,
     ):
+        self.armor_checker = armor_checker
+        self.armor_blocked = False
+        self.armor_pair = ""
+        self.armor_min_dist = 999.0
         if speed_profile is not None and str(speed_profile) in SPEED_PROFILES:
             base_vel, base_acc = SPEED_PROFILES[str(speed_profile)]
             self.speed_level = int(speed_profile) if str(speed_profile).isdigit() else 3
@@ -99,6 +104,12 @@ class MirrorLimiter:
         self.lead_val = 0.0
         self.lead_exceeded = False
         self.backoff_active = False
+        self.armor_blocked = False
+        self.armor_pair = ""
+        self.armor_min_dist = 999.0
+        if self.armor_checker is not None:
+            self.armor_checker.is_blocked = False
+            self.armor_checker.blocked_pair = ""
 
     def step(
         self,
@@ -119,6 +130,7 @@ class MirrorLimiter:
         self.lead_exceeded = False
 
         eff_max_vel = self.max_vel * max(0.0, min(1.0, speed_scale))
+        prev_q = self.q_plan.copy()
 
         # Rest deadband with hysteresis: enter at |e|<=0.002, leave when |e|>0.004 or tgt moved >0.004
         for i in range(14):
@@ -149,7 +161,28 @@ class MirrorLimiter:
                 self.v_plan[i] = dx / dt_eff
                 self.q_plan[i] += dx
 
-        self.q_plan = np.clip(self.q_plan, self.lim_min, self.lim_max)
+        q_cand = np.clip(self.q_plan, self.lim_min, self.lim_max)
+
+        # Armor self-collision swept check and soft block
+        if self.armor_checker is not None:
+            q_safe, step_allowed, is_blocked, min_dist, violator = self.armor_checker.filter_step(prev_q, q_cand)
+            if not step_allowed:
+                self.q_plan = prev_q.copy()
+                self.v_plan.fill(0.0)
+                self.armor_blocked = True
+                self.armor_pair = violator
+                self.armor_min_dist = float(min_dist)
+            else:
+                self.q_plan = q_safe
+                self.v_plan = (q_safe - prev_q) / dt_eff
+                self.armor_blocked = bool(is_blocked)
+                self.armor_pair = violator if is_blocked else ""
+                self.armor_min_dist = float(min_dist)
+        else:
+            self.q_plan = q_cand
+            self.armor_blocked = False
+            self.armor_pair = ""
+            self.armor_min_dist = 999.0
 
         # Log-only overshoot monitor
         self.target_history.append(target.copy())

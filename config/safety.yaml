@@ -1,3 +1,6 @@
+armor_collision:
+  enabled: true
+  shell_m: 0.01
 pair_margins:
   arm_arm: 0.008
   hand_hand: 0.005

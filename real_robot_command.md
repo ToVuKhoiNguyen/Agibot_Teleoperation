@@ -105,7 +105,8 @@ python3 arm_teleop_rx.py
 - **Nguyên nhân FAULT còn lại duy nhất:** Chỉ kích hoạt khi vi phạm an toàn phần cứng: vi phạm trần bước nhảy (`max_step > 0.02 rad`), lệnh chứa NaN/inf, xung đột địa chỉ IP phát, hoặc mất kết nối gói tin telemetry (`stale feedback > 300 ms`).
 - **LƯU Ý RỦI RO QUAN TRỌNG:** Khi robot di chuyển chậm hơn lệnh mong muốn, cánh tay robot có thể **tiếp tục di chuyển một đoạn ngắn sau khi nhả cò/ly hợp** để bám đuổi kịp vị trí đích (quán tính bám đuổi). **Bắt buộc người thứ hai phải cầm nút E-Stop vật lý trên tay** sẵn sàng dập nút khẩn cấp nếu có bất thường!
 - **Trạng thái "Arm not moving reason":** Chỉ hiển thị các lý do thực tế gồm: `not ENGAGED`, `FAULT`, `stale feedback (>200ms)`, `at joint limit`, `target==current`, hoặc `none` khi đang chuyển động bình thường.
-- **Tự va chạm mềm & nhẹ (Soft Self-Collision):** Sử dụng các capsule/sphere đại diện để tính khoảng cách tối thiểu ở $\le 50$ Hz trên PLAN. Khi $0.02 < d \le 0.05$ m và khoảng cách đang giảm, vận tốc tự động hạ mượt xuống 0.40; khi $d \le 0.02$ m hạ xuống 0.15. Khi di chuyển ra xa, tốc độ luôn phục hồi 100% (scale 1.0). Không bao giờ gây FAULT, không dừng cứng vector mục tiêu, chỉ hiện chữ vàng `⚠️ Arm proximity: XX mm` trên HUD.
+- **Tự va chạm giáp bọc (Armor Collision Check & Soft Block):** Thay thế cơ chế proxy collision cũ. Mọi hình học va chạm URDF được bao bọc lớp giáp dày 1 cm (`shell_m: 0.010` m, ngưỡng tiếp xúc $2 \times \text{shell\_m} = 0.020$ m). Khi khoảng cách bề mặt $\le 20$ mm, bộ giới hạn lệnh (limiter) kích hoạt Soft Block: giữ nguyên tư thế hợp lệ cuối cùng với $v=0$ (PLAN bit-identical), không gây FAULT, không ngắt kết nối. Cho phép di chuyển ra xa ngay lập tức khi mục tiêu kéo ra ngoài. Cảnh báo chữ vàng hiển thị trên HUD: `Collision armor: BLOCKED <linkA> / <linkB> (X mm)`.
+- **Mục tiêu ngoài tầm với (Out-of-Reach Target Projection):** Khi kéo Gizmo hoặc tay VR vượt quá tầm vươn cánh tay ($R_{\max} = 0.500$ m tính từ khớp vai), tọa độ mục tiêu tự động được chiếu lên mặt cầu giới hạn dọc theo hướng kéo trước khi đưa vào bộ giải IK. HUD hiển thị chữ vàng: `Target out of reach (X cm beyond)`. Gizmo vẫn thuộc quyền điều khiển của client, không bị server giật ngược lại. Khi mục tiêu quay trở lại tầm với, cánh tay bám đuổi mượt mà $<0.3$ s không nhảy giật.
 
 > **Các tầng bảo vệ an toàn chuẩn hóa trong `arm_teleop_rx.py`:**
 > - **Cổng bảo vệ cuối (Final-Line Guard):** Đúng 1 vị trí publish lệnh duy nhất trên timer 50 Hz. Co giãn đồng tỉ lệ (uniform vector scaling) bảo toàn 100% hướng di chuyển, gia tốc khống chế $\le 3.0\text{ rad/s}^2$, bước nhảy tối đa theo cấp tốc độ: Level 1 $\le 0.008$, Level 2 $\le 0.012$, Level 3 $\le 0.016$, Level 4 $\le 0.020\text{ rad/chu kỳ}$.
@@ -195,15 +196,23 @@ Hệ thống hỗ trợ 6 cờ biến môi trường (mặc định giữ nguyê
 - **Tay cầm Quest VR**: Khi nhả Grip/Trigger chuyển về trạng thái `LOCKED`, tự động kích hoạt `freeze_arm_target` chốt cứng mục tiêu ngay lập tức.
 - **Sự kiện Trace**: Laptop tự động ghi các sự kiện `GIZMO_START`, `GIZMO_END`, `TARGET_FROZEN`, `ARRIVED` (kèm `seq`) vào file `trace_laptop_<ts>.jsonl`.
 
-### Cơ Chế Tự Va Chạm Mềm & Nhẹ (Soft Self-Collision Avoidance):
-- **Proxy Capsules/Spheres**: 4 hình viên con nhộng (capsule) cho mỗi tay (cánh tay trên, khuỷu, cẳng tay, cổ tay) và 4 hình cầu (sphere) cho thân/đầu (3 sphere trên `base_link`, 1 sphere trên `head_link02`). Bỏ qua các ngón tay và các cặp khớp liền kề.
-- **Tần số & Tải**: Tính toán khoảng cách tối thiểu trực tiếp trên vector lệnh (PLAN) ở tần số $\le 50$ Hz với chi phí $< 0.35$ ms/lần kiểm tra.
-- **Ngưỡng & Hành vi (cấu hình trong `config/safety.yaml`)**:
-  - $d > 0.05$ m ($50$ mm): Không giảm tốc (tỉ lệ $1.0$).
-  - $0.02 < d \le 0.05$ m ($20 - 50$ mm): Giảm tuyến tính $v_{\max}$ của limiter xuống $0.40$ CHỈ KHI khoảng cách đang giảm dần.
-  - $d \le 0.02$ m ($20$ mm): Tỉ lệ giảm tốc $0.15$ khi đang tiến lại gần. Nếu di chuyển ra xa ($d$ tăng), KHÔNG BAO GIỜ bị làm chậm (tỉ lệ $1.0$).
-  - Không bao giờ gây FAULT, không dừng cứng vector mục tiêu, chỉ điều tiết vận tốc mượt mà.
-- **Cảnh báo UI**: Hiển thị cảnh báo chữ vàng `⚠️ Arm proximity: XX mm` trên HUD (không hiển thị banner đỏ lỗi).
+### Cơ Chế Tự Va Chạm Giáp Bọc (Armor Collision Check & Soft Block):
+- **Nguyên lý Giáp Bọc (Armor Shell)**: Mọi liên kết va chạm (collision links) trong URDF được thổi phồng thêm 1 cm (`shell_m: 0.010` m trong `config/safety.yaml`). Va chạm được tuyên bố khi hai lớp giáp chạm nhau, tương ứng khoảng cách bề mặt thực $d \le 2 \times \text{shell\_m} = 0.020$ m (20 mm).
+- **Phạm vi kiểm tra**: 261 cặp va chạm ứng viên bao gồm tay-tay, tay-thân (`base_link`), tay-đầu (`head_link02`), tay-chân, và các khớp không liền kề trong cùng một cánh tay (loại trừ các cặp khớp liền kề và bàn tay chi tiết).
+- **Bộ lọc bước quét (Swept Check & Bisection)**: Tại mỗi chu kỳ 100 Hz, limiter đánh giá 3 tư thế nội suy trung gian ($1/3, 2/3, 1$) của bước di chuyển kế tiếp. Nếu phát hiện vi phạm ngưỡng 20 mm, thuật toán chia đôi nhị phân (bisection: $1, 0.5, 0.25, 0.125$) để tìm bước di chuyển an toàn tối đa.
+- **Khóa mềm (Soft Block)**: Khi bị chặn, cánh tay giữ nguyên tư thế hợp lệ cuối cùng với $v=0$ (PLAN bit-identical, std = 0, zero sign changes). Không phát sinh FAULT, không cần Clear Fault, không hiện banner đỏ.
+- **Thoát tiếp xúc (Contact Retreat)**: Bất kỳ bước di chuyển nào làm tăng khoảng cách ($d_{\text{cand}} > d_{\text{curr}}$) đều được chấp thuận ngay lập tức, cho phép cánh tay rút ra khỏi vùng tiếp xúc mượt mà mà không bị kẹt.
+- **Chốt trễ (Hysteresis)**: Trạng thái cảnh báo BLOCKED chỉ được nhả khi độ hở tăng thêm $\ge 2$ mm so với điểm tiếp xúc (hoặc vượt ngưỡng 20 mm).
+- **Cảnh báo HUD**: Hiển thị dòng chữ vàng nổi bật trên giao diện: `Collision armor: BLOCKED <linkA> / <linkB> (X mm)`.
+- **Hiệu năng & Đồng nhất**: Tối ưu hóa bằng bộ lọc hình cầu thô vector hóa (vectorized coarse bounding sphere pre-filter), thời gian tính toán $\approx 0.67$ ms/tick (dưới ngân sách 1.0 ms ở 100 Hz). Sử dụng chung 1 đối tượng/đường ống kiểm tra cho cả `--sim` và `real-udp`.
+
+### Cơ Chế Xử Lý Mục Tiêu Ngoài Tầm Với (Unreachable Target & Reach Projection):
+- **Phép chiếu Cartesian (Cartesian Reach Projection)**: Khi tọa độ mục tiêu vượt ra ngoài tầm vươn cánh tay ($R_{\max} = 0.500$ m tính từ gốc khớp vai `SHOULDER_ORIGIN_LEFT`: `[-0.040, 0.230, 1.250]`, `SHOULDER_ORIGIN_RIGHT`: `[-0.040, -0.230, 1.250]`), hệ thống tự động chiếu điểm mục tiêu về mặt cầu biên $R_{\max}$ dọc theo hướng kéo.
+- **Bảo toàn 1:1 trong tầm với**: Khi khoảng cách từ vai $d \le R_{\max}$, phép chiếu trả về chính xác 100% tọa độ mục tiêu (sai lệch $0.0$ mm).
+- **Chủ quyền Gizmo**: Gizmo trên web và tay cầm Quest thuộc quyền kiểm soát của người dùng, server không bao giờ giật lùi gizmo về tầm với (loại bỏ hoàn toàn vòng lặp gizmo echo).
+- **Cảnh báo HUD**: Hiển thị dòng chữ vàng trên giao diện: `Target out of reach (X cm beyond)`.
+- **Bảo vệ IK**: Khi bộ giải Mink IK thất bại hoặc không hội tụ, hệ thống tự động giữ nguyên kết quả hợp lệ cuối cùng (bit-identical, triệt tiêu phân kỳ nghiệm và hiện tượng hunting dao động). Bộ ràng buộc giới hạn khớp sử dụng hysteresis ($>0.005$ rad vào trong mới nhả kẹp) và chuẩn hóa nullspace posture task để triệt tiêu rung giật bậc tự do thừa (nullspace drift).
+- **Phục hồi mượt mà**: Khi mục tiêu quay trở lại tầm với, cánh tay bám đuổi êm ái $<0.3$ s không giật nảy.
 
 ### Thanh Trượt Điều Khiển Bàn Tay (Hand Slider):
 - **Hiệu lực tức thì**: Thanh trượt bàn tay hoạt động ngay lập tức từ khi vừa bật máy (`fresh start`) ở cả `--sim` và `real-udp` mà không cần bấm Open/Close trước.

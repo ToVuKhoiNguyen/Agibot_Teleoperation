@@ -129,26 +129,10 @@ class ProxyCollisionChecker:
         return float(min_d)
 
     def evaluate_scale(self, q14: np.ndarray) -> tuple[float, float, bool]:
-        """
-        Calculates speed scaling factor for limiter.
-        Returns: (scale, min_distance, is_decreasing)
-        """
+        """Neutralized: Armor collision handles soft-blocking inside the limiter step."""
         curr_d = self.compute_min_distance(q14)
-        decreasing = bool(curr_d < self.last_d - 1e-6)
         self.last_d = curr_d
-
-        if curr_d > self.d_warn:
-            scale = 1.0
-        elif curr_d > self.d_critical:
-            if decreasing:
-                # Linear ramp from warn_scale to 1.0
-                ratio = (curr_d - self.d_critical) / (self.d_warn - self.d_critical)
-                scale = self.warn_scale + ratio * (1.0 - self.warn_scale)
-            else:
-                scale = 1.0
-        else:
-            scale = self.min_scale if decreasing else 1.0
-
-        scale = float(np.clip(scale, self.min_scale, 1.0))
-        self.last_scale = scale
+        self.last_scale = 1.0
+        return 1.0, curr_d, False
         return scale, curr_d, decreasing
+

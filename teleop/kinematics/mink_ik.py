@@ -113,7 +113,7 @@ class AgibotMinkIK:
             )
 
             # Posture task for elbow redundancy and natural posture
-            self.posture_task = mink.PostureTask(self.model, cost=0.10)
+            self.posture_task = mink.PostureTask(self.model, cost=1.00)
             self._set_posture_target(self.nominal_qpos)
 
             # Hardware limits as hard constraints
@@ -152,6 +152,8 @@ class AgibotMinkIK:
             self.conf = None
 
         self.last_qpos = self.nominal_qpos.copy()
+        self.clamped_lower = np.zeros(len(self.joint_names), dtype=bool)
+        self.clamped_upper = np.zeros(len(self.joint_names), dtype=bool)
 
     def _set_posture_target(self, arm_qpos: np.ndarray):
         """Sets target for posture task with arm joints at arm_qpos and all others at home."""
@@ -282,10 +284,33 @@ class AgibotMinkIK:
                 success = True
                 break
 
+        if not success:
+            # Hold last valid solution bit-identical on failure; reset configuration drift
+            q_sol = np.array(init_qpos, dtype=np.float64).copy()
+            for idx, val in zip(self.qpos_indices, q_sol):
+                self.conf.data.qpos[idx] = val
+            self.last_qpos = q_sol.copy()
+            return q_sol, False, pos_err, rot_err_deg, iters_done
+
         # Extract solved arm joints
         q_sol = np.array([float(self.conf.data.qpos[idx]) for idx in self.qpos_indices], dtype=np.float64)
-        # Ensure hard bounds
-        q_sol = np.clip(q_sol, self.limits[:, 0], self.limits[:, 1])
-        self.last_qpos = q_sol.copy()
 
+        # Joint-limit clamping with hysteresis (enter at limit, leave when > 0.005 rad inside)
+        for i in range(len(q_sol)):
+            l_min, l_max = self.limits[i, 0], self.limits[i, 1]
+            if self.clamped_lower[i]:
+                if q_sol[i] >= l_min + 0.005: self.clamped_lower[i] = False
+                else: q_sol[i] = l_min
+            elif q_sol[i] <= l_min:
+                self.clamped_lower[i] = True
+                q_sol[i] = l_min
+
+            if self.clamped_upper[i]:
+                if q_sol[i] <= l_max - 0.005: self.clamped_upper[i] = False
+                else: q_sol[i] = l_max
+            elif q_sol[i] >= l_max:
+                self.clamped_upper[i] = True
+                q_sol[i] = l_max
+
+        self.last_qpos = q_sol.copy()
         return q_sol, success, pos_err, rot_err_deg, iters_done
