@@ -210,13 +210,12 @@ Hệ thống hỗ trợ 6 cờ biến môi trường (mặc định giữ nguyê
 - **Cảnh báo HUD**: Hiển thị dòng chữ vàng nổi bật trên giao diện: `Collision armor: BLOCKED <linkA> / <linkB> (X mm)`.
 - **Hiệu năng & Đồng nhất**: Tối ưu hóa bằng bộ lọc hình cầu thô vector hóa (vectorized coarse bounding sphere pre-filter), thời gian tính toán $\approx 0.67$ ms/tick (dưới ngân sách 1.0 ms ở 100 Hz). Sử dụng chung 1 đối tượng/đường ống kiểm tra cho cả `--sim` và `real-udp`.
 
-### Cơ Chế Xử Lý Mục Tiêu Ngoài Tầm Với (Unreachable Target & Reach Projection):
-- **Phép chiếu Cartesian (Cartesian Reach Projection)**: Khi tọa độ mục tiêu vượt ra ngoài tầm vươn cánh tay ($R_{\max} = 0.500$ m tính từ gốc khớp vai `SHOULDER_ORIGIN_LEFT`: `[-0.040, 0.230, 1.250]`, `SHOULDER_ORIGIN_RIGHT`: `[-0.040, -0.230, 1.250]`), hệ thống tự động chiếu điểm mục tiêu về mặt cầu biên $R_{\max}$ dọc theo hướng kéo.
+### Cơ Chế Xử Lý Mục Tiêu Ngoài Tầm Với & Độ Chính Xác IK (Reach Projection & IK Accuracy):
+- **Phép chiếu Cartesian (Cartesian Reach Projection)**: Khi mục tiêu vượt ngoài tầm vươn ($R_{\max} = 0.500$ m tính từ khớp vai URDF `SHOULDER_ORIGIN_LEFT`: `[-0.03779, 0.19100, 1.27210]`, `SHOULDER_ORIGIN_RIGHT`: `[-0.03779, -0.19100, 1.27210]`), hệ thống tự động chiếu mục tiêu về mặt cầu biên $R_{\max}$ dọc theo hướng kéo.
 - **Bảo toàn 1:1 trong tầm với**: Khi khoảng cách từ vai $d \le R_{\max}$, phép chiếu trả về chính xác 100% tọa độ mục tiêu (sai lệch $0.0$ mm).
-- **Chủ quyền Gizmo**: Gizmo trên web và tay cầm Quest thuộc quyền kiểm soát của người dùng, server không bao giờ giật lùi gizmo về tầm với (loại bỏ hoàn toàn vòng lặp gizmo echo).
-- **Cảnh báo HUD**: Hiển thị dòng chữ vàng trên giao diện: `Target out of reach (X cm beyond)`.
-- **Bảo vệ IK**: Khi bộ giải Mink IK thất bại hoặc không hội tụ, hệ thống tự động giữ nguyên kết quả hợp lệ cuối cùng (bit-identical, triệt tiêu phân kỳ nghiệm và hiện tượng hunting dao động). Bộ ràng buộc giới hạn khớp sử dụng hysteresis ($>0.005$ rad vào trong mới nhả kẹp) và chuẩn hóa nullspace posture task để triệt tiêu rung giật bậc tự do thừa (nullspace drift).
-- **Phục hồi mượt mà**: Khi mục tiêu quay trở lại tầm với, cánh tay bám đuổi êm ái $<0.3$ s không giật nảy.
+- **Chỉ số sai số IK trên HUD**: HUD đo sai số giữa EE thực tế và mục tiêu *sau khi chiếu vào tầm với* (sai số solver thực sự). Phần vượt tầm với hiển thị riêng bằng cảnh báo vàng: `Target out of reach (X cm beyond)`.
+- **Ưu tiên vị trí & Nới lỏng hướng (Position-First Relaxation)**: Trọng số `posture_task` được chuẩn hóa về $0.01$ (nullspace) giúp solver không bị giằng co với mục tiêu Cartesian. Ở biên tầm với hoặc góc khớp hẹp, trọng số hướng tự động nới lỏng ($3.0 \to 0.9 \to 0.15 \to 0.0$) để bảo đảm độ chính xác vị trí luôn $<3$ mm (HUD báo `(ori X°)` khi nới lỏng).
+- **Chủ quyền Gizmo & Chốt thả**: Thao tác thả chuột/bóp nhả Grip chốt cứng mục tiêu và hội tụ IK mượt mà; loại bỏ hoàn toàn lỗi kẹt 277 mm.
 
 ### Thanh Trượt Điều Khiển Bàn Tay (Hand Slider):
 - **Hiệu lực tức thì**: Thanh trượt bàn tay hoạt động ngay lập tức từ khi vừa bật máy (`fresh start`) ở cả `--sim` và `real-udp` mà không cần bấm Open/Close trước.

@@ -5,23 +5,19 @@ Constructs comprehensive 20 Hz JSON status telemetry packets for the 3D Web Pane
 
 import time
 import numpy as np
+from teleop.kinematics.reach_projection import project_to_reachable_workspace
 
 
 def build_status_packet(app) -> dict:
     """Assembles robot simulation telemetry, joint positions, IK errors, and Quest controller stats."""
     ee = app.env.get_ee_poses()
     now_t = time.time()
-    elapsed_rate = now_t - app.cmd_rate_timer
-    if elapsed_rate >= 1.0:
-        app.cmd_rate_hz = app.cmd_count / elapsed_rate
-        app.cmd_count = 0
-        app.cmd_rate_timer = now_t
-
-    elapsed_xr = now_t - app.xr_rate_timer
-    if elapsed_xr >= 1.0:
-        app.xr_rate_hz = app.xr_pkt_count / elapsed_xr
-        app.xr_pkt_count = 0
-        app.xr_rate_timer = now_t
+    if now_t - app.cmd_rate_timer >= 1.0:
+        app.cmd_rate_hz = app.cmd_count / (now_t - app.cmd_rate_timer)
+        app.cmd_count, app.cmd_rate_timer = 0, now_t
+    if now_t - app.xr_rate_timer >= 1.0:
+        app.xr_rate_hz = app.xr_pkt_count / (now_t - app.xr_rate_timer)
+        app.xr_pkt_count, app.xr_rate_timer = 0, now_t
 
     closure_l = app.hand_closure_l if not getattr(app, "direct_hand_override_l", False) else float(np.mean(app.last_hand_cmd_left[2:6])) / 1.21
     closure_r = app.hand_closure_r if not getattr(app, "direct_hand_override_r", False) else float(np.mean(app.last_hand_cmd_right[2:6])) / 1.21
@@ -34,16 +30,12 @@ def build_status_packet(app) -> dict:
 
     # Hand diagnostics ring buffer logging (20 Hz)
     if hasattr(app, "hand_log_ring"):
-        reason_l = "none"
+        reason_l, reason_r = "none", "none"
         if getattr(app, "hand_collision_blocked", False) and hasattr(app, "collision_checker"):
             _, _, p_l = app.collision_checker.check_hand_collision("left", safe_l, margin=0.001)
-            if p_l and len(p_l) > 2 and p_l[2]:
-                reason_l = str(p_l[2])
-        reason_r = "none"
-        if getattr(app, "hand_collision_blocked", False) and hasattr(app, "collision_checker"):
+            if p_l and len(p_l) > 2 and p_l[2]: reason_l = str(p_l[2])
             _, _, p_r = app.collision_checker.check_hand_collision("right", safe_r, margin=0.001)
-            if p_r and len(p_r) > 2 and p_r[2]:
-                reason_r = str(p_r[2])
+            if p_r and len(p_r) > 2 and p_r[2]: reason_r = str(p_r[2])
 
         actual_l = app.env.get_left_hand_qpos()
         actual_r = app.env.get_right_hand_qpos()
@@ -90,8 +82,12 @@ def build_status_packet(app) -> dict:
             with tvuer.motion_data_ready_shared.get_lock():
                 xr_active = bool(tvuer.motion_data_ready_shared.value)
 
-    err_l = float(np.linalg.norm(np.array(ee["left"]["pos"]) - app.cur_target_pos_l)) * 1000.0
-    err_r = float(np.linalg.norm(np.array(ee["right"]["pos"]) - app.cur_target_pos_r)) * 1000.0
+    proj_l, _, _ = project_to_reachable_workspace(app.cur_target_pos_l, side="left")
+    proj_r, _, _ = project_to_reachable_workspace(app.cur_target_pos_r, side="right")
+    ik_err_l = float(getattr(app, "last_ik_pos_err_l", np.linalg.norm(np.array(ee["left"]["pos"]) - proj_l))) * 1000.0
+    ik_err_r = float(getattr(app, "last_ik_pos_err_r", np.linalg.norm(np.array(ee["right"]["pos"]) - proj_r))) * 1000.0
+    lag_l = float(np.linalg.norm(np.array(ee["left"]["pos"]) - app.cur_target_pos_l)) * 1000.0
+    lag_r = float(np.linalg.norm(np.array(ee["right"]["pos"]) - app.cur_target_pos_r)) * 1000.0
 
     return {
         "sim_running": True,
@@ -117,12 +113,16 @@ def build_status_packet(app) -> dict:
         "tgt_r": [float(x) for x in app.cur_target_pos_r],
         "tgt_rot_l": [[float(c) for c in row] for row in app.cur_target_rot_l],
         "tgt_rot_r": [[float(c) for c in row] for row in app.cur_target_rot_r],
-        "ik_err_l": err_l,
-        "ik_err_r": err_r,
-        "hand_closure_l": float(np.clip(app.hand_closure_l, 0.0, 1.0)),
-        "hand_closure_r": float(np.clip(app.hand_closure_r, 0.0, 1.0)),
-        "hand_fingers_l": finger_pcts_l,
-        "hand_fingers_r": finger_pcts_r,
+        "ik_err_l": ik_err_l,
+        "ik_err_r": ik_err_r,
+        "ik_rot_err_l": float(getattr(app, "last_ik_rot_err_l", 0.0)),
+        "ik_rot_err_r": float(getattr(app, "last_ik_rot_err_r", 0.0)),
+        "ik_relaxed_l": bool(getattr(app, "last_ik_relaxed_l", False)),
+        "ik_relaxed_r": bool(getattr(app, "last_ik_relaxed_r", False)),
+        "tracking_lag_l": lag_l,
+        "tracking_lag_r": lag_r,
+        "hand_closure_l": float(np.clip(app.hand_closure_l, 0.0, 1.0)), "hand_closure_r": float(np.clip(app.hand_closure_r, 0.0, 1.0)),
+        "hand_fingers_l": finger_pcts_l, "hand_fingers_r": finger_pcts_r,
         "held": bool(app.manual_held),
         "estop": bool(app.state_estop),
         "collision_blocked": bool(app.collision_blocked),
@@ -131,8 +131,12 @@ def build_status_packet(app) -> dict:
         "predicted_clearance_mm": float(getattr(app, "predicted_clearance_m", 0.999) * 1000.0),
         "min_hand_distance_mm": float(app.min_hand_distance_m * 1000.0),
         "homing": bool(app.homing_active),
-        "qpos_l": [float(x) for x in app.last_arm_cmd_left],
-        "qpos_r": [float(x) for x in app.last_arm_cmd_right],
+        "qpos_l": [float(x) for x in (app.sim_plant_q[:7] if hasattr(app, "sim_plant_q") else app.last_arm_cmd_left)],
+        "qpos_r": [float(x) for x in (app.sim_plant_q[7:] if hasattr(app, "sim_plant_q") else app.last_arm_cmd_right)],
+        "ghost_qpos_l": [float(x) for x in app.last_arm_cmd_left],
+        "ghost_qpos_r": [float(x) for x in app.last_arm_cmd_right],
+        "sim_plant_hud": str(getattr(getattr(app, "sim_plant", None), "hud_status", "IDEAL SIM")),
+        "sim_plant_min_dist_mm": float(getattr(app, "sim_plant_min_dist", 999.0) * 1000.0),
         "walking": bool(app.walking_demo_active),
         "loop_hz": float(getattr(app, "loop_hz", 200.0)),
         "cmd_rate_hz": float(app.cmd_rate_hz),

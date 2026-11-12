@@ -123,33 +123,33 @@ function updateUIStatus(s) {
   // Update HUD gizmo feedback pill (IK Error + Clamping + Collision)
   const hudFeedback = document.getElementById('gizmo-feedback');
   if (hudFeedback) {
-    const ikErr = (activeGizmoArm === 'left') ? (s.ik_err_l || 0.0) : (s.ik_err_r || 0.0);
-    let txt = `${activeGizmoArm.toUpperCase()} IK Err: ${ikErr.toFixed(1)} mm`;
+    const isLeft = (activeGizmoArm === 'left');
+    const ikErr = isLeft ? (s.ik_err_l || 0.0) : (s.ik_err_r || 0.0);
+    const rotErr = isLeft ? (s.ik_rot_err_l || 0.0) : (s.ik_rot_err_r || 0.0);
+    const relaxed = isLeft ? Boolean(s.ik_relaxed_l) : Boolean(s.ik_relaxed_r);
+    let txt = `${activeGizmoArm.toUpperCase()} IK: ${ikErr.toFixed(1)} mm`;
+    if (relaxed) txt += ` (ori ${rotErr.toFixed(0)}°)`;
     if (s.collision_blocked) {
       txt = `⚠️ Self-collision blocked (${(s.min_distance_mm || 0.0).toFixed(1)} mm)`;
-      hudFeedback.style.color = '#ff1744';
-      hudFeedback.style.borderColor = '#ff1744';
+      hudFeedback.style.color = hudFeedback.style.borderColor = '#ff1744';
       hudFeedback.style.backgroundColor = 'rgba(255, 23, 68, 0.2)';
     } else if (s.hand_collision_blocked) {
       txt = `⚠️ Hand collision blocked (${(s.min_hand_distance_mm || 0.0).toFixed(1)} mm)`;
-      hudFeedback.style.color = '#ff9100';
-      hudFeedback.style.borderColor = '#ff9100';
+      hudFeedback.style.color = hudFeedback.style.borderColor = '#ff9100';
       hudFeedback.style.backgroundColor = 'rgba(255, 145, 0, 0.2)';
-    } else if (s.proxy_collision_warning) {
-      txt = s.proxy_collision_warning;
-      hudFeedback.style.color = '#ffd600';
-      hudFeedback.style.borderColor = '#ffd600';
+    } else if (s.reach_warning || s.proxy_collision_warning) {
+      txt = s.reach_warning ? `⚠️ ${s.reach_warning}` : s.proxy_collision_warning;
+      hudFeedback.style.color = hudFeedback.style.borderColor = '#ffd600';
       hudFeedback.style.backgroundColor = 'rgba(255, 214, 0, 0.15)';
     } else if (s.warning && s.warning.toLowerCase().includes('clamp')) {
       txt += ` ⚠️ CLAMPED`;
-      hudFeedback.style.color = '#ff5252';
-      hudFeedback.style.borderColor = '#ff5252';
+      hudFeedback.style.color = hudFeedback.style.borderColor = '#ff5252';
       hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';
     } else {
       if (s.predicted_clearance_mm !== undefined && s.predicted_clearance_mm < 900.0) {
-        txt += ` | Clearance: ${s.predicted_clearance_mm.toFixed(0)} mm`;
+        txt += ` | Clr: ${s.predicted_clearance_mm.toFixed(0)} mm`;
       }
-      hudFeedback.style.color = ikErr > 15.0 ? '#ffb74d' : '#81c784';
+      hudFeedback.style.color = (relaxed || ikErr > 15.0) ? '#ffd600' : '#81c784';
       hudFeedback.style.borderColor = '#32415d';
       hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';
     }

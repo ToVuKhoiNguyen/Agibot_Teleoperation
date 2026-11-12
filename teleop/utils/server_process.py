@@ -44,7 +44,7 @@ def ensure_server_running(timeout_s: float = 20.0):
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     proc = subprocess.Popen(
-        [python_bin, "-u", str(main_script), "--headless", "--no-adb"],
+        [python_bin, "-u", str(main_script), "--headless", "--no-adb", "--sim"],
         stdout=log_file,
         stderr=subprocess.STDOUT,
         env=env,

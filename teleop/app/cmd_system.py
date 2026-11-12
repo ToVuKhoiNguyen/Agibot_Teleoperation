@@ -187,6 +187,7 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
             new_t[1] = np.clip(new_t[1], -0.9, 0.9)
             new_t[2] = np.clip(new_t[2], 0.5, 1.8)
             app.cur_target_pos_l = new_t
+            if hasattr(app, "gizmo_follower_l") and app.gizmo_follower_l: app.gizmo_follower_l.reset(new_t)
             app.gizmo_active_l = True
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "mouse panel step")
             app._solve_arm_ik("left")
@@ -197,6 +198,7 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
             new_t[1] = np.clip(new_t[1], -0.9, 0.9)
             new_t[2] = np.clip(new_t[2], 0.5, 1.8)
             app.cur_target_pos_r = new_t
+            if hasattr(app, "gizmo_follower_r") and app.gizmo_follower_r: app.gizmo_follower_r.reset(new_t)
             app.gizmo_active_r = True
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "mouse panel step")
             app._solve_arm_ik("right")

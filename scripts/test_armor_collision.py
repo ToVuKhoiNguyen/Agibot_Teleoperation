@@ -99,8 +99,16 @@ def run_tests():
 
     # 4. Start inside shell: leaves contact, cannot go deeper
     # Construct a posture inside shell (0 < d < 0.02)
-    contact_q14 = HOME + 0.62 * (tgt_q14 - HOME)
-    d_contact, _, _ = checker.compute_min_distance(contact_q14)
+    contact_q14 = None
+    for a in np.linspace(0.80, 0.95, 30):
+        cq = HOME + a * (tgt_q14 - HOME)
+        d_c, _, _ = checker.compute_min_distance(cq)
+        if 0.002 < d_c < 0.019:
+            contact_q14, d_contact = cq, d_c
+            break
+    if contact_q14 is None:
+        contact_q14 = HOME + 0.85 * (tgt_q14 - HOME)
+        d_contact, _, _ = checker.compute_min_distance(contact_q14)
     assert 0.0 < d_contact < 0.020, f"contact_q14 not inside shell: {d_contact*1000:.1f}mm"
     checker.is_blocked = False
 
