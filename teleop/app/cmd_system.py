@@ -1,11 +1,12 @@
 """
 teleop/app/cmd_system.py
-Handles core system commands including E-stop, hold toggle, walk demo, and arm jogging.
+Handles core system commands including E-stop, hold toggle, and arm jogging.
 """
 
-import time
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+
+from teleop.app.sync_manager import engage_arms
 
 
 def handle_system_cmd(app, name: str, cmd: dict) -> bool:
@@ -57,25 +58,11 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
             app.status_warning = ""
         return True
     elif name == "engage_arm":
-        arm = cmd.get("arm", "both")
-        if getattr(app, "sync_state", "READY") in ("READY", "ENGAGED"):
-            if hasattr(app, "robot_safety") and app.robot_safety is not None:
-                q_act, _, _ = app.robot_safety.read_state()
-                if q_act is not None and len(q_act) == 14 and not np.any(np.isnan(q_act)):
-                    app.robot_safety._last_cmd_q14 = q_act.copy()
-                    app.robot_safety._last_cmd_vel = np.zeros(14, dtype=np.float64)
-                    app.robot_safety._deviation_start_t = None
-                    if hasattr(app, "mirror_limiter"): app.mirror_limiter.reset(q_act)
-            if arm in ("left", "both"): app.arm_engaged_l = True
-            if arm in ("right", "both"): app.arm_engaged_r = True
-            app.sync_state = "ENGAGED"
-            print(f"[SYNC] Arms engaged: L={app.arm_engaged_l}, R={app.arm_engaged_r} (State: ENGAGED)")
-            return True
-        else:
-            print(f"[SYNC] Cannot engage in state {app.sync_state}")
-            return False
+        app.auto_engage_suppressed = False
+        return engage_arms(app, cmd.get("arm", "both"))
     elif name == "disengage_arm":
         arm = cmd.get("arm", "both")
+        app.auto_engage_suppressed = True
         if arm in ("left", "both"): app.arm_engaged_l = False
         if arm in ("right", "both"): app.arm_engaged_r = False
         if not app.arm_engaged_l and not app.arm_engaged_r and app.sync_state == "ENGAGED":
@@ -84,6 +71,51 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
         return True
     elif name == "hold_toggle":
         app.manual_held = not app.manual_held
+        if app.manual_held:
+            from teleop.app.joint_preset import stop_auto_motion
+            stop_auto_motion(app)
+        app._log_xr_event("Hold ON: arms frozen" if app.manual_held else "Hold OFF")
+        return True
+    elif name in ("neck", "set_neck"):
+        pitch_val = cmd.get("pitch_deg") if "pitch_deg" in cmd else cmd.get("pitch", getattr(app, "neck_pitch_deg", 5.0))
+        yaw_val = cmd.get("yaw_deg") if "yaw_deg" in cmd else cmd.get("yaw", getattr(app, "neck_yaw_deg", 0.0))
+        pitch_deg = float(np.clip(float(pitch_val), -23.0, 23.0))
+        yaw_deg = float(np.clip(float(yaw_val), -45.0, 45.0))
+        app.neck_pitch_deg = pitch_deg
+        app.neck_yaw_deg = yaw_deg
+        app.target_neck = np.array([np.radians(yaw_deg), np.radians(pitch_deg)], dtype=np.float64)
+        if hasattr(app, "env") and hasattr(app.env, "set_head_qpos"):
+            app.env.set_head_qpos(app.target_neck[0], app.target_neck[1])
+        print(f"[NECK] Posture target: pitch={pitch_deg:.1f} deg, yaw={yaw_deg:.1f} deg")
+        if hasattr(app, "server") and hasattr(app.server, "broadcast_event"):
+            app.server.broadcast_event({
+                "type": "neck_state",
+                "pitch_deg": pitch_deg,
+                "yaw_deg": yaw_deg,
+            })
+        return True
+    elif name in ("rec_start", "rec_stop", "rec_toggle", "rec_discard", "set_rec_task", "set_discard_reason"):
+        from teleop.app import episode_recorder as er
+        if name == "set_rec_task":
+            if not app.rec_active: app.rec_task = er.safe_name(cmd.get("task"))
+        elif name == "set_discard_reason": er.set_discard_reason(app, cmd.get("reason"))
+        elif name == "rec_discard":
+            if cmd.get("reason"): er.set_discard_reason(app, cmd.get("reason"))
+            er.discard_last(app, note=cmd.get("note"))
+        elif name == "rec_stop" or (name == "rec_toggle" and app.rec_active): er.stop_episode(app)
+        else: er.start_episode(app, cmd.get("task"), cmd.get("instruction"))
+        return True
+    elif name == "set_xr_scale":
+        # Controller -> robot motion scale from the panel (1.0 = 1:1). Re-anchor any held clutch so the target
+        # does not jump when the ratio changes mid-drag.
+        try: val = float(cmd.get("scale", 1.0))
+        except (TypeError, ValueError): return True
+        if not np.isfinite(val): return True
+        app.xr_scale = max(0.1, min(2.0, val))
+        for s in ("l", "r"):
+            if getattr(app, f"xr_clutch_state_{s}", "LOCKED") != "LOCKED":
+                setattr(app, f"xr_clutch_state_{s}", "LOCKED")
+        app._log_xr_event(f"Controller->robot scale set to {app.xr_scale:.2f}")
         return True
     elif name == "set_input_mode":
         # Server stores launch-configured input mode as single source of truth; never auto-switches
@@ -131,21 +163,16 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
             app.handtrack_filter_pos_l.min_cutoff = app.handtrack_filter_pos_r.min_cutoff = getattr(app, "hand_min_cutoff", 1.5)
             app.handtrack_filter_pos_l.beta = app.handtrack_filter_pos_r.beta = getattr(app, "hand_beta", 0.03)
         return True
-    elif name in ("walk_toggle", "walk_demo"):
-        app.walking_demo_active = not app.walking_demo_active
-        if not app.walking_demo_active:
-            if hasattr(app.env, "non_manip_qpos_indices"):
-                app.env.data.qpos[app.env.non_manip_qpos_indices] = 0.0
-        else:
-            app.walk_start_time = time.time()
-        return True
 
     if name in ("arm_jog", "jog_l", "jog_r"):
         if app.state_estop:
             app.status_warning = "Command ignored: E-STOP is active."
             return True
+        if getattr(app, "status_warning", "") == "TARGET_FROZEN":
+            app.status_warning = ""
 
         arm = cmd.get("arm", "left" if name == "jog_l" else "right")
+        arm_c = "l" if arm == "left" else "r"
         axis_val = cmd.get("axis", 0)
         if isinstance(axis_val, str):
             axis_val = axis_val.lower()
@@ -162,12 +189,19 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
                 rot_vec = np.zeros(3)
                 rot_vec[r_axis] = np.radians(step_deg) * direction
                 dR = R.from_rotvec(rot_vec).as_matrix()
-                if arm == "left":
-                    app.cur_target_rot_l = dR @ app.cur_target_rot_l
-                    app._solve_arm_ik("left")
-                else:
-                    app.cur_target_rot_r = dR @ app.cur_target_rot_r
-                    app._solve_arm_ik("right")
+                cur_rot = getattr(app, f"cur_target_rot_{arm_c}")
+                new_rot = dR @ cur_rot
+                setattr(app, f"cur_target_rot_{arm_c}", new_rot)
+                setattr(app, f"soft_ori_{arm_c}", False)   # an explicit rotation command: hold it exactly
+                app._solve_arm_ik(arm)
+                from teleop.app.ik_dispatcher import NUDGE_GLIDE, ik_glide_start
+                if NUDGE_GLIDE: ik_glide_start(app, arm_c)      # the rotation follower turns the goal gradually
+                if hasattr(app, "server") and hasattr(app.server, "broadcast_event"):
+                    cur_p = getattr(app, f"cur_target_pos_{arm_c}")
+                    app.server.broadcast_event({
+                        "type": "gizmo_set", "arm": arm, "pos": cur_p.tolist(),
+                        "rot": R.from_matrix(new_rot).as_quat().tolist(), "source": "nudge"
+                    })
                 return True
             else:
                 axis = 0
@@ -180,28 +214,33 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
         else:
             step = float(cmd.get("step", 0.02)) * (direction if "dir" in cmd else 1.0)
 
-        if arm == "left":
-            new_t = app.cur_target_pos_l.copy()
-            new_t[axis] += step
-            new_t[0] = np.clip(new_t[0], -0.2, 0.9)
-            new_t[1] = np.clip(new_t[1], -0.9, 0.9)
-            new_t[2] = np.clip(new_t[2], 0.5, 1.8)
-            app.cur_target_pos_l = new_t
-            if hasattr(app, "gizmo_follower_l") and app.gizmo_follower_l: app.gizmo_follower_l.reset(new_t)
-            app.gizmo_active_l = True
-            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("left", "mouse panel step")
-            app._solve_arm_ik("left")
-        else:
-            new_t = app.cur_target_pos_r.copy()
-            new_t[axis] += step
-            new_t[0] = np.clip(new_t[0], -0.2, 0.9)
-            new_t[1] = np.clip(new_t[1], -0.9, 0.9)
-            new_t[2] = np.clip(new_t[2], 0.5, 1.8)
-            app.cur_target_pos_r = new_t
-            if hasattr(app, "gizmo_follower_r") and app.gizmo_follower_r: app.gizmo_follower_r.reset(new_t)
-            app.gizmo_active_r = True
-            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("right", "mouse panel step")
-            app._solve_arm_ik("right")
+        base_p = np.array(cmd["cur_pos"], dtype=np.float64) if "cur_pos" in cmd else getattr(app, f"cur_target_pos_{arm_c}").copy()
+        new_t = base_p.copy()
+        new_t[axis] += step
+        new_t[0] = np.clip(new_t[0], -0.2, 0.9)
+        new_t[1] = np.clip(new_t[1], -0.9, 0.9)
+        new_t[2] = np.clip(new_t[2], 0.5, 1.8)
+
+        setattr(app, f"cur_target_pos_{arm_c}", new_t)
+        follower = getattr(app, f"gizmo_follower_{arm_c}", None)
+        from teleop.app.ik_dispatcher import NUDGE_GLIDE, ik_glide_start
+        # A step used to be applied in one tick (follower reset onto the new target, one IK solve): the joint target
+        # jumped 0.1-0.17 rad per 2-3 cm step, and held / repeated steps (one every ~120 ms) made the arm speed up and
+        # slow down at every step. Now the Cartesian goal glides to the new target through the same critically
+        # damped follower as a mouse drag and IK is stepped every control tick until the posture is still.
+        if follower and not NUDGE_GLIDE: follower.reset(new_t)
+        setattr(app, f"gizmo_active_{arm_c}", False)
+        setattr(app, f"soft_ori_{arm_c}", True)        # position-only step: wrist stays straight, hand follows the forearm
+        if hasattr(app, "target_tracer"): app.target_tracer.record_target_source(arm, "mouse panel step")
+        app._solve_arm_ik(arm)
+        if NUDGE_GLIDE: ik_glide_start(app, arm_c)
+
+        if hasattr(app, "server") and hasattr(app.server, "broadcast_event"):
+            cur_rot = getattr(app, f"cur_target_rot_{arm_c}")
+            app.server.broadcast_event({
+                "type": "gizmo_set", "arm": arm, "pos": new_t.tolist(),
+                "rot": R.from_matrix(cur_rot).as_quat().tolist(), "source": "nudge"
+            })
         return True
 
     return False

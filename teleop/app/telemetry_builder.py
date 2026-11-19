@@ -8,6 +8,14 @@ import numpy as np
 from teleop.kinematics.reach_projection import project_to_reachable_workspace
 
 
+
+def _rec_tel(app):
+    try:
+        from teleop.app.episode_recorder import rec_telemetry
+        return rec_telemetry(app)
+    except Exception:
+        return None
+
 def build_status_packet(app) -> dict:
     """Assembles robot simulation telemetry, joint positions, IK errors, and Quest controller stats."""
     ee = app.env.get_ee_poses()
@@ -122,6 +130,7 @@ def build_status_packet(app) -> dict:
         "tracking_lag_l": lag_l,
         "tracking_lag_r": lag_r,
         "hand_closure_l": float(np.clip(app.hand_closure_l, 0.0, 1.0)), "hand_closure_r": float(np.clip(app.hand_closure_r, 0.0, 1.0)),
+        "thumb_open": int(getattr(app, "thumb_pose_raw", (800, 0, 1750, 1760))[0]),
         "hand_fingers_l": finger_pcts_l, "hand_fingers_r": finger_pcts_r,
         "held": bool(app.manual_held),
         "estop": bool(app.state_estop),
@@ -131,13 +140,18 @@ def build_status_packet(app) -> dict:
         "predicted_clearance_mm": float(getattr(app, "predicted_clearance_m", 0.999) * 1000.0),
         "min_hand_distance_mm": float(app.min_hand_distance_m * 1000.0),
         "homing": bool(app.homing_active),
+        # Server is moving the arm targets by itself (preset / home / wave / circle / grasp): the browser gizmo follows.
+        "xr_scale": float(getattr(app, "xr_scale", 1.0)),
+        "rec": _rec_tel(app),
+        "xr_driving": bool(getattr(app, "xr_grip_active_l", False) or getattr(app, "xr_grip_active_r", False)),
+        "auto_motion": bool(app.homing_active or getattr(app, "active_sequence", None)
+                            or time.time() < getattr(app, "preset_track_until", 0.0)),
         "qpos_l": [float(x) for x in (app.sim_plant_q[:7] if hasattr(app, "sim_plant_q") else app.last_arm_cmd_left)],
         "qpos_r": [float(x) for x in (app.sim_plant_q[7:] if hasattr(app, "sim_plant_q") else app.last_arm_cmd_right)],
-        "ghost_qpos_l": [float(x) for x in app.last_arm_cmd_left],
-        "ghost_qpos_r": [float(x) for x in app.last_arm_cmd_right],
+        "q_plan_l": [float(x) for x in (app.sim_cmd_q[:7] if hasattr(app, "sim_cmd_q") else app.last_arm_cmd_left)],
+        "q_plan_r": [float(x) for x in (app.sim_cmd_q[7:] if hasattr(app, "sim_cmd_q") else app.last_arm_cmd_right)],
         "sim_plant_hud": str(getattr(getattr(app, "sim_plant", None), "hud_status", "IDEAL SIM")),
         "sim_plant_min_dist_mm": float(getattr(app, "sim_plant_min_dist", 999.0) * 1000.0),
-        "walking": bool(app.walking_demo_active),
         "loop_hz": float(getattr(app, "loop_hz", 200.0)),
         "cmd_rate_hz": float(app.cmd_rate_hz),
         "last_cmd_name": str(app.last_cmd_name),
@@ -146,7 +160,7 @@ def build_status_packet(app) -> dict:
         "fault_latched": bool(getattr(getattr(app, "robot_safety", None), "fault_latched", False)),
         "fault_reason": str(getattr(getattr(app, "robot_safety", None), "fault_reason", "")),
         "warning": str(app.status_warning),
-        "proxy_collision_warning": str(getattr(app, "armor_warning", "") or getattr(app, "reach_warning", "") or getattr(app, "proxy_collision_warning", "")),
+        "proxy_collision_warning": str(getattr(app, "joint_follow_warning", "") or getattr(app, "pacer_warning", "") or getattr(app, "armor_warning", "") or getattr(app, "reach_warning", "") or getattr(app, "proxy_collision_warning", "")),
         "armor_warning": str(getattr(app, "armor_warning", "")),
         "reach_warning": str(getattr(app, "reach_warning", "")),
         "armor_blocked": bool(getattr(getattr(app, "mirror_limiter", None), "armor_blocked", False)),
@@ -162,6 +176,8 @@ def build_status_packet(app) -> dict:
         "profile_v_cap": float(getattr(getattr(app, "mirror_limiter", None), "v_cap", 0.3)),
         "profile_tau": float(getattr(getattr(app, "mirror_limiter", None), "tau_val", 0.138)) if getattr(getattr(app, "mirror_limiter", None), "tau_val", None) is not None else None,
         "overshoot_count": int(getattr(getattr(app, "mirror_limiter", None), "overshoot_count", 0)),
+        "neck_pitch_deg": float(getattr(app, "neck_pitch_deg", 5.0)),
+        "neck_yaw_deg": float(getattr(app, "neck_yaw_deg", 0.0)),
         "q_real_l": [float(x) for x in app.real_q14_measured[:7]] if getattr(app, "real_q14_measured", None) is not None else None,
         "q_real_r": [float(x) for x in app.real_q14_measured[7:]] if getattr(app, "real_q14_measured", None) is not None else None,
         "xr_status": {

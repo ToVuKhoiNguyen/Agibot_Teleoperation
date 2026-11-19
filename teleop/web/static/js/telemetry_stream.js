@@ -26,10 +26,16 @@ function connectWS() {
         buildRobotHierarchy(data);
       } else if (data.type === 'poses') {
         applyMuJoCoPoses(data.poses);
+      } else if (data.type === 'task_scene_def') {
+        if (typeof buildTaskScene === 'function') buildTaskScene(data);
+      } else if (data.type === 'task_poses') {
+        if (typeof applyTaskPoses === 'function') applyTaskPoses(data);
       } else if (data.type === 'status') {
         updateUIStatus(data.status);
       } else if (data.type === 'gizmo_recall') {
         if (typeof handleGizmoRecall === 'function') handleGizmoRecall(data);
+      } else if (data.type === 'gizmo_set') {
+        if (typeof handleGizmoSet === 'function') handleGizmoSet(data);
       } else if (data.ee_l) {
         updateUIStatus(data);
       }
@@ -37,16 +43,14 @@ function connectWS() {
   };
 
   ws.onclose = () => {
-    document.getElementById('conn-tag').innerText = 'Disconnected';
-    document.getElementById('conn-tag').className = 'tag tag-danger';
-    document.getElementById('sync-badge').innerText = 'DISCONNECTED (RECONNECTING...)';
-    document.getElementById('sync-badge').className = 'tag tag-danger';
+    const cTag = document.getElementById('conn-tag'); if (cTag) { cTag.innerText = 'Disconnected'; cTag.className = 'tag tag-danger'; }
+    const sBadge = document.getElementById('sync-badge'); if (sBadge) { sBadge.innerText = 'DISCONNECTED (RECONNECTING...)'; sBadge.className = 'tag tag-danger'; }
     setTimeout(connectWS, 1000);
   };
 }
 
 function sendCmd(obj) {
-  if (obj && (obj.cmd === 'preset' || obj.cmd === 'go_home' || obj.cmd === 'home' || obj.cmd === 'reset')) {
+  if (obj && (obj.cmd === 'preset' || obj.cmd === 'go_home' || obj.cmd === 'home' || obj.cmd === 'reset' || obj.cmd === 'data_collection')) {
     window._allowGizmoServerSync = true;
   }
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -78,6 +82,7 @@ function updateUIStatus(s) {
   if (simTag) {
     simTag.innerText = s.sim_running !== false ? 'SIM: OK' : 'SIM: STOPPED';
     simTag.className = s.sim_running !== false ? 'tag tag-ok' : 'tag tag-danger';
+    simTag.style.display = s.sim_running !== false ? 'none' : '';
   }
   const xrTag = document.getElementById('xr-tag');
   if (xrTag) {
@@ -86,37 +91,50 @@ function updateUIStatus(s) {
   }
   const estopTagEl = document.getElementById('estop-tag');
   if (estopTagEl) {
-    estopTagEl.innerText = s.estop ? 'ESTOP: ACTIVE' : 'ESTOP: OFF';
-    estopTagEl.className = s.estop ? 'tag tag-danger' : 'tag tag-ok';
+    estopTagEl.innerText = 'ESTOP: ACTIVE';
+    estopTagEl.className = 'tag tag-danger';
+    estopTagEl.style.display = s.estop ? '' : 'none';   // hidden while OFF, visible only when the e-stop is active
   }
 
   // Sync actual spheres
   if (actualSphereL && s.ee_l) actualSphereL.position.set(s.ee_l[0], s.ee_l[1], s.ee_l[2]);
   if (actualSphereR && s.ee_r) actualSphereR.position.set(s.ee_r[0], s.ee_r[1], s.ee_r[2]);
 
-  // Snap gizmo to FK(measured) once upon transition to READY or fault clear
-  if ((window._lastSyncState === 'SYNC' && s.sync_state === 'READY') || (window._lastFaultLatched && !s.fault_latched)) {
-    if (s.tgt_l && targetSphereL) targetSphereL.position.set(s.tgt_l[0], s.tgt_l[1], s.tgt_l[2]);
-    if (s.tgt_r && targetSphereR) targetSphereR.position.set(s.tgt_r[0], s.tgt_r[1], s.tgt_r[2]);
+  // Snap gizmo (position AND rotation) to the server target once upon initial load, transition to READY or
+  // fault clear. Rotation matters: a gizmo left at a stale orientation commands a large wrist rotation on the
+  // first pixel of any drag, which twists the arm into the torso (ARMOR block).
+  const snapGizmo = (obj, pos, rot, withRot) => {
+    if (!obj) return;
+    if (pos) obj.position.set(pos[0], pos[1], pos[2]);
+    if (rot && withRot) {
+      const m = new THREE.Matrix4();
+      m.set(rot[0][0], rot[0][1], rot[0][2], 0, rot[1][0], rot[1][1], rot[1][2], 0, rot[2][0], rot[2][1], rot[2][2], 0, 0, 0, 0, 1);
+      obj.quaternion.setFromRotationMatrix(m);
+    }
+  };
+  if (!window._hasInitialGizmoSync || (window._lastSyncState === 'SYNC' && s.sync_state === 'READY') || (window._lastFaultLatched && !s.fault_latched)) {
+    if (!isDraggingGizmo) {
+      snapGizmo(targetSphereL, s.tgt_l, s.tgt_rot_l, true);
+      snapGizmo(targetSphereR, s.tgt_r, s.tgt_rot_r, true);
+      if (typeof sceneNeedsRender !== 'undefined') sceneNeedsRender = true;
+    }
+    window._hasInitialGizmoSync = true;
   }
+  const justSynced = (window._lastSyncState === 'SYNC' && s.sync_state === 'READY');
   window._lastSyncState = s.sync_state;
   window._lastFaultLatched = Boolean(s.fault_latched);
 
-  // Sync target marker positions ONLY on explicit server sync triggers (Home, T-pose, Sync transition)
-  const allowSync = Boolean(window._allowGizmoServerSync || (window._lastSyncState === 'SYNC' && s.sync_state === 'READY'));
+  // Sync target markers ONLY on explicit server sync triggers (Home, T-pose, Sync transition)
+  // While the server moves the targets itself (preset / home / wave / circle / grasp), and once more on the
+  // update after it finishes, the gizmo follows the server target (a one-shot sync on click lands at the start).
+  // Also while a Quest controller clutch drives the targets (xr_driving): the gizmo must show where the hand target is.
+  const autoMotion = Boolean(s.auto_motion || s.xr_driving);
+  const allowSync = Boolean(window._allowGizmoServerSync || justSynced || autoMotion || window._lastAutoMotion);
+  window._lastAutoMotion = autoMotion;
   if (allowSync && !isDraggingGizmo) {
-    if (targetSphereL && s.tgt_l) targetSphereL.position.set(s.tgt_l[0], s.tgt_l[1], s.tgt_l[2]);
-    if (targetSphereR && s.tgt_r) targetSphereR.position.set(s.tgt_r[0], s.tgt_r[1], s.tgt_r[2]);
-    if (targetSphereL && s.tgt_rot_l && gizmoMode !== 'rotate') {
-      const m = new THREE.Matrix4();
-      m.set(s.tgt_rot_l[0][0], s.tgt_rot_l[0][1], s.tgt_rot_l[0][2], 0, s.tgt_rot_l[1][0], s.tgt_rot_l[1][1], s.tgt_rot_l[1][2], 0, s.tgt_rot_l[2][0], s.tgt_rot_l[2][1], s.tgt_rot_l[2][2], 0, 0, 0, 0, 1);
-      targetSphereL.quaternion.setFromRotationMatrix(m);
-    }
-    if (targetSphereR && s.tgt_rot_r && gizmoMode !== 'rotate') {
-      const m = new THREE.Matrix4();
-      m.set(s.tgt_rot_r[0][0], s.tgt_rot_r[0][1], s.tgt_rot_r[0][2], 0, s.tgt_rot_r[1][0], s.tgt_rot_r[1][1], s.tgt_rot_r[1][2], 0, s.tgt_rot_r[2][0], s.tgt_rot_r[2][1], s.tgt_rot_r[2][2], 0, 0, 0, 0, 1);
-      targetSphereR.quaternion.setFromRotationMatrix(m);
-    }
+    snapGizmo(targetSphereL, s.tgt_l, s.tgt_rot_l, autoMotion || gizmoMode !== 'rotate');
+    snapGizmo(targetSphereR, s.tgt_r, s.tgt_rot_r, autoMotion || gizmoMode !== 'rotate');
+    if (typeof sceneNeedsRender !== 'undefined') sceneNeedsRender = true;
     window._allowGizmoServerSync = false;
   }
 
@@ -130,19 +148,19 @@ function updateUIStatus(s) {
     let txt = `${activeGizmoArm.toUpperCase()} IK: ${ikErr.toFixed(1)} mm`;
     if (relaxed) txt += ` (ori ${rotErr.toFixed(0)}°)`;
     if (s.collision_blocked) {
-      txt = `⚠️ Self-collision blocked (${(s.min_distance_mm || 0.0).toFixed(1)} mm)`;
+      txt = `Self-collision blocked (${(s.min_distance_mm || 0.0).toFixed(1)} mm)`;
       hudFeedback.style.color = hudFeedback.style.borderColor = '#ff1744';
       hudFeedback.style.backgroundColor = 'rgba(255, 23, 68, 0.2)';
     } else if (s.hand_collision_blocked) {
-      txt = `⚠️ Hand collision blocked (${(s.min_hand_distance_mm || 0.0).toFixed(1)} mm)`;
+      txt = `Hand collision blocked (${(s.min_hand_distance_mm || 0.0).toFixed(1)} mm)`;
       hudFeedback.style.color = hudFeedback.style.borderColor = '#ff9100';
       hudFeedback.style.backgroundColor = 'rgba(255, 145, 0, 0.2)';
     } else if (s.reach_warning || s.proxy_collision_warning) {
-      txt = s.reach_warning ? `⚠️ ${s.reach_warning}` : s.proxy_collision_warning;
+      txt = s.reach_warning ? `${s.reach_warning}` : s.proxy_collision_warning;
       hudFeedback.style.color = hudFeedback.style.borderColor = '#ffd600';
       hudFeedback.style.backgroundColor = 'rgba(255, 214, 0, 0.15)';
     } else if (s.warning && s.warning.toLowerCase().includes('clamp')) {
-      txt += ` ⚠️ CLAMPED`;
+      txt += ` CLAMPED`;
       hudFeedback.style.color = hudFeedback.style.borderColor = '#ff5252';
       hudFeedback.style.backgroundColor = 'rgba(18, 22, 32, 0.85)';
     } else {
@@ -178,13 +196,45 @@ function updateUIStatus(s) {
   }
 
 
+  updateRecUI(s.rec);
+
   // Sync sliders (only when user is not actively dragging them)
+  const sX = document.getElementById('slider_xr_scale'), sXv = document.getElementById('slider_xr_scale_val');
+  if (typeof s.xr_scale === 'number' && !window.isDraggingXrScale) {
+    if (sX) sX.value = Math.round(s.xr_scale * 100);
+    if (sXv) sXv.innerText = '1 : ' + s.xr_scale.toFixed(2);
+  }
   const sL = document.getElementById('slider_hand_l'), sLv = document.getElementById('slider_hand_l_val');
   if (sL && !window.isDraggingSliderL) sL.value = Math.round(s.hand_closure_l * 100);
   if (sLv && !window.isDraggingSliderL) sLv.innerText = Math.round(s.hand_closure_l * 100) + '%';
   const sR = document.getElementById('slider_hand_r'), sRv = document.getElementById('slider_hand_r_val');
   if (sR && !window.isDraggingSliderR) sR.value = Math.round(s.hand_closure_r * 100);
   if (sRv && !window.isDraggingSliderR) sRv.innerText = Math.round(s.hand_closure_r * 100) + '%';
+  const sThL = document.getElementById('slider_thumb_open'), sThLv = document.getElementById('slider_thumb_open_val');
+  const sThR = document.getElementById('slider_thumb_open_r'), sThRv = document.getElementById('slider_thumb_open_r_val');
+  if (typeof s.thumb_open === 'number' && !window.isDraggingThumbOpen) {
+    if (sThL) sThL.value = s.thumb_open;
+    if (sThLv) sThLv.innerText = s.thumb_open;
+    if (sThR) sThR.value = s.thumb_open;
+    if (sThRv) sThRv.innerText = s.thumb_open;
+  }
+  const sNeckP = document.getElementById('slider_neck_pitch'), sNeckPV = document.getElementById('slider_neck_pitch_val');
+  const sNeckY = document.getElementById('slider_neck_yaw'), sNeckYV = document.getElementById('slider_neck_yaw_val');
+  const sNeckR = document.getElementById('slider_neck_roll'), sNeckRV = document.getElementById('slider_neck_roll_val');
+  if (!window.isDraggingNeck) {
+    if (typeof s.neck_pitch_deg === 'number') {
+      if (sNeckP) sNeckP.value = Math.round(s.neck_pitch_deg);
+      if (sNeckPV) sNeckPV.innerText = (s.neck_pitch_deg > 0 ? '+' : '') + Math.round(s.neck_pitch_deg) + '°';
+    }
+    if (typeof s.neck_yaw_deg === 'number') {
+      if (sNeckY) sNeckY.value = Math.round(s.neck_yaw_deg);
+      if (sNeckYV) sNeckYV.innerText = (s.neck_yaw_deg > 0 ? '+' : '') + Math.round(s.neck_yaw_deg) + '°';
+    }
+    if (typeof s.neck_roll_deg === 'number') {
+      if (sNeckR) sNeckR.value = Math.round(s.neck_roll_deg);
+      if (sNeckRV) sNeckRV.innerText = (s.neck_roll_deg > 0 ? '+' : '') + Math.round(s.neck_roll_deg) + '°';
+    }
+  }
 
   // Update persistent Hardware Fault Banner
   const faultBanner = document.getElementById('fault-banner');
@@ -192,7 +242,7 @@ function updateUIStatus(s) {
     if (s.fault_latched || window.forceFaultBanner || (s.warning && s.warning.includes('HARDWARE FAULT'))) {
       faultBanner.style.display = 'flex';
       const faultText = document.getElementById('fault-banner-text');
-      if (faultText) faultText.innerText = window.forceFaultText || (s.fault_reason ? `⚠️ FAULT: ${s.fault_reason}` : (s.warning || '⚠️ HARDWARE FAULT LATCHED'));
+      if (faultText) faultText.innerText = window.forceFaultText || (s.fault_reason ? `FAULT: ${s.fault_reason}` : (s.warning || 'HARDWARE FAULT LATCHED'));
     } else {
       faultBanner.style.display = 'none';
     }
@@ -207,30 +257,11 @@ function updateUIStatus(s) {
     if (s.fault_latched || st === 'FAULT') { st = 'FAULT'; sub = ` (${s.fault_reason || 'Clear to resume'})`; }
     else if (st === 'SYNC') { sub = ' (WAITING FEEDBACK: no packet on UDP 5006)'; }
     else if (rxSt && rxSt !== 'RX_OK' && rxSt !== 'WAITING') { sub = ` (ROBOT: ${rxSt})`; }
-    else if (st === 'READY') { sub = ' (NOT ENGAGED: Click Engage to move)'; }
+    else if (st === 'READY') { sub = ' (auto-engaging...)'; }
     else if (s.feedback_age_ms > 200) { sub = ` (STALE FEEDBACK: ${s.feedback_age_ms.toFixed(0)}ms)`; }
     const gap = (s.max_sim_real_gap_rad !== undefined && st === 'ENGAGED') ? ` • gap: ${s.max_sim_real_gap_rad.toFixed(3)} rad` : '';
     syncBadge.innerText = `${st}${sub}${gap}`;
     syncBadge.className = `tag tag-${st === 'ENGAGED' ? 'ok' : (st === 'READY' ? 'info' : (st === 'FAULT' ? 'danger' : 'warn'))}`;
-  }
-
-  const engageBtn = document.getElementById('btn-engage-arms');
-  if (engageBtn) {
-    const isEng = (s.sync_state === 'ENGAGED');
-    engageBtn.innerText = isEng ? 'Disengage' : 'Engage';
-    engageBtn.style.background = isEng ? '#e65100' : '#2e7d32';
-    engageBtn.style.display = (s.sync_state === 'SYNC') ? 'none' : 'inline-block';
-  }
-
-  const hudProf = document.getElementById('hud-profile-stat');
-  if (hudProf) {
-    const prof = (s.speed_profile || 'normal').toLowerCase();
-    const actVel = s.profile_max_vel !== undefined ? s.profile_max_vel.toFixed(2) : '0.30';
-    let capMsg = `${prof.toUpperCase()} (${actVel} rad/s)`;
-    if (s.profile_v_cap !== undefined && s.profile_max_vel < (prof === 'fast2' ? 0.70 : (prof === 'fast' ? 0.50 : (prof === 'slow' ? 0.20 : 0.30)))) {
-      capMsg = `${prof} capped to ${actVel} rad/s (${s.profile_tau ? `tau=${s.profile_tau.toFixed(3)}s` : 'unidentified'})`;
-    }
-    hudProf.innerText = `Profile: ${capMsg}`;
   }
 
   if (typeof updateTelemetryUI === 'function') updateTelemetryUI(s);
@@ -242,7 +273,44 @@ window.confirmClearFault = function() {
   }
 };
 
-window.toggleEngageArms = function() {
-  const current = window.lastTelemetryState && window.lastTelemetryState.sync_state;
-  sendCmd({cmd: current === 'ENGAGED' ? "disengage_arm" : "engage_arm", arm: "both"});
-};
+
+// ---- Data recording status (web card + controller haptics) ----
+let _recPrev = {active: false, discarded: false};
+function _recPulse(times, ms) {
+  const pads = window._xrGamepads || {};
+  for (let k = 0; k < times; k++) {
+    setTimeout(() => {
+      Object.values(pads).forEach((gp) => {
+        try { const h = gp && gp.hapticActuators && gp.hapticActuators[0]; if (h && h.pulse) h.pulse(0.8, ms); } catch (e) {}
+      });
+    }, k * (ms + 120));
+  }
+}
+function updateRecUI(rec) {
+  if (!rec) return;
+  const dot = document.getElementById('rec_dot'), btn = document.getElementById('btn_rec');
+  const st = document.getElementById('rec_status'), task = document.getElementById('rec_task');
+  if (dot) dot.style.display = rec.active ? 'inline' : 'none';
+  if (btn) btn.innerHTML = rec.active ? '&#9632; Stop REC' : '&#9679; Start REC';
+  if (task && document.activeElement !== task) { task.value = rec.task; task.disabled = rec.active; }
+  const sel = document.getElementById('rec_discard_reason');
+  if (sel && rec.discard_reasons) {
+    if (sel.options.length !== rec.discard_reasons.length) {
+      sel.innerHTML = rec.discard_reasons.map((r) => '<option value="' + r + '">Discard reason: ' + r.replace(/_/g, ' ') + '</option>').join('');
+    }
+    if (document.activeElement !== sel) sel.value = rec.discard_reason;
+  }
+  if (st) {
+    const rows = rec.rows || {};
+    const robot = 'rows: robot ' + (rows.robot || 0) + ', teleop ' + (rows.teleop || 0) + ', images ' + (rec.images && Object.keys(rec.images).length ? Object.entries(rec.images).map(([k, v]) => k + ' ' + v).join(' / ') : (rows.images || 0))
+                + (rec.active && !(rows.robot > 0) ? ' - NO ROBOT DATA yet (receiver running?)' : '');
+    const head = rec.active ? ('REC ' + rec.task + ' / ' + rec.ep + '  ' + rec.secs.toFixed(0) + ' s')
+                            : ('Not recording. Episodes this session: ' + rec.count + (rec.ep ? ' (last: ' + rec.ep + (rec.last_discarded ? ', DISCARDED' + (rec.last_discard_reason ? ': ' + rec.last_discard_reason.replace(/_/g, ' ') : '') : '') + ')' : ''));
+    const ex = rec.export && rec.export.msg ? '\n' + rec.export.msg : '';
+    st.innerText = head + '\n' + robot + (rec.msg ? '\n' + rec.msg : '') + ex;
+    st.style.color = rec.msg ? '#ff8a80' : (rec.active ? '#ffcdd2' : '#9aa');
+  }
+  if (rec.active !== _recPrev.active) _recPulse(rec.active ? 1 : 2, 150);        // 1 pulse = started, 2 = stopped
+  if (rec.last_discarded && !_recPrev.discarded) _recPulse(1, 500);              // long pulse = discard flag set
+  _recPrev = {active: rec.active, discarded: Boolean(rec.last_discarded)};
+}

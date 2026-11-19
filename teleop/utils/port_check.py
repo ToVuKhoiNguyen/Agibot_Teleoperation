@@ -5,7 +5,6 @@ Utility to check port availability, detect holding PID/process, and report clear
 
 import socket
 import subprocess
-import sys
 
 def check_port_available(port: int, host: str = "0.0.0.0") -> bool:
     """Checks if a TCP port is available to bind."""

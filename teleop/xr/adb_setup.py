@@ -5,7 +5,6 @@ Handles auto-detection, unauthorized state, reverse verification, background wat
 and /vr page launch.
 """
 
-import os
 import shutil
 import subprocess
 import threading
@@ -58,6 +57,7 @@ class QuestAdbManager:
 
     def __init__(self, port: int = 8012, no_adb: bool = False, no_launch: bool = False):
         self.port = port
+        self.http_port = port + 1  # loopback plain-HTTP listener (web_server): no certificate on the Quest
         self.no_adb = no_adb
         self.no_launch = no_launch
 
@@ -96,8 +96,7 @@ class QuestAdbManager:
         try:
             res = subprocess.run([self.adb_bin, "-s", serial, "reverse", "--list"], capture_output=True, text=True, timeout=5)
             # Example output: (reverse) tcp:8012 tcp:8012
-            expected = f"tcp:{self.port}"
-            return expected in res.stdout
+            return all(f"tcp:{p} tcp:{p}" in res.stdout for p in (self.port, self.http_port))
         except Exception:
             return False
 
@@ -105,8 +104,9 @@ class QuestAdbManager:
         if not self.adb_bin or not serial:
             return False
         try:
-            cmd = [self.adb_bin, "-s", serial, "reverse", f"tcp:{self.port}", f"tcp:{self.port}"]
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            for p in (self.port, self.http_port):
+                cmd = [self.adb_bin, "-s", serial, "reverse", f"tcp:{p}", f"tcp:{p}"]
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
             return self.check_reverse_list(serial)
         except Exception as e:
             print(f"[WARN] adb reverse failed for {serial}: {e}")
@@ -124,7 +124,7 @@ class QuestAdbManager:
         if not force and self.no_launch:
             return False
 
-        vr_url = f"https://localhost:{self.port}/"
+        vr_url = f"http://localhost:{self.http_port}/"
         cmd = [
             self.adb_bin, "-s", target_serial, "shell", "am", "start",
             "-a", "android.intent.action.VIEW",
@@ -176,7 +176,7 @@ class QuestAdbManager:
         if not is_reversed:
             is_reversed = self.setup_reverse(serial)
             if is_reversed:
-                print(f"[INFO] ADB reverse applied: tcp:{self.port} -> tcp:{self.port} on {serial}")
+                print(f"[INFO] ADB reverse applied: tcp:{self.port}, tcp:{self.http_port} on {serial} -> Quest: http://localhost:{self.http_port}/")
             else:
                 print(f"[WARN] Failed to establish ADB reverse on {serial}")
 
@@ -216,7 +216,7 @@ class QuestAdbManager:
             "device": self.device_id,
             "device_state": self.device_state,
             "reverse_active": bool(self.reverse_active),
-            "quest_url": f"https://localhost:{self.port}/",
+            "quest_url": f"http://localhost:{self.http_port}/",
             "has_launched": bool(self.has_launched_once)
         }
 

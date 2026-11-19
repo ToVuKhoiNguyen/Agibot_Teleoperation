@@ -54,5 +54,6 @@ https://192.168.1.100:8012?ws=wss://192.168.1.100:8012
 * **Hand Tracking**: Ensure hand tracking is enabled in Quest 3S settings.
 * **Pinch / Grasp**: Pinch index to thumb to close the A2 hand fingers.
 * **Tracking Loss**: If the headset loses tracking or operator removes the headset, the system automatically triggers hold-pose.
-* **E-Stop**: Press `q` in the terminal to trigger immediate emergency hold/stop.
-* **Reset**: Press `r` in the terminal to reset robot to home position.
+* **Controllers (default input)**: button mapping in README section 2.4 (Trigger = translate, Grip = rotate, thumbstick = close/open hand, X / A = HOME).
+* **E-Stop**: the controllers have no E-STOP button; use the **EMERGENCY STOP** button on the web panel or the physical E-stop held by the second person.
+* **Reset**: press X (left arm) / A (both arms) on the controller, or the **Home** button on the web panel, to send the arm to HOME.

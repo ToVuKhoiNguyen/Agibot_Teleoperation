@@ -84,68 +84,38 @@ def handle_xr_controllers_input(app, cmd: dict):
     app.xr_btn_menu_l = btn_menu_l
     app.xr_btn_menu_r = btn_menu_r
 
-    # Menu button: immediate E-STOP
-    if btn_menu_l or btn_menu_r:
-        if not app.state_estop:
-            app.state_estop = True
-            app._log_xr_event("Menu button -> E-STOP")
-            print("[ALERT] E-STOP ACTIVE (Quest Menu button pressed)")
+    # No controller button triggers E-STOP (Menu and the B+Y combo were removed). E-STOP stays on the web panel and the
+    # physical E-Stop held by the second person. The Menu button is only displayed in the panel.
 
-    # Fallback E-STOP Combo: Hold B + Y simultaneously > 0.5s
+    # B (right) / Y (left) short tap = start / stop recording an episode (was: precision toggle).
+    # Toggles on release if held < 0.5 s. If both are down at the same time the press is ignored (neither toggles).
     if btn_b and btn_y:
-        if app.xr_estop_combo_start_time is None:
-            app.xr_estop_combo_start_time = now_t
-        elif (now_t - app.xr_estop_combo_start_time) >= app.xr_estop_hold_thresh:
-            if not app.state_estop:
-                app.state_estop = True
-                app._log_xr_event("B+Y hold 0.5s -> E-STOP")
-                print("[ALERT] E-STOP ACTIVE (Quest Combo B+Y held > 0.5s)")
-    else:
-        app.xr_estop_combo_start_time = None
-        # Precision mode toggles on rising edge
-        if btn_b and not app.xr_prev_btn_b:
-            app.precision_r = not app.precision_r
-            app._update_precision("right", app.precision_r)
-            app._log_xr_event(f"R B pressed -> Precision {'ON' if app.precision_r else 'OFF'}")
-        if btn_y and not app.xr_prev_btn_y:
-            app.precision_l = not app.precision_l
-            app._update_precision("left", app.precision_l)
-            app._log_xr_event(f"L Y pressed -> Precision {'ON' if app.precision_l else 'OFF'}")
+        app.by_combo_seen = True
+    for btn, attr in ((btn_b, "b_tap_start"), (btn_y, "y_tap_start")):
+        t_start = getattr(app, attr, None)
+        if btn and t_start is None: setattr(app, attr, now_t)
+        elif not btn and t_start is not None:
+            setattr(app, attr, None)
+            if (now_t - t_start) < 0.5 and not getattr(app, "by_combo_seen", False):
+                from teleop.app import episode_recorder as er
+                if app.rec_active: er.stop_episode(app)
+                else: er.start_episode(app)
+    if not btn_b and not btn_y:
+        app.by_combo_seen = False
 
     app.xr_prev_btn_b = btn_b
     app.xr_prev_btn_y = btn_y
 
-    # Home hold: X (left) hold 1.5s -> left arm goes Home
-    if btn_x:
-        if app.x_hold_start is None:
-            app.x_hold_start = now_t
-            app.x_home_triggered = False
-        dur = now_t - app.x_hold_start
-        app.xr_home_progress_l = min(1.0, dur / app.xr_home_hold_s)
-        if app.xr_home_progress_l >= 1.0 and not app.x_home_triggered:
-            app._reset_arm_to_home("left")
-            app.x_home_triggered = True
-            app._log_xr_event("L X hold 1.5s -> HOME")
-    else:
-        app.x_hold_start = None
-        app.x_home_triggered = False
-        app.xr_home_progress_l = 0.0
-
-    # Home hold: A (right) hold 1.5s -> right arm goes Home
-    if btn_a:
-        if app.a_hold_start is None:
-            app.a_hold_start = now_t
-            app.a_home_triggered = False
-        dur = now_t - app.a_hold_start
-        app.xr_home_progress_r = min(1.0, dur / app.xr_home_hold_s)
-        if app.xr_home_progress_r >= 1.0 and not app.a_home_triggered:
-            app._reset_arm_to_home("right")
-            app.a_home_triggered = True
-            app._log_xr_event("R A hold 1.5s -> HOME")
-    else:
-        app.a_hold_start = None
-        app.a_home_triggered = False
-        app.xr_home_progress_r = 0.0
+    # Home: X (left) pressed -> the left arm goes Home; A (right) pressed -> BOTH arms go Home (17/11, operator request;
+    # A used to send only the right arm). Immediately, no hold time needed. Rising edge only, so a held button fires once. The first packet only records the state, so a button already down at connect does nothing.
+    # (In the headset's view-adjust mode the browser zeroes all buttons, so A there only resets the view.)
+    for btn, attr, side, label in ((btn_x, "xr_prev_btn_x", "left", "L X"), (btn_a, "xr_prev_btn_a", "both", "R A (both arms)")):
+        prev = getattr(app, attr, None)
+        if prev is not None and btn and not prev:
+            app._reset_arm_to_home(side)
+            app._log_xr_event(f"{label} pressed -> HOME")
+        setattr(app, attr, btn)
+    app.xr_home_progress_l = app.xr_home_progress_r = 0.0
 
     # Thumbstick Y: finger closure velocity control (hold value if tracking lost)
     if left_track and left_pkt and "thumbstick" in left_pkt:
@@ -185,6 +155,8 @@ def handle_xr_controllers_input(app, cmd: dict):
             app.stick_x_state_l = 0
 
     if not getattr(app, "direct_hand_override_l", False) and not app.hand_sweep_active:
+        if str(app.grasp_type_l).lower() == "open":
+            app.grasp_type_l = "cylinder"  # "open" ignores closure: the thumbstick could never close the hand
         curls_l, pinch_l = AgibotHandRetargeting.get_grasp_curls(app.grasp_type_l, app.hand_closure_l)
         app.target_curls_l = curls_l
         app.target_pinch_l = pinch_l
@@ -227,6 +199,8 @@ def handle_xr_controllers_input(app, cmd: dict):
             app.stick_x_state_r = 0
 
     if not getattr(app, "direct_hand_override_r", False) and not app.hand_sweep_active:
+        if str(app.grasp_type_r).lower() == "open":
+            app.grasp_type_r = "cylinder"  # "open" ignores closure: the thumbstick could never close the hand
         curls_r, pinch_r = AgibotHandRetargeting.get_grasp_curls(app.grasp_type_r, app.hand_closure_r)
         app.target_curls_r = curls_r
         app.target_pinch_r = pinch_r

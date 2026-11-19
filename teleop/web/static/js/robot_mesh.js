@@ -184,7 +184,15 @@ function handleBinaryPoses(buffer) {
       });
     }
     latestMovingPoses = poses;
-    poseBuffer.push({ t: nowPerf, poses: poses });
+    // Stamp with the server SAMPLE time (mapped to this clock), not the arrival time: frames are sampled at
+    // 100 Hz but sent at ~56 Hz and arrive in bursts, so arrival-time playback judders on fast motion.
+    let tSample = nowPerf;
+    if (serverTs > 0 && minClockSkew < 999990) {
+      tSample = (serverTs + minClockSkew) * 1000.0 - (Date.now() - nowPerf);
+      if (Math.abs(tSample - nowPerf) > 500) tSample = nowPerf;   // clock jump: fall back to arrival time
+    }
+    if (poseBuffer.length > 0 && tSample <= poseBuffer[poseBuffer.length - 1].t) tSample = poseBuffer[poseBuffer.length - 1].t + 0.01;
+    poseBuffer.push({ t: tSample, poses: poses });
     if (poseBuffer.length > 8) {
       poseBuffer.shift();
     }

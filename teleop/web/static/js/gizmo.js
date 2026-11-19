@@ -2,8 +2,8 @@ function initGizmos() {
   const sphereGeo = new THREE.SphereGeometry(0.005, 8, 8);
   const sphereMatL = new THREE.MeshStandardMaterial({ color: 0x00e676, emissive: 0x00a844, roughness: 0.3, transparent: true, opacity: 0.0, depthTest: false, visible: false });
   targetSphereL = new THREE.Mesh(sphereGeo, sphereMatL);
-  targetSphereL.position.set(0.23457, 0.50362, 1.25004);
-  targetSphereL.quaternion.set(-0.24176, 0.81643, 0.51972, -0.06989);
+  targetSphereL.position.set(0.08868, 0.35456, 0.82388);
+  targetSphereL.quaternion.set(0.27299, 0.51045, 0.69221, -0.43100);  // HOME keyframe hand orientation (server re-syncs on first status)
   targetSphereL.userData = { isMarker: true, side: 'left' };
   targetSphereL.renderOrder = 900;
   (vrRig || scene).add(targetSphereL);
@@ -15,8 +15,8 @@ function initGizmos() {
 
   const sphereMatR = new THREE.MeshStandardMaterial({ color: 0x2979ff, emissive: 0x1565c0, roughness: 0.3, transparent: true, opacity: 0.0, depthTest: false, visible: false });
   targetSphereR = new THREE.Mesh(sphereGeo, sphereMatR);
-  targetSphereR.position.set(0.23457, -0.50362, 1.25004);
-  targetSphereR.quaternion.set(0.81771, -0.16138, 0.05290, 0.55001);
+  targetSphereR.position.set(0.08868, -0.35456, 0.82388);
+  targetSphereR.quaternion.set(0.51045, 0.27299, -0.43100, 0.69221);
   targetSphereR.userData = { isMarker: true, side: 'right' };
   targetSphereR.renderOrder = 900;
   (vrRig || scene).add(targetSphereR);
@@ -180,6 +180,9 @@ function onKeyDown(event) {
     setGizmoMode('both');
     if (typeof recenterHandAction === 'function') recenterHandAction();
   } else if (key === 'Q') toggleGizmoSpace();
+  else if (key === '1') toggleActiveGizmo('left');      // show / hide left marker (was the "Left Marker" button)
+  else if (key === '2') toggleActiveGizmo('right');
+  else if (key === 'F') resetCameraView();             // was the "Reset Cam" button
   else if (key === 'C') {
     if (typeof calibratePoseAction === 'function') calibratePoseAction();
   } else if (key === 'T') {

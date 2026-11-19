@@ -7,7 +7,6 @@ Model structure discovery and precomputations for AgibotSimEnv:
 """
 
 import mujoco
-import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 

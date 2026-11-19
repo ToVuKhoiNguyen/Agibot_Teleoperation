@@ -3,7 +3,6 @@ teleop/robot/fault_tracer.py
 Ring buffer (5 s @ 50 Hz) and logger for SafetyLayer position deviation faults.
 """
 
-import os
 import time
 import json
 import collections

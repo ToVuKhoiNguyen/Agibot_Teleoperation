@@ -5,7 +5,6 @@ raw/filtered poses, finger chain flexions, calibrations, sim EE sites,
 and safety clamp flags for offline diagnostics.
 """
 
-import os
 import json
 import time
 from collections import deque

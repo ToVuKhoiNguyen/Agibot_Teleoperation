@@ -55,7 +55,7 @@ if (typeof window !== 'undefined') {
   window.HANDLE_SCALE = HANDLE_SCALE;
   window.GIZMO_HANDLE_SCALE = HANDLE_SCALE;
 }
-let GIZMO_SIZE = GIZMO_SCALE; // Equal extent size for translate and rotate controls
+let GIZMO_SIZE = GIZMO_SCALE + 4 * 0.05; // Equal extent size for translate and rotate controls (default = 4 "+ Size" steps up)
 let followActualWrist = false;
 let xrRotationEnabled = true;
 let raycaster = new THREE.Raycaster();
@@ -97,7 +97,7 @@ function queueTargetUpdate(side, pos, quat) {
   }
   if (!rafScheduled) {
     rafScheduled = true;
-    requestAnimationFrame(flushTargetUpdates);
+    requestAnimationFrame(() => flushTargetUpdates());  // rAF passes a timestamp: never forward it as dragEndArm
   }
 }
 
@@ -153,7 +153,7 @@ window.updateSpriteText = updateSpriteText;
 
 const urlParams = new URLSearchParams(window.location.search);
 const isDebug = urlParams.get('debug') === '1';
-const showStats = urlParams.get('stats') !== '0';
+const showStats = urlParams.get('stats') === '1';  // FPS/tris overlay: debug only
 const qualityMode = (urlParams.get('quality') || 'low').toLowerCase();
 
 function init3D() {
@@ -208,18 +208,11 @@ function init3D() {
   dirLight2.position.set(-2, 2, 2);
   scene.add(dirLight2);
 
-  // Ground Grid (Z=0)
+  // Ground Grid: feet soles sit at z=-0.057 (base_link is fixed at z=0.93)
   const gridHelper = new THREE.GridHelper(4.0, 40, 0x00d2ff, 0x223048);
   gridHelper.rotation.x = Math.PI / 2; // MuJoCo Z is up
-  gridHelper.position.set(0, 0, 0);
+  gridHelper.position.set(0, 0, -0.057);
   scene.add(gridHelper);
-
-  // Workspace Bounds Box (faint box: X[0.0, 0.65], Y[-0.75, 0.75], Z[0.6, 1.6])
-  const wsBoxGeo = new THREE.BoxGeometry(0.65, 1.50, 1.00);
-  const wsBoxMat = new THREE.MeshBasicMaterial({ color: 0x00d2ff, wireframe: true, transparent: true, opacity: 0.15 });
-  const wsBox = new THREE.Mesh(wsBoxGeo, wsBoxMat);
-  wsBox.position.set(0.325, 0.0, 1.10);
-  scene.add(wsBox);
 
   // VR Rig Group (contains robot + wrist markers)
   vrRig = new THREE.Group();

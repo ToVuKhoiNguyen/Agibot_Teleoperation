@@ -22,10 +22,22 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
+def _cert_covers_ip(cert_path: Path, ip: str) -> bool:
+    """True if the cert's SAN lists `ip` (or the IP cannot be determined, so we never regenerate needlessly)."""
+    if ip in ("127.0.0.1", ""):
+        return True
+    try:
+        out = subprocess.run(["openssl", "x509", "-in", str(cert_path), "-noout", "-ext", "subjectAltName"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return True
+    return f"IP Address:{ip}" in out if out else True
+
+
 def ensure_ssl_certs(certs_dir: str = None) -> tuple[str, str]:
     """
     Ensures that cert.pem and key.pem exist in the given directory with proper SAN.
-    Keeps the same cert across runs so Quest Browser only needs to accept once.
+    Keeps the same cert across runs so Quest Browser only needs to accept once (regenerated only when the LAN IP changes).
     Returns (cert_path, key_path).
     """
     if certs_dir is None:
@@ -37,6 +49,10 @@ def ensure_ssl_certs(certs_dir: str = None) -> tuple[str, str]:
     certs_dir.mkdir(parents=True, exist_ok=True)
     cert_path = certs_dir / "cert.pem"
     key_path = certs_dir / "key.pem"
+
+    if cert_path.exists() and key_path.exists() and not _cert_covers_ip(cert_path, get_local_ip()):
+        print(f"[INFO] LAN IP changed ({get_local_ip()}) and is missing from the certificate SAN: regenerating.")
+        cert_path.unlink(); key_path.unlink()
 
     if not cert_path.exists() or not key_path.exists():
         print(f"[INFO] Generating self-signed SSL certificates with SAN in {certs_dir}...")

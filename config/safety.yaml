@@ -1,6 +1,7 @@
 armor_collision:
   enabled: true
   shell_m: 0.01
+  torso_threshold_m: 0.005
 max_anchor_shift_m: 0.30
 pair_margins:
   arm_arm: 0.008

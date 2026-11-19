@@ -44,7 +44,7 @@ def ensure_server_running(timeout_s: float = 20.0):
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     proc = subprocess.Popen(
-        [python_bin, "-u", str(main_script), "--headless", "--no-adb", "--sim"],
+        [python_bin, "-u", str(main_script), "--headless", "--no-adb", "--sim", "--xr-scale", "1.0", "--speed", "3"],  # tests assert 1:1 and were tuned at speed 3
         stdout=log_file,
         stderr=subprocess.STDOUT,
         env=env,

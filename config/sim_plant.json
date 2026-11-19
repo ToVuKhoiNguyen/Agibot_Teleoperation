@@ -1,0 +1,454 @@
+{
+  "metadata": {
+    "scope": "end_to_end_laptop",
+    "source": "laptop",
+    "dt_s": 0.01,
+    "git_sha": "bdb409e80c28f8916fc58c28ba60f257cbddacb4",
+    "fit_files": [
+      {
+        "path": "logs/real_20261111_183746.jsonl",
+        "samples": 5857,
+        "median_dt_s": 0.009999752044677734,
+        "max_gap_s": 0.014864683151245117,
+        "speed": null
+      },
+      {
+        "path": "logs/real_20261111_165259.jsonl",
+        "samples": 1370,
+        "median_dt_s": 0.010001659393310547,
+        "max_gap_s": 0.013993263244628906,
+        "speed": null
+      }
+    ],
+    "val_files": [
+      {
+        "path": "logs/real_20261110_181925.jsonl",
+        "samples": 66170,
+        "median_dt_s": 0.019999980926513672,
+        "max_gap_s": 0.030936479568481445,
+        "speed": null
+      },
+      {
+        "path": "logs/real_20261110_181712.jsonl",
+        "samples": 4947,
+        "median_dt_s": 0.01999986171722412,
+        "max_gap_s": 0.023917675018310547,
+        "speed": null
+      }
+    ],
+    "overall_val_rms_rad": 0.00172,
+    "validated": true
+  },
+  "mc_step_reject": {
+    "enabled": false,
+    "threshold_rad_20ms": 0.02,
+    "status": "UNKNOWN (not measured)"
+  },
+  "hand": {
+    "model_type": "IDEAL",
+    "confidence": "IDEAL",
+    "reason": "no hand logs given"
+  },
+  "assumptions": {
+    "cmd_timeout": "ASSUMED: MC holds last command when arm_joint_command stops",
+    "large_step": "ASSUMED: MC tracks any step (no rejection modelled)"
+  },
+  "joints": {
+    "0": {
+      "model_type": "1st_order",
+      "delay_ticks": 7,
+      "tau_s": 0.07977,
+      "static_offset_rad": 1e-05,
+      "name": "joint_0",
+      "delay_s": 0.07,
+      "max_vel_rad_s": 2.506,
+      "max_acc_rad_s2": 315.29,
+      "deadband_rad": 2.1e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00535,
+          "r2": 0.9998,
+          "spectral_match_0_15hz": 0.9999,
+          "peak_err_rad": 0.05005
+        },
+        "val": {
+          "rmse_rad": 0.00076,
+          "r2": 1.0,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.01105,
+          "cmd_ptp_rad": 1.0539
+        }
+      },
+      "confidence": "OK"
+    },
+    "1": {
+      "model_type": "1st_order",
+      "delay_ticks": 8,
+      "tau_s": 0.06633,
+      "static_offset_rad": -0.00022,
+      "name": "joint_1",
+      "delay_s": 0.08,
+      "max_vel_rad_s": 1.405,
+      "max_acc_rad_s2": 143.89,
+      "deadband_rad": 2.2e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00446,
+          "r2": 0.9923,
+          "spectral_match_0_15hz": 0.9983,
+          "peak_err_rad": 0.04231
+        },
+        "val": {
+          "rmse_rad": 0.00096,
+          "r2": 1.0,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.04007,
+          "cmd_ptp_rad": 0.7389
+        }
+      },
+      "confidence": "OK"
+    },
+    "2": {
+      "model_type": "1st_order",
+      "delay_ticks": 7,
+      "tau_s": 0.07205,
+      "static_offset_rad": -0.00065,
+      "name": "joint_2",
+      "delay_s": 0.07,
+      "max_vel_rad_s": 2.096,
+      "max_acc_rad_s2": 235.66,
+      "deadband_rad": 2.2e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00482,
+          "r2": 0.9993,
+          "spectral_match_0_15hz": 0.9999,
+          "peak_err_rad": 0.0392
+        },
+        "val": {
+          "rmse_rad": 0.0009,
+          "r2": 1.0,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.03372,
+          "cmd_ptp_rad": 0.6413
+        }
+      },
+      "confidence": "OK"
+    },
+    "3": {
+      "model_type": "1st_order",
+      "delay_ticks": 4,
+      "tau_s": 0.13887,
+      "static_offset_rad": 0.00237,
+      "name": "joint_3",
+      "delay_s": 0.04,
+      "max_vel_rad_s": 3.048,
+      "max_acc_rad_s2": 320.88,
+      "deadband_rad": 2.2e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.01334,
+          "r2": 0.9967,
+          "spectral_match_0_15hz": 0.9997,
+          "peak_err_rad": 0.12264
+        },
+        "val": {
+          "rmse_rad": 0.00231,
+          "r2": 0.9997,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.05261,
+          "cmd_ptp_rad": 0.6017
+        }
+      },
+      "confidence": "OK"
+    },
+    "4": {
+      "model_type": "1st_order",
+      "delay_ticks": 8,
+      "tau_s": 0.05307,
+      "static_offset_rad": -0.00073,
+      "name": "joint_4",
+      "delay_s": 0.08,
+      "max_vel_rad_s": 2.682,
+      "max_acc_rad_s2": 269.9,
+      "deadband_rad": 2.8e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00519,
+          "r2": 0.9998,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.02872
+        },
+        "val": {
+          "rmse_rad": 0.00114,
+          "r2": 0.9999,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.03736,
+          "cmd_ptp_rad": 0.6737
+        }
+      },
+      "confidence": "OK"
+    },
+    "5": {
+      "model_type": "2nd_order",
+      "delay_ticks": 0,
+      "fn_hz": 1.193,
+      "zeta": 0.72569,
+      "static_offset_rad": -0.00517,
+      "name": "joint_5",
+      "delay_s": 0.0,
+      "max_vel_rad_s": 2.709,
+      "max_acc_rad_s2": 346.49,
+      "deadband_rad": 2.3e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00704,
+          "r2": 0.9951,
+          "spectral_match_0_15hz": 0.9992,
+          "peak_err_rad": 0.0321
+        },
+        "val": {
+          "rmse_rad": 0.00473,
+          "r2": 0.9963,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.03871,
+          "cmd_ptp_rad": 0.3304
+        }
+      },
+      "confidence": "OK"
+    },
+    "6": {
+      "model_type": "2nd_order",
+      "delay_ticks": 8,
+      "fn_hz": 4.57892,
+      "zeta": 1.48335,
+      "static_offset_rad": 0.00212,
+      "name": "joint_6",
+      "delay_s": 0.08,
+      "max_vel_rad_s": 1.926,
+      "max_acc_rad_s2": 213.26,
+      "deadband_rad": 2.4e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00513,
+          "r2": 0.9978,
+          "spectral_match_0_15hz": 0.9997,
+          "peak_err_rad": 0.0279
+        },
+        "val": {
+          "rmse_rad": 0.00137,
+          "r2": 0.9995,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.0221,
+          "cmd_ptp_rad": 0.4
+        }
+      },
+      "confidence": "OK"
+    },
+    "7": {
+      "model_type": "1st_order",
+      "delay_ticks": 9,
+      "tau_s": 0.04852,
+      "static_offset_rad": -0.00101,
+      "name": "joint_7",
+      "delay_s": 0.09,
+      "max_vel_rad_s": 1.157,
+      "max_acc_rad_s2": 131.01,
+      "deadband_rad": 2.3e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00267,
+          "r2": 0.9984,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.01437
+        },
+        "val": {
+          "rmse_rad": 0.00088,
+          "r2": 1.0,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.02065,
+          "cmd_ptp_rad": 0.8178
+        }
+      },
+      "confidence": "OK"
+    },
+    "8": {
+      "model_type": "1st_order",
+      "delay_ticks": 7,
+      "tau_s": 0.10299,
+      "static_offset_rad": -0.00026,
+      "name": "joint_8",
+      "delay_s": 0.07,
+      "max_vel_rad_s": 1.414,
+      "max_acc_rad_s2": 180.72,
+      "deadband_rad": 2.1e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00517,
+          "r2": 0.9657,
+          "spectral_match_0_15hz": 0.9586,
+          "peak_err_rad": 0.03247
+        },
+        "val": {
+          "rmse_rad": 0.00044,
+          "r2": 0.9998,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.00497,
+          "cmd_ptp_rad": 0.2507
+        }
+      },
+      "confidence": "OK"
+    },
+    "9": {
+      "model_type": "1st_order",
+      "delay_ticks": 7,
+      "tau_s": 0.08505,
+      "static_offset_rad": 0.00012,
+      "name": "joint_9",
+      "delay_s": 0.07,
+      "max_vel_rad_s": 1.287,
+      "max_acc_rad_s2": 172.93,
+      "deadband_rad": 2.1e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00546,
+          "r2": 0.9889,
+          "spectral_match_0_15hz": 0.9962,
+          "peak_err_rad": 0.03332
+        },
+        "val": {
+          "rmse_rad": 0.00038,
+          "r2": 0.9999,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.00417,
+          "cmd_ptp_rad": 0.1875
+        }
+      },
+      "confidence": "OK"
+    },
+    "10": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.19127,
+      "static_offset_rad": -0.00558,
+      "name": "joint_10",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 3.334,
+      "max_acc_rad_s2": 389.06,
+      "deadband_rad": 2.2e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.01909,
+          "r2": 0.9876,
+          "spectral_match_0_15hz": 0.9959,
+          "peak_err_rad": 0.09115
+        },
+        "val": {
+          "rmse_rad": 0.00619,
+          "r2": 0.994,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.01368,
+          "cmd_ptp_rad": 0.3678
+        }
+      },
+      "confidence": "OK"
+    },
+    "11": {
+      "model_type": "1st_order",
+      "delay_ticks": 7,
+      "tau_s": 0.08451,
+      "static_offset_rad": 0.00092,
+      "name": "joint_11",
+      "delay_s": 0.07,
+      "max_vel_rad_s": 1.328,
+      "max_acc_rad_s2": 150.37,
+      "deadband_rad": 2.2e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00586,
+          "r2": 0.9908,
+          "spectral_match_0_15hz": 0.9958,
+          "peak_err_rad": 0.03774
+        },
+        "val": {
+          "rmse_rad": 0.00091,
+          "r2": 0.9999,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.00394,
+          "cmd_ptp_rad": 0.4486
+        }
+      },
+      "confidence": "OK"
+    },
+    "12": {
+      "model_type": "2nd_order",
+      "delay_ticks": 0,
+      "fn_hz": 3.97599,
+      "zeta": 1.49991,
+      "static_offset_rad": 0.00055,
+      "name": "joint_12",
+      "delay_s": 0.0,
+      "max_vel_rad_s": 0.5,
+      "max_acc_rad_s2": 49.85,
+      "deadband_rad": 2.2e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00127,
+          "r2": 0.9754,
+          "spectral_match_0_15hz": 0.9998,
+          "peak_err_rad": 0.00574
+        },
+        "val": {
+          "rmse_rad": 0.00093,
+          "r2": 0.9973,
+          "spectral_match_0_15hz": 0.9999,
+          "peak_err_rad": 0.00723,
+          "cmd_ptp_rad": 0.1975
+        }
+      },
+      "confidence": "OK"
+    },
+    "13": {
+      "model_type": "2nd_order",
+      "delay_ticks": 3,
+      "fn_hz": 2.42332,
+      "zeta": 0.83883,
+      "static_offset_rad": -0.00043,
+      "name": "joint_13",
+      "delay_s": 0.03,
+      "max_vel_rad_s": 0.671,
+      "max_acc_rad_s2": 68.03,
+      "deadband_rad": 2.2e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00175,
+          "r2": 0.9958,
+          "spectral_match_0_15hz": 0.9997,
+          "peak_err_rad": 0.00832
+        },
+        "val": {
+          "rmse_rad": 0.00222,
+          "r2": 0.9985,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.0046,
+          "cmd_ptp_rad": 0.2532
+        }
+      },
+      "confidence": "OK"
+    }
+  }
+}

@@ -11,6 +11,7 @@ import queue
 import asyncio
 import collections
 import threading
+from pathlib import Path
 from aiohttp import web
 
 from teleop.web.server.manifest_builder import (
@@ -118,6 +119,14 @@ class WebPanelServer:
         self.app.router.add_get("/api/config", self.handle_get_config)
         self.app.router.add_post("/api/launch_quest", self.handle_post_quest_launch)
         self.app.router.add_post("/api/quest/launch", self.handle_post_quest_launch)
+
+        # Dataset viewer (/dataset): exported LeRobot datasets, edits written back to the source episodes
+        from teleop.web.server.dataset_routes import DatasetService
+        self.dataset_service = DatasetService(self)
+        self.dataset_service.register(self.app)
+        from teleop.web.server.live_routes import LiveService
+        self.live_service = LiveService(self, self.dataset_service)
+        self.live_service.register(self.app)
 
         # Serve static assets
         if os.path.exists(STATIC_DIR): self.app.router.add_static("/static", STATIC_DIR)
@@ -236,6 +245,13 @@ class WebPanelServer:
                 self.loop.run_until_complete(site_v6.start())
             except Exception:
                 pass
+            # Plain HTTP on loopback only (port + 1) for the Quest over `adb reverse`: http://localhost is a secure
+            # context (WebXR OK) and needs no certificate, so a regenerated/untrusted self-signed cert cannot stall it.
+            try:
+                site_http = web.TCPSite(runner, "127.0.0.1", self.port + 1)
+                self.loop.run_until_complete(site_http.start())
+            except Exception as e:
+                print(f"[WARN] Loopback HTTP listener on 127.0.0.1:{self.port + 1} failed: {e}")
             self.loop.create_task(pose_stream_worker_impl(self))
             self.loop.run_forever()
 

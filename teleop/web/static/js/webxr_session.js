@@ -37,11 +37,31 @@ window.addEventListener('DOMContentLoaded', checkXRSupport);
 function toggleXRRotation(checked) { xrRotationEnabled = Boolean(checked); }
 function toggleXRSession() { enterVRDirectly(); }
 
+let xrSessionRequestPending = false;   // a second ENTER VR tap while the first request is still opening
+                                       // -> "InvalidStateError: There is already an active, immersive XRSession"
+let xrErrorHideTimer = null;
+
+function hideVRErrorOverlay() {
+  const el = document.getElementById('vr-error-overlay');
+  if (el) el.style.display = 'none';
+  if (xrErrorHideTimer) { clearTimeout(xrErrorHideTimer); xrErrorHideTimer = null; }
+}
+
+function showVRErrorOverlay(msg) {
+  const el = document.getElementById('vr-error-overlay');
+  if (!el) return;
+  el.innerText = msg + '\n(tap to close)';
+  el.style.display = 'block';
+  el.style.cursor = 'pointer';
+  el.onclick = hideVRErrorOverlay;
+  if (xrErrorHideTimer) clearTimeout(xrErrorHideTimer);
+  xrErrorHideTimer = setTimeout(hideVRErrorOverlay, 8000);
+}
+
 function enterVRDirectly() {
   if (xrSession) { xrSession.end(); return; }
-  if (!navigator.xr) return;
-  const errOverlay = document.getElementById('vr-error-overlay');
-  if (errOverlay) errOverlay.style.display = 'none';
+  if (!navigator.xr || xrSessionRequestPending) return;
+  hideVRErrorOverlay();
 
   // Synchronous requestSession maintaining user gesture
   const reqMode = window.confirmedInputMode || window.currentInputMode || 'controllers';
@@ -50,17 +70,19 @@ function enterVRDirectly() {
     sessionFeatures.push('hand-tracking');
   }
   window.lastRequestedFeatures = sessionFeatures;
+  xrSessionRequestPending = true;
   navigator.xr.requestSession('immersive-vr', {
     optionalFeatures: sessionFeatures
   }).then(session => {
+    xrSessionRequestPending = false;
     onXRSessionStarted(session, 'immersive-vr');
   }).catch(err => {
+    xrSessionRequestPending = false;
     console.error('Failed to start WebXR session:', err);
+    // A session is already open (double tap, or VR already running): nothing went wrong, do not show an error.
+    if (err && err.name === 'InvalidStateError' && /already an active/i.test(err.message || '')) return;
     const msg = (err && (err.name ? (err.name + ': ' + err.message) : err.message)) || 'Unknown VR Error';
-    if (errOverlay) {
-      errOverlay.innerText = msg;
-      errOverlay.style.display = 'block';
-    }
+    showVRErrorOverlay(msg);
   });
 }
 
@@ -76,6 +98,7 @@ function onXRVisibilityChange() {
 }
 
 let xrDiagSprite = null;
+const XR_DIAG_ALWAYS = /[?&]xrdiag=1/.test(window.location.search);
 window.lastXRError = null;
 window.handPacketsSec = 0;
 let handPacketsCounter = 0;
@@ -122,7 +145,11 @@ function updateXRDiagOverlay() {
     faultBanner.style.display = 'flex';
   }
 
-  if (inXRSession && scene && typeof headYaw !== 'undefined') {
+  // The diagnostics panel is shown only when there is an XR error, or when the page is opened with ?xrdiag=1.
+  const showDiag = (err !== 'None') || XR_DIAG_ALWAYS;
+  el.style.display = showDiag ? 'block' : 'none';
+  if (!showDiag && xrDiagSprite) xrDiagSprite.visible = false;
+  if (showDiag && inXRSession && scene && typeof headYaw !== 'undefined') {
     if (!xrDiagSprite) {
       xrDiagSprite = createTextSprite('XR DIAG', '#00e5ff');
       scene.add(xrDiagSprite);
@@ -156,6 +183,7 @@ function onXRInputSourcesChange(event) {
 }
 
 async function onXRSessionStarted(session, mode) {
+  hideVRErrorOverlay();
   xrSession = session;
   inXRSession = true;
   vrRigInitialized = false;

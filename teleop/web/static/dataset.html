@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dataset Viewer</title>
+<link rel="icon" href="data:,">
+<script src="/static/js/three.min.js"></script>
+<script src="/static/js/OrbitControls.js"></script>
+<script src="/static/js/STLLoader.js"></script>
+<style>
+:root { --bg:#0f141b; --panel:#171e28; --panel2:#1e2733; --line:#2b3746; --text:#d8e0ea; --muted:#8796a8; --acc:#3aa0ff;
+        --ok:#3ccf7a; --warn:#f0b43c; --bad:#ef5b5b; }
+* { box-sizing:border-box; }
+html, body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font:12px/1.3 system-ui, sans-serif; }
+header { height:38px; display:flex; align-items:center; gap:8px; padding:0 10px; background:var(--panel); border-bottom:1px solid var(--line); }
+header h1 { font-size:14px; margin:0 6px 0 0; font-weight:600; white-space:nowrap; }
+select, input, button { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:3px 7px; font:inherit; }
+button { cursor:pointer; white-space:nowrap; } button:hover { border-color:var(--acc); } button:disabled { opacity:.45; cursor:default; }
+button.primary { background:#1d4f80; border-color:#2f6fae; }
+a { color:var(--acc); }
+#app { display:grid; grid-template-columns:250px 1fr; height:calc(100% - 38px); }
+#side { border-right:1px solid var(--line); display:flex; flex-direction:column; gap:6px; padding:6px; min-height:0; }
+#main { display:flex; flex-direction:column; gap:6px; padding:6px; min-width:0; min-height:0; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:7px; padding:6px; }
+.card h2 { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 4px; }
+#epcard { flex:0 1 32%; min-height:90px; display:flex; flex-direction:column; }
+#eplist { overflow:auto; flex:1; }
+#eplist .ep { padding:4px 5px; border-radius:5px; cursor:pointer; border:1px solid transparent; margin-bottom:2px; }
+#eplist .ep:hover { background:var(--panel2); }
+#eplist .ep.sel { border-color:var(--acc); background:var(--panel2); }
+#eplist .ep .l1 { display:flex; justify-content:space-between; gap:4px; }
+#eplist .ep .l2 { color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tag { font-size:10px; padding:0 4px; border-radius:4px; background:var(--panel2); color:var(--muted); }
+.tag.ok { color:var(--ok); } .tag.warn { color:var(--warn); } .tag.bad { color:var(--bad); }
+#tabcard { flex:1; min-height:0; display:flex; flex-direction:column; }
+#tabs { display:flex; gap:3px; margin-bottom:5px; }
+#tabs button { flex:1; padding:3px 2px; }
+#tabs button.on { border-color:var(--acc); color:#fff; }
+.tabpane { overflow:auto; flex:1; min-height:0; display:none; }
+.tabpane.on { display:block; }
+#media { flex:0 0 30%; min-height:120px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+.view { position:relative; background:#000; border-radius:7px; overflow:hidden; border:1px solid var(--line); min-height:0; }
+.view img { width:100%; height:100%; object-fit:contain; display:block; }
+.view .cap { position:absolute; left:6px; top:3px; font-size:11px; color:#fff; text-shadow:0 0 3px #000; pointer-events:none; }
+#v3d canvas { width:100% !important; height:100% !important; display:block; }
+#timeline { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:5px 6px; }
+#tlbar { flex:1; height:40px; background:var(--panel2); border-radius:5px; cursor:pointer; display:block; min-width:100px; }
+#tlabel { font-variant-numeric:tabular-nums; white-space:nowrap; min-width:118px; text-align:right; }
+#charts { flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:6px; }
+.chart { display:flex; flex-direction:column; min-height:0; padding:4px 6px; }
+.chead { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.ctitle { font-size:11px; color:var(--muted); }
+.chart canvas { flex:1; min-height:0; width:100%; display:block; background:var(--panel2); border-radius:5px; cursor:crosshair; margin-top:3px; }
+.legend { display:flex; flex-wrap:wrap; gap:3px; }
+.legend span { font-size:10px; padding:0 5px; border-radius:9px; border:1px solid var(--line); cursor:pointer; user-select:none; }
+.legend span.off { opacity:.35; }
+#events .ev { display:flex; gap:5px; padding:2px 3px; border-radius:4px; cursor:pointer; }
+#events .ev:hover { background:var(--panel2); }
+.dot { width:8px; height:8px; border-radius:50%; margin-top:3px; flex:none; }
+.row { display:flex; gap:5px; align-items:center; margin:3px 0; flex-wrap:wrap; }
+.row label { color:var(--muted); min-width:62px; }
+.row input[type=text] { flex:1; min-width:90px; }
+#log { font:10px monospace; color:var(--muted); white-space:pre-wrap; max-height:110px; overflow:auto; margin-top:4px; }
+#status { color:var(--muted); margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#dsInfo { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#overlay { position:fixed; inset:0; background:rgba(8,12,18,.7); display:none; align-items:center; justify-content:center; z-index:10; }
+#overlay .box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 20px; min-width:360px; }
+.muted { color:var(--muted); }
+@media (max-width: 1100px), (max-height: 620px) {
+  html, body { overflow:auto; } #app { grid-template-columns:1fr; height:auto; } #side { max-height:none; }
+  #media { grid-template-columns:1fr; flex:none; } .view { height:240px; }
+  #charts { grid-template-columns:1fr; grid-template-rows:none; } .chart canvas { height:160px; flex:none; }
+}
+#guide { position:fixed; inset:0; background:rgba(8,12,18,.78); display:none; align-items:flex-start; justify-content:center; z-index:20; overflow:auto; padding:30px 12px; }
+#guide.on { display:flex; }
+#guide .gbox { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 22px; max-width:760px; width:100%; font-size:13px; line-height:1.55; }
+#guide h2 { font-size:16px; margin:0 0 6px; } #guide h3 { font-size:13px; margin:16px 0 4px; color:var(--acc); }
+#guide ol, #guide ul { margin:4px 0 4px 18px; padding:0; } #guide li { margin:3px 0; }
+#guide table { border-collapse:collapse; width:100%; margin:4px 0; } #guide td, #guide th { border:1px solid var(--line); padding:3px 7px; text-align:left; vertical-align:top; }
+#guide kbd { background:var(--panel2); border:1px solid var(--line); border-radius:4px; padding:0 5px; font:12px monospace; }
+#guide .note { background:var(--panel2); border-left:3px solid var(--warn); padding:5px 9px; margin:8px 0; border-radius:4px; }
+#guide .gclose { float:right; }
+#livecard { display:none; }
+body.live #livecard { display:block; flex:1; } body.live #epcard, body.live #tabcard, body.live #timeline { display:none; }
+#btnLive.on { border-color:var(--bad); color:#fff; background:#5a1010; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dataset viewer</h1>
+  <select id="dsSel" style="display:none;"><option>đang tải…</option></select>
+  <button id="btnRefresh" title="Tải lại danh sách" style="display:none;">Tải lại</button>
+  <span id="dsInfo" class="muted" style="display:none;"></span>
+  <span id="status"></span>
+  <button id="btnAnalyze" class="primary" title="Xem lại và phân tích các dataset / episode đã thu">Phân tích</button>
+  <button id="btnGuide" title="Hướng dẫn sử dụng cho người mới">Hướng dẫn</button>
+  <a href="/" title="Về panel điều khiển">Panel</a>
+</header>
+<div id="app">
+  <div id="side">
+    <div class="card" id="livecard">
+      <h2>Trực tiếp <span id="liveRecDot" style="display:none; color:var(--bad); font-weight:bold;">REC</span></h2>
+      <div id="liveRecControls" style="display:flex; flex-direction:column; gap:5px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--line);">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+          <input type="text" id="liveRecTask" value="default" maxlength="48" placeholder="Task" title="Task (tên thư mục)">
+          <input type="text" id="liveRecInstruction" value="" maxlength="300" placeholder="Câu lệnh" title="Language instruction: mô tả việc robot làm">
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+          <button id="liveBtnRec" style="background:#5a1010; border-color:#c62828; color:#fff; font-weight:bold;">Start REC</button>
+          <button id="liveBtnDiscard" title="Đánh dấu loại bỏ (discard) episode vừa ghi hoặc đang ghi">Discard last</button>
+        </div>
+        <select id="liveRecDiscardReason" title="Lý do loại bỏ episode">
+          <option value="other">Discard reason: other</option>
+          <option value="dropped_object">Discard reason: dropped object</option>
+          <option value="collision">Discard reason: collision</option>
+          <option value="bad_trajectory">Discard reason: bad trajectory</option>
+          <option value="task_failed">Discard reason: task failed</option>
+          <option value="robot_issue">Discard reason: robot issue</option>
+        </select>
+        <div id="liveRecStatus" class="muted" style="font-size:11px; line-height:1.35;">Chưa ghi.</div>
+      </div>
+      <div id="liveInfo" class="muted">—</div>
+      <div class="row" style="margin-top:6px;"><label style="min-width:70px">Cửa sổ</label><select id="liveWin"><option value="5">5 s</option><option value="10" selected>10 s</option><option value="30">30 s</option><option value="60">60 s</option></select></div>
+      <div id="liveHint" class="muted" style="font-size:11px; margin-top:4px"></div>
+    </div>
+    <div class="card" id="epcard"><h2>Episode</h2><div id="eplist" class="muted">Chọn một dataset.</div></div>
+    <div class="card" id="tabcard">
+      <div id="tabs"><button data-t="events" class="on">Sự kiện</button><button data-t="quality">Chất lượng</button><button data-t="edit">Sửa</button></div>
+      <div class="tabpane on" id="pane-events"><div id="events" class="muted">—</div></div>
+      <div class="tabpane" id="pane-quality"><div id="quality" class="muted">—</div></div>
+      <div class="tabpane" id="pane-edit"><div id="edit" class="muted">—</div></div>
+    </div>
+  </div>
+  <div id="main">
+    <div id="media">
+      <div class="view"><img id="imgColor" alt=""><div class="cap" id="capColor">Camera màu</div></div>
+      <div class="view"><img id="imgDepth" alt=""><div class="cap">Độ sâu (0–3 m)</div></div>
+      <div class="view" id="v3d"><div class="cap">Robot 3D – kéo xoay, cuộn zoom</div></div>
+    </div>
+    <div class="card" id="timeline" title="Space: chạy / dừng · ← →: từng khung · Shift + ← →: 1 s · bấm / kéo để tua · kéo hai tay nắm vàng để cắt đầu / cuối (I / O: đặt điểm đầu / cuối tại vị trí hiện tại) · S: cắt tại đầu phát, bấm chọn đoạn rồi Del để xoá, Esc: huỷ · trên biểu đồ: bấm để tua, cuộn để zoom, nhấp đúp bỏ zoom">
+      <button id="btnPlay" title="Space">Chạy</button>
+      <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+      <button id="btnPrev" title="← khung trước">Lùi</button><button id="btnNext" title="→ khung sau">Tiến</button>
+      <button id="btnCut" title="Cắt tại đầu phát (S)">Cắt</button><button id="btnDel" title="Xoá đoạn đang chọn (Del)" disabled>Xoá đoạn</button>
+      <canvas id="tlbar"></canvas>
+      <span id="tlabel">0.00 / 0.00 s</span>
+    </div>
+    <div id="charts"></div>
+  </div>
+</div>
+<div id="guide"><div class="gbox">
+  <button class="gclose" id="guideClose">Đóng</button>
+  <h2>Hướng dẫn trang Dataset</h2>
+  <div>Trang này để <b>xem lại, kiểm tra và chỉnh sửa</b> dữ liệu robot đã thu, trước khi dùng để huấn luyện (train). Bạn không cần biết lập trình. Mọi thao tác chỉ xem, trừ khi bạn bấm nút <b>Lưu</b> hoặc <b>Xuất bộ mới</b>.</div>
+
+  <h3>1. Một vài từ cần biết</h3>
+  <ul>
+    <li><b>Dataset</b>: một bộ dữ liệu gồm nhiều lần thu (đã xuất ra thư mục <code>lerobot_datasets/</code>).</li>
+    <li><b>Episode</b>: một lần thu, từ lúc bấm Start REC đến lúc dừng. Ví dụ một lần gắp cốc.</li>
+    <li><b>Câu lệnh (instruction)</b>: câu mô tả việc robot làm, ví dụ "gắp cốc đỏ".</li>
+    <li><b>Cắt (trim)</b>: bỏ đoạn thừa ở đầu hoặc cuối episode, ví dụ lúc đứng yên chờ.</li>
+  </ul>
+
+  <h3>2. Các bước cho người mới</h3>
+  <ol>
+    <li>Chọn <b>dataset</b> ở danh sách thả xuống trên cùng.</li>
+    <li>Chọn một <b>episode</b> ở khung bên trái. Màu cho biết chất lượng: <span style="color:var(--ok)">OK</span> là tốt, <span style="color:var(--warn)">CHECK</span> là nên xem lại, <span style="color:var(--bad)">BAD</span> là có lỗi.</li>
+    <li>Bấm <kbd>Chạy</kbd> (hoặc phím <kbd>Space</kbd>) để xem lại. Ba khung phía trên là <b>camera màu</b>, <b>độ sâu</b> và <b>robot 3D</b> (kéo chuột để xoay, cuộn để zoom).</li>
+    <li>Xem <b>biểu đồ</b> bên dưới và các tab <b>Sự kiện</b>, <b>Chất lượng</b> để biết có gì bất thường.</li>
+    <li>Nếu cần, chỉnh ở tab <b>Sửa</b> (mục 4), rồi bấm <b>Lưu vào episode gốc</b>.</li>
+    <li>Khi đã sửa xong, bấm <b>Xuất bộ mới</b> để tạo dataset mới đã áp dụng các sửa đổi.</li>
+  </ol>
+
+  <h3>3. Cách đọc biểu đồ</h3>
+  <ul>
+    <li><b>Trục ngang</b>: thời gian, tính bằng giây (s). Mọi biểu đồ dùng chung một thời gian với video.</li>
+    <li><b>Tay trái / Tay phải</b>: góc các khớp tay (rad). J1 đến J7 là bảy khớp. <b>Đường liền</b> là giá trị thật của robot, <b>đường đứt</b> là lệnh đã gửi. Hai đường càng sát nhau càng tốt.</li>
+    <li><b>Ngón tay</b>: giá trị thô của các ngón. Đường liền là tay trái, đường đứt là tay phải.</li>
+    <li><b>Tốc độ bàn tay</b>: tốc độ tay (m/s) và mức nắm (0 là mở, 1 là nắm chặt).</li>
+    <li><b>Đường đỏ đứng</b>: vị trí đang xem. Bấm vào biểu đồ để tua tới đó, cuộn chuột để phóng to, bấm đúp để về như cũ.</li>
+    <li>Bấm vào tên trong chú thích (ví dụ J3) để ẩn hoặc hiện một đường.</li>
+  </ul>
+
+  <h3>4. Chỉnh sửa dữ liệu (tab "Sửa")</h3>
+  <table>
+    <tr><th>Muốn làm gì</th><th>Làm thế nào</th></tr>
+    <tr><td>Bỏ cả episode (làm hỏng, rơi đồ...)</td><td>Tích <b>Bỏ episode</b>. Episode đó sẽ không được xuất.</td></tr>
+    <tr><td>Sửa câu lệnh hoặc tên task</td><td>Gõ vào ô <b>Câu lệnh</b> hoặc <b>Task</b>.</td></tr>
+    <tr><td>Cắt phần thừa ở đầu hoặc cuối</td><td>Kéo hai <b>tay nắm vàng</b> ở hai đầu thanh thời gian, giống CapCut. Hoặc tua tới chỗ cần rồi bấm <b>Đầu</b> / <b>Cuối</b>.</td></tr>
+    <tr><td>Cắt tại một điểm rồi xoá đoạn</td><td>Tua tới điểm đó, bấm <b>Cắt</b>. Bấm vào đoạn bên trái hoặc bên phải vạch trắng để chọn (màu đỏ), rồi bấm <b>Xoá đoạn</b>.</td></tr>
+    <tr><td>Bỏ hết các lần cắt</td><td>Bấm <b>Bỏ</b> ở dòng Cắt.</td></tr>
+    <tr><td>Cắt các đoạn đứng yên (kể cả ở giữa)</td><td>Bấm <b>Đề xuất cắt đứng yên</b>. Các đoạn đề xuất hiện thành khối đỏ trên thanh thời gian và thành danh sách. Mỗi dòng có <b>Xem</b> (nhảy tới đoạn đó) và <b>Xoá</b> (giữ lại đoạn đó). Duyệt xong bấm <b>Cắt các đoạn này</b>. <b>Bỏ cắt đã lưu</b> để hoàn tác. <b>Quét cả bộ</b> làm cho nhiều episode một lúc.</td></tr>
+  </table>
+  <div class="note"><b>Quan trọng:</b> sửa xong phải bấm <b>Lưu vào episode gốc</b>, nếu không các thay đổi sẽ mất khi tải lại trang. Lưu <b>chưa</b> tạo dataset mới. Bạn cần bấm tiếp <b>Xuất bộ mới</b> (đặt tên khác, ví dụ <code>ten_v2</code>) mới có bộ dữ liệu đã chỉnh. Bộ đang xem không bị thay đổi.</div>
+  <div class="note">Cắt tay (kéo tay nắm vàng, Cắt rồi Xoá đoạn) chỉ bỏ được <b>đầu hoặc cuối</b> (giữ lại một đoạn liền). Đoạn đứng yên ở <b>giữa</b> chỉ cắt được bằng <b>Đề xuất cắt đứng yên</b>; sau khi cắt, hai phần còn lại được nối liền nên chỗ nối robot có thể nhảy vị trí trong một khung. Các đoạn cắt chỉ có hiệu lực sau khi bấm <b>Xuất bộ mới</b>. Muốn sửa phải còn episode gốc trên máy, nếu không tab Sửa sẽ báo không sửa được.</div>
+
+  <h3>5. Tab "Sự kiện" và "Chất lượng"</h3>
+  <ul>
+    <li><b>Sự kiện</b>: những lúc đáng chú ý như <i>nắm</i>, <i>mở</i>, <i>đứng yên</i>, <i>lệch lệnh</i>, <i>an toàn</i>. Bấm vào một dòng để tua tới đúng lúc đó. Các dải màu cũng hiện trên thanh thời gian và trên biểu đồ. <b>Rê chuột vào một vùng màu</b> để xem lý do nó được đánh dấu. Xám: đứng yên. Xanh lá / xanh dương: nắm / mở tay. Vàng: IK không tới đích (lệch hơn 30 mm). Đỏ: bộ lọc an toàn giữ chuyển động. Tím: sát hoặc ngoài tầm với. Cam: khớp bám lệnh chậm.</li>
+    <li><b>Chất lượng</b>: kết quả kiểm tra tự động. Dòng đỏ (!) là lỗi nặng, dòng vàng (-) là cảnh báo. Gặp BAD nên cân nhắc bỏ episode.</li>
+  </ul>
+
+  <h3>6. Phím tắt</h3>
+  <table>
+    <tr><td><kbd>Space</kbd></td><td>Chạy / dừng</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>Lùi / tiến một khung</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd></td><td>Nhảy 1 giây</td><td><kbd>I</kbd> / <kbd>O</kbd></td><td>Đặt điểm đầu / cuối tại vị trí đang xem</td></tr>
+    <tr><td><kbd>S</kbd></td><td>Cắt tại vị trí đang xem</td><td><kbd>Del</kbd> / <kbd>Esc</kbd></td><td>Xoá đoạn đang chọn / huỷ cắt</td></tr>
+  </table>
+
+  <h3>7. Quy trình gợi ý để làm sạch dữ liệu</h3>
+  <ol>
+    <li>Xem lần lượt từng episode, ưu tiên các episode CHECK và BAD.</li>
+    <li>Bỏ episode hỏng, cắt phần đứng yên thừa, sửa câu lệnh nếu sai.</li>
+    <li>Bấm <b>Lưu vào episode gốc</b> cho mỗi episode đã sửa.</li>
+    <li>Bấm <b>Xuất bộ mới</b> khi xong tất cả. Dùng bộ mới để train.</li>
+  </ol>
+  <h3>8. Xem trực tiếp khi đang thu (nút "Trực tiếp")</h3>
+  <ul>
+    <li>Bấm <b>Trực tiếp</b> ở thanh trên cùng: ngay cả khi chưa ghi, trang đã hiện <b>XEM TRƯỚC</b> với góc khớp, robot 3D và camera của robot (không lưu gì). Bấm <b>Start REC</b> trên panel điều khiển để thu. Trang hiện camera màu, độ sâu, robot 3D và các biểu đồ chạy theo thời gian thật khi episode đang ghi. Bấm <b>Thoát trực tiếp</b> để quay về xem lại.</li>
+    <li><b>Cửa sổ</b>: chọn khoảng thời gian hiển thị trên biểu đồ (5 đến 60 giây). Biểu đồ trực tiếp chỉ giữ khoảng 2 phút gần nhất, còn dữ liệu đầy đủ vẫn ghi trên đĩa.</li>
+    <li><b>Mất</b> phải luôn bằng 0. Mỗi dòng dữ liệu robot và teleop đều có số thứ tự, nếu thiếu dòng thì trang đếm và hiện ra ở đây. Cột <b>Trễ</b> là số dòng đã ghi mà trình duyệt chưa nhận, bình thường gần 0.</li>
+    <li><b>Ảnh</b> là số ảnh nhận được trên số ảnh đã ghi. Nếu mạng hoặc trình duyệt quá chậm, trang sẽ bỏ qua một số ảnh <b>chỉ khi hiển thị</b> và báo "bỏ qua N". Ảnh vẫn đầy đủ trong thư mục episode.</li>
+    <li>Khi dừng REC, trạng thái chuyển thành "đã dừng". Để cắt hoặc sửa, đợi tự xuất xong rồi bấm <b>Thoát trực tiếp</b> và chọn episode vừa thu.</li>
+  </ul>
+
+  <div class="muted" style="margin-top:10px">Mở lại hướng dẫn này bất cứ lúc nào bằng nút <b>? Hướng dẫn</b> ở góc trên.</div>
+</div></div>
+<div id="overlay"><div class="box"><div id="ovMsg">Đang chuẩn bị…</div><div id="ovLog" class="muted" style="font:11px monospace;white-space:pre-wrap;margin-top:8px;max-height:200px;overflow:auto"></div></div></div>
+<script src="/static/js/dataset_viewer.js?v=1732030000"></script>
+<script src="/static/js/dataset_live.js?v=1732030000"></script>
+</body>
+</html>

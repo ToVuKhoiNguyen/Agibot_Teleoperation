@@ -75,7 +75,7 @@ class AgibotHandRetargeting:
         cl = float(np.clip(closure, 0.0, 1.0))
         g = str(grasp_type).lower().strip()
         if g in ("cylinder", "close", "fist", "power"):
-            return np.array([0.41, 0.70, 0.72, 0.72, 0.72], dtype=np.float64) * cl, 0.58 * cl
+            return np.array([0.45, 0.60, 0.72, 0.72, 0.72], dtype=np.float64) * cl, 0.58 * cl
         elif g == "pinch":
             return np.array([0.41, 0.42, 0.0, 0.0, 0.0], dtype=np.float64) * cl, 0.95 * cl
         elif g == "tripod":
@@ -87,7 +87,7 @@ class AgibotHandRetargeting:
         elif g == "open":
             return np.zeros(5, dtype=np.float64), 0.0
         else:
-            return np.array([0.41, 0.70, 0.72, 0.72, 0.72], dtype=np.float64) * cl, 0.58 * cl
+            return np.array([0.45, 0.60, 0.72, 0.72, 0.72], dtype=np.float64) * cl, 0.58 * cl
 
     def __init__(self, hand: str = "left", filter_weights=(0.5, 0.3, 0.2), max_vel_rad_s: float = 6.0):
         assert hand in ["left", "right"], f"Hand must be 'left' or 'right', got {hand}"

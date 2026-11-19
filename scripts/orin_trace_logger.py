@@ -26,6 +26,11 @@ class OrinTraceLogger:
                 "event": "START", "node_sha256": self.file_sha,
                 "wire_hz": self.wire_hz, "playout_ms": self.playout_ms
             })
+            # The topic recorder (every CMD + STATE message = 200 JSON lines/s) competes with the control tick for
+            # the interpreter; trace_orin already holds the published command and measured state per tick.
+            if os.environ.get("ORIN_RECORDER", "0") != "1":
+                print(f"[OrinTraceLogger] Logging to {p_orin.name} (topic recorder off; ORIN_RECORDER=1 to enable)")
+                return
             p_rec = self.logs_dir / f"trace_recorder_{ts}.jsonl"
             self.rec_writer = AsyncJsonlWriter(p_rec)
             self.rec_writer.log({"event": "START", "node": "builtin_recorder"})
@@ -34,7 +39,7 @@ class OrinTraceLogger:
             print(f"[OrinTraceLogger] Init error: {e}")
 
     def log_tick(self, t_mono: float, seqs_consumed: list, published_q14: list,
-                 buf_depth: int, extrapolating: bool, holding: bool, meas_q: list, meas_stamp: float):
+                 buf_depth: int, extrapolating: bool, holding: bool, meas_q: list, meas_stamp: float, tm: list = None):
         if not self.writer: return
         self.writer.log({
             "t": t_mono, "seqs_consumed": seqs_consumed,
@@ -42,7 +47,7 @@ class OrinTraceLogger:
             "buffer_depth": buf_depth,
             "extrapolating": extrapolating, "holding": holding,
             "measured_q14": [float(round(x, 5)) for x in meas_q] if meas_q else None,
-            "measured_stamp": meas_stamp
+            "measured_stamp": meas_stamp, "tm": tm
         })
 
     def log_recorded_cmd(self, t_recv: float, stamp_sec: float, q14: list, pub_count: int):

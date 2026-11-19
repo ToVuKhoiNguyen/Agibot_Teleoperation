@@ -1,18 +1,16 @@
-# ROS 2 (Jazzy) Environment Setup for AGIBOT A2 Ultra
+# ROS 2 (Humble) Environment Setup for AGIBOT A2 Ultra
 
-If `python -c "import rclpy"` fails in the virtual environment:
+The laptop has ROS 2 **Humble** on the system Python 3.10 (`/opt/ros/humble`). The teleop venv is Python 3.12 (`uv`), so `import rclpy` does **not** work inside `venv/` and is not needed there: `main.py` talks to the robot over UDP (the Orin receiver publishes the ROS 2 topics). The laptop has no route to the X86 `192.168.100.100`, so it cannot send arm commands over ROS 2 directly.
 
-1. Ensure ROS 2 Jazzy environment is sourced:
+ROS 2 on the laptop is only needed for SIL / A2SIM (`docs/SIL.md`) and a few tests in `tests/`:
+
+1. Source ROS 2 Humble and use the system Python 3.10 (not the venv) for ROS-based scripts:
    ```bash
-   source /opt/ros/jazzy/setup.bash
+   source /opt/ros/humble/setup.bash
+   python3 -c "import rclpy"
    ```
-2. Enable access to system ROS packages from venv:
-   ```bash
-   echo "/opt/ros/jazzy/lib/python3.12/site-packages" > ~/a2_ws/venv/lib/python3.12/site-packages/ros_jazzy.pth
-   ```
-3. Test safety variables (never connect to robot domain 232 during tests):
+2. Test safety variables (never connect to robot domain 232 during tests):
    ```bash
    export ROS_DOMAIN_ID=77
    export ROS_LOCALHOST_ONLY=1
    ```
-

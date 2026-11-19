@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 import numpy as np
 from teleop.robot.interface import RobotInterface
-from teleop.robot.aimdk_map import ARM_JOINT_NAMES_AIMDK, ARM_LOWER_14, ARM_UPPER_14, HOME
+from teleop.robot.aimdk_map import ARM_LOWER_14, ARM_UPPER_14, start_limits
 from teleop.robot.fault_tracer import FaultTracer
 from teleop.robot.deviation_checker import DeviationChecker
 
@@ -28,6 +28,7 @@ class SafetyLayer:
         deviation_timeout_s: float = 0.200,
     ):
         self.backend = backend
+        self.lim_lo, self.lim_hi = ARM_LOWER_14.copy(), ARM_UPPER_14.copy()   # widen_to(q) at SYNC / engage
         self.max_velocity = min(float(max_velocity_rad_s), 3.0)  # Hard ceiling: 3.0 rad/s
         self.max_accel = float(max_accel_rad_s2)
         self.watchdog_timeout_s = float(watchdog_timeout_s)
@@ -53,6 +54,10 @@ class SafetyLayer:
             "deviation_trips": 0,
             "first_command_ramps": 0,
         }
+
+    def widen_to(self, q14) -> None:
+        """Session starts at the measured pose q14: bounds include it (aimdk_map.start_limits), so no start jump."""
+        self.lim_lo, self.lim_hi = start_limits(q14)
 
     @property
     def gate_mode(self): return self.dev_checker.gate_mode
@@ -154,7 +159,7 @@ class SafetyLayer:
         active_clamps = ["none"] * 14
 
         # 1. Joint limit clamp (collision never blocks)
-        clamped_q = np.clip(target_q, ARM_LOWER_14, ARM_UPPER_14)
+        clamped_q = np.clip(target_q, self.lim_lo, self.lim_hi)
         for i in range(14):
             if not np.isclose(clamped_q[i], target_q[i]): active_clamps[i] = "limit"
         if not np.allclose(clamped_q, target_q):
@@ -170,29 +175,57 @@ class SafetyLayer:
             for i in range(14):
                 if active_clamps[i] == "none": active_clamps[i] = "ramp"
 
-        # 3. Velocity cap
-        max_vel_step = self.max_velocity * dt_eff
-        raw_delta = target_q - self._last_cmd_q14
-        vel_clamped_delta = np.clip(raw_delta, -max_vel_step, max_vel_step)
+        # 3. Velocity cap + discrete braking curve.
+        # Without the braking term the vel/accel caps chase a step target, arrive with non-zero
+        # velocity, overshoot and limit-cycle (~1 Hz in SIL, scripts/test_sil.py B4). v_brake is the
+        # largest speed from which decelerating by max_accel*dt per tick still stops within |err|.
+        if self._downstream_limiter_active():
+            # The UDP TX thread already shapes this target with MirrorLimiter (same vmax, lower amax, zero
+            # overshoot, armor check) and the Orin receiver adds its own final guard. Shaping it here as well
+            # only stacks a second braking lag (~v^2/(2*amax): 70-170 ms on a fast reach) on top of the first.
+            return self._finish_send(q, target_q, active_clamps, dt_eff, t_now)
+
+        err = target_q - self._last_cmd_q14
+        abs_err = np.abs(err)
+        a_dt = self.max_accel * dt_eff
+        v_brake = a_dt * (np.sqrt(0.25 + 2.0 * abs_err / (a_dt * dt_eff)) - 0.5)
+        # Braking is relative to a static target on purpose: target velocity feed-forward was tried and
+        # let the command lead a target that then stops (gizmo release) -> overshoot. Lag on moving
+        # targets is smoothed further by MirrorLimiter; the command never leaves the target's range.
+        speed_des = np.minimum(abs_err / dt_eff, np.minimum(self.max_velocity, v_brake))
+        v_des = np.sign(err) * speed_des
+        vel_hit = speed_des < abs_err / dt_eff - 1e-9
         for i in range(14):
-            if not np.isclose(raw_delta[i], vel_clamped_delta[i]): active_clamps[i] = "velocity"
-        if not np.allclose(raw_delta, vel_clamped_delta):
+            if vel_hit[i]: active_clamps[i] = "velocity"
+        if np.any(vel_hit):
             self.stats["velocity_clamps"] += 1
-            target_q = self._last_cmd_q14 + vel_clamped_delta
 
         # 4. Acceleration cap
-        inst_vel = (target_q - self._last_cmd_q14) / dt_eff
-        max_acc_step = self.max_accel * dt_eff
-        acc_clamped_vel = self._last_cmd_vel + np.clip(inst_vel - self._last_cmd_vel, -max_acc_step, max_acc_step)
+        acc_clamped_vel = self._last_cmd_vel + np.clip(v_des - self._last_cmd_vel, -a_dt, a_dt)
         for i in range(14):
-            if not np.isclose(inst_vel[i], acc_clamped_vel[i]): active_clamps[i] = "accel"
-        if not np.allclose(inst_vel, acc_clamped_vel):
+            if not np.isclose(v_des[i], acc_clamped_vel[i]): active_clamps[i] = "accel"
+        if not np.allclose(v_des, acc_clamped_vel):
             self.stats["accel_clamps"] += 1
-            target_q = self._last_cmd_q14 + acc_clamped_vel * dt_eff
+        step = acc_clamped_vel * dt_eff
+        # Never step past the target (only reachable if the target jumped closer than the braking
+        # distance): stop at it rather than overshoot beyond the commanded, collision-checked pose.
+        past = (np.sign(step) == np.sign(err)) & (np.abs(step) > abs_err)
+        step = np.where(past, err, step)
+        target_q = self._last_cmd_q14 + step
 
         # Enforce physical bounds so accel filter never pushes past joint limits
-        target_q = np.clip(target_q, ARM_LOWER_14, ARM_UPPER_14)
+        target_q = np.clip(target_q, self.lim_lo, self.lim_hi)
 
+        return self._finish_send(q, target_q, active_clamps, dt_eff, t_now)
+
+    def _downstream_limiter_active(self) -> bool:
+        """True when the backend's own TX thread rate-limits every packet with MirrorLimiter (real-udp)."""
+        be = self.backend
+        app = getattr(be, "app", None)
+        return (be.__class__.__name__ == "UdpBackend" and getattr(be, "tx_thread", None) is not None
+                and getattr(app, "mirror_limiter", None) is not None)
+
+    def _finish_send(self, q, target_q, active_clamps, dt_eff, t_now) -> bool:
         # 5. Deviation gate check (sim vs real / read-back)
         is_real = getattr(self.backend, "__class__", type(self.backend)).__name__ in ("Ros2Backend", "RealBackend", "UdpBackend")
         q_act, _, meta = self.backend.read_state()
@@ -205,14 +238,14 @@ class SafetyLayer:
             self.stats["deviation_trips"] += 1
             self.fault_latched = True
             self.fault_reason, ev = self.fault_tracer.format_trip(
-                j, err_val, thresh_val, target_q, q_act, ARM_LOWER_14, ARM_UPPER_14,
+                j, err_val, thresh_val, target_q, q_act, self.lim_lo, self.lim_hi,
                 active_clamps[j], self.backend.__class__.__name__, self.context, t_now,
                 sent_q=self._last_cmd_q14, raw_q=q, age_s=age_s, check_name=chk_name,
                 model_q=mod_q, res_v=res_v
             )
             self.fault_tracer.record_trip(ev); self.hold(); return False
 
-        lim_pairs = [(float(ARM_LOWER_14[i]), float(ARM_UPPER_14[i])) for i in range(14)]
+        lim_pairs = [(float(self.lim_lo[i]), float(self.lim_hi[i])) for i in range(14)]
         worst_j = int(np.argmax(np.abs(q_act - target_q))) if q_act is not None else 0
         self.fault_tracer.sample(
             self.backend.__class__.__name__, q, target_q, target_q, q_act, self._last_cmd_vel,

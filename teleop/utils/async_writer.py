@@ -1,5 +1,5 @@
 """Asynchronous non-blocking JSONL queue writer."""
-import queue, threading, json, time
+import queue, threading, json
 
 class AsyncJsonlWriter:
     def __init__(self, file_path):

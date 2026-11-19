@@ -1,5 +1,5 @@
 """Manages trace_laptop_<ts>.jsonl async logging and config headers."""
-import os, time, json, subprocess
+import os, time, subprocess
 import numpy as np
 from teleop.utils.async_writer import AsyncJsonlWriter
 from teleop.robot.arrival_detector import ArrivalDetector
@@ -34,6 +34,7 @@ class LaptopTraceLogger:
                 "END_APPROACH": os.environ.get("END_APPROACH", "0"),
                 "WRIST_SCALE": os.environ.get("WRIST_SCALE", "0.5"),
                 "WIRE_HZ": str(self.wire_hz),
+                "LIMITER_LAW": os.environ.get("LIMITER_LAW", "brake"),
             }
         }
         if self.writer: self.writer.log(cfg)

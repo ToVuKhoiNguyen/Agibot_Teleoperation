@@ -59,8 +59,23 @@ ARM_JOINT_NAMES_URDF = [
 ARM_JOINT_COUNT = 14
 ARM_HOME_14 = [0.0, 1.2, 0.0, -0.5, 1.5, 0.0, 0.0, 0.0, -1.2, 0.0, 0.5, 1.5, 0.0, 0.0]
 HOME = ARM_HOME_14
-ARM_LOWER_14 = np.array([-2.91, -0.46, -2.91, -2.00, -2.88, -0.30, -0.20, -2.91, -1.5359, -2.91, 0.10, -2.88, -0.30, -0.20], dtype=np.float64)
-ARM_UPPER_14 = np.array([2.91, 1.5359, 2.91, -0.10, 2.88, 0.30, 0.20, 2.91, 0.46, 2.91, 2.00, 2.88, 0.30, 0.20], dtype=np.float64)
+ARM_DATA_COLLECTION_14 = [float(ARM_HOME_14[0] + np.deg2rad(50.0))] + ARM_HOME_14[1:7] + [float(ARM_HOME_14[7] + np.deg2rad(50.0))] + ARM_HOME_14[8:]
+DATA_COLLECTION = ARM_DATA_COLLECTION_14
+# Elbow J4 bound = AimDK software limit +-0.03 since 17/11 (was +-0.10): the robot itself stands with the elbows at
+# +-0.035 after SetAction, so +-0.10 made the first command after engage bend the elbow 0.065 rad on its own.
+ARM_LOWER_14 = np.array([-2.91, -0.46, -2.91, -2.00, -2.88, -0.30, -0.20, -2.91, -1.5359, -2.91, 0.03, -2.88, -0.30, -0.20], dtype=np.float64)
+ARM_UPPER_14 = np.array([2.91, 1.5359, 2.91, -0.03, 2.88, 0.30, 0.20, 2.91, 0.46, 2.91, 2.00, 2.88, 0.30, 0.20], dtype=np.float64)
+# AimDK software limits (vendor, pp. 50-51; docs/A2_REAL_ROBOT_SPEC.md): the outer bound for start_limits()
+VENDOR_LOWER_14 = np.array([-2.91, -0.46, -2.91, -2.00, -2.94, -0.45, -0.35, -2.91, -1.60, -2.91, 0.03, -2.94, -0.45, -0.35], dtype=np.float64)
+VENDOR_UPPER_14 = np.array([2.91, 1.60, 2.91, -0.03, 2.94, 0.45, 0.35, 2.91, 0.46, 2.91, 2.00, 2.94, 0.45, 0.35], dtype=np.float64)
+
+
+def start_limits(q14) -> tuple:
+    """Joint bounds for a session that starts at the measured pose q14: our bounds, widened (never past the vendor
+    limits) to include q14. A joint that stands outside our tighter bounds at SYNC is therefore NOT pulled in by the
+    first command - the robot stays exactly where it is until the operator moves it."""
+    q = np.clip(np.asarray(q14, dtype=np.float64), VENDOR_LOWER_14, VENDOR_UPPER_14)
+    return np.minimum(ARM_LOWER_14, q), np.maximum(ARM_UPPER_14, q)
 
 
 # -----------------------------------------------------------------------------
@@ -96,7 +111,9 @@ SIM_HAND_COMFORTABLE_LIMITS = np.array([
 # [AIMDK: p. 49, lines 4948-4967]
 HAND_POS_RAW_MIN = 0
 HAND_POS_RAW_MAX = 2000
-HAND_SAFE_RAW_MAX = 800  # Conservative raw cap for initial real-robot tests [Item A.3]
+HAND_SAFE_RAW_MAX = 2000  # full vendor travel (was 800 = 40 % for the first real-robot tests; --hand-raw-max lowers it)
+THUMB_REST_RAW = 500      # default thumb pose: both thumb joints (thumb_0, thumb_1) folded this far when the hand is open
+THUMB_IDX_12 = (0, 1, 6, 7)
 HAND_FRAME_ID = "AgiHand"  # Hand message frame_id required by vendor spec
 HAND_EFFORT_RAW_MIN = 0
 HAND_EFFORT_RAW_MAX = 5700
@@ -119,6 +136,54 @@ def sim_hand_to_robot_raw(
         clamped_raw[0] = 0  # Left thumb swing held neutral
         clamped_raw[6] = 0  # Right thumb swing held neutral
     return clamped_raw
+
+
+def apply_thumb_rest(q6: np.ndarray, rest_raw: float = THUMB_REST_RAW) -> np.ndarray:
+    """Default (open-hand) pose with the thumb slightly folded: remaps the two thumb joints of one hand (rad) from
+    [0 .. limit] onto [rest .. limit], so closure 0 % rests at rest_raw / 2000 of the travel and 100 % is unchanged
+    in proportion. Continuous: no dead zone at the start of the closure."""
+    out = np.array(q6, dtype=np.float64)
+    f = float(np.clip(rest_raw, 0.0, HAND_POS_RAW_MAX)) / HAND_POS_RAW_MAX
+    if f > 0.0: out[:2] = f * SIM_HAND_COMFORTABLE_LIMITS[:2] + (1.0 - f) * out[:2]
+    return out
+
+
+THUMB_POSE_RAW = (800, 0, 1750, 1760)   # thumb (swing, flex) raw 0..2000 with hand OPEN, then with it CLOSED
+# Grasp-ready default: swing 800 (open outward by 800 raw, open aperture ~92 mm to index and ~91 mm to middle finger).
+# When closing, folds to (1750, 1760) meeting the index finger tip squarely (~0.2-2.2 mm distance) without folding into middle finger.
+
+
+def parse_thumb_pose(text):
+    """'1700,0' (hand open; closed = default closed pose) or '1700,0,1700,1500' (open, closed) -> 4-tuple;
+    'off' / '' / 'none' -> None (thumb follows the hand from fully open, rest --thumb-rest)."""
+    t = str(text or "").strip().lower()
+    if t in ("", "off", "none", "follow"): return None
+    v = [max(0, min(2000, int(round(float(x))))) for x in t.replace(";", ",").split(",") if x.strip()]
+    if len(v) == 2: v += [max(v[0], THUMB_POSE_RAW[2]), max(v[1], THUMB_POSE_RAW[3])]
+    if len(v) != 4: raise ValueError(f"--thumb-pose needs 2 or 4 numbers, got {text!r}")
+    return tuple(v)
+
+
+def apply_thumb_pose(q6: np.ndarray, pose_raw=THUMB_POSE_RAW) -> np.ndarray:
+    """Thumb resting in a grasp pose (17/11, operator request) and still closing with the hand: the two thumb joints of
+    the RAW retargeting output (0 = open .. limit = closed) are remapped onto [open pose .. closed pose] (pose_raw =
+    swing, flex open, swing, flex closed). Hand open -> thumb at the open pose (opposed, ready to grasp); closing the
+    hand folds it to the closed pose together with the fingers; opening brings it back. Continuous, no dead zone. Use on the raw output INSTEAD of apply_thumb_rest.
+    None = no-op (thumb follows the hand from fully open)."""
+    out = np.array(q6, dtype=np.float64)
+    if pose_raw is None: return out
+    lim = SIM_HAND_COMFORTABLE_LIMITS[:2]
+    p = list(pose_raw) + ([] if len(pose_raw) >= 4 else list(THUMB_POSE_RAW[2:]))
+    to_rad = lambda r: np.clip(np.asarray(r, dtype=np.float64), 0.0, HAND_POS_RAW_MAX) / HAND_POS_RAW_MAX * lim
+    p_open, p_closed = to_rad(p[:2]), to_rad(p[2:4])
+    f = float(np.clip(max(out[1] / lim[1], out[2] / (0.60 * 1.70)), 0.0, 1.0)) if (len(out) > 2 and out[2] > 0) else float(np.clip(out[1] / lim[1], 0.0, 1.0))
+    out[:2] = p_open + (p_closed - p_open) * f
+    return out
+
+
+def hand_thumb(q6: np.ndarray, rest_raw: float = THUMB_REST_RAW, pose_raw=THUMB_POSE_RAW) -> np.ndarray:
+    """Thumb shaping of a raw retargeting output: grasp pose (--thumb-pose, default) or the old rest (--thumb-pose off)."""
+    return apply_thumb_pose(q6, pose_raw) if pose_raw is not None else apply_thumb_rest(q6, rest_raw)
 
 
 def robot_raw_to_sim_hand(raw12: np.ndarray) -> np.ndarray:

@@ -11,7 +11,7 @@
 | :--- | :--- | :--- | :--- |
 | **Độ lệch góc $> 0.05\text{ rad}$ kéo dài $> 200\text{ ms}$** | Va chạm cơ khí, kẹt khớp hoặc mất bước servo | Nhấn `Ctrl-C` trên terminal `arm_teleop_rx.py` (node sẽ tự động phát lệnh giữ vị trí đo thực trong 2 giây). | 1. Ngắt kết nối teleop.<br>2. Kiểm tra log độ lệch khớp trên terminal.<br>3. Kiểm tra ngoại quan xem cánh tay có bị va quẹt hay chạm giới hạn cơ khí không. |
 | **Phát hiện `motion_player` đang chạy song song** | Xung đột ghi đè topic 100 Hz gây rung giật cháy động cơ | Dập ngay nút E-Stop vật lý hoặc ngắt tiến trình thu bằng `Ctrl-C`. | 1. Chạy lệnh: `killall -9 motion_player`.<br>2. Xác minh bằng `ps aux \| grep motion_player` (kết quả rỗng).<br>3. Khởi động lại `arm_teleop_rx.py` ở chế độ `--dry`. |
-| **Tiếng rít servo tần số cao, rung lắc cơ học** | Vọt lố bộ lọc hoặc cộng hưởng quán tính | Nhấn nút E-Stop cơ học cắt nguồn động lực toàn bộ tay robot. | 1. Hạ robot xuống giá đỡ cơ khí.<br>2. Kiểm tra lại hệ số vận tốc kẹp `--vel-limit` (giảm xuống $0.15\text{ rad/s}$).<br>3. Đánh giá lại độ cứng vững (stiffness/damping) của controller. |
+| **Tiếng rít servo tần số cao, rung lắc cơ học** | Vọt lố bộ lọc hoặc cộng hưởng quán tính | Nhấn nút E-Stop cơ học cắt nguồn động lực toàn bộ tay robot. | 1. Hạ robot xuống giá đỡ cơ khí.<br>2. Hạ mức tốc độ `--speed` ở cả `main.py` và `arm_teleop_rx.py` (mặc định 6 = 2.0 rad/s; mức 3 = 0.8 rad/s êm nhất đã thử), hoặc giới hạn riêng từng khớp trên Orin (`JOINT_VMAX` + `JOINT_AMAX`, cấu hình D trong `real_robot_command.md`). Lưu ý: MC 402 tự rung ~10 Hz tỉ lệ với tốc độ khớp, kể cả với lệnh dốc hoàn hảo phát ngay trên Orin.<br>3. Đánh giá lại độ cứng vững (stiffness/damping) của controller. |
 | **Mất kết nối mạng $> 300\text{ ms}$ (Watchdog trip)** | Robot mất kiểm soát khi không còn dữ liệu lái | Không cần thao tác khẩn nếu watchdog hoạt động (node tự động khóa vị trí hiện tại). | 1. Kiểm tra lại cáp mạng Ethernet và switch.<br>2. Kiểm tra bộ đếm `stale` và `seq` trong log thống kê của node.<br>3. Chỉ tiếp tục khi đường truyền ping $\le 2\text{ ms}$. |
 | **Robot tự ý đổi trạng thái sang chế độ không mong muốn** | Xung đột từ dịch vụ bên thứ ba hoặc bộ điều khiển RL | Dập nút E-Stop vật lý ngay lập tức. | 1. Đưa robot về trạng thái mặc định an toàn qua giao diện vendor.<br>2. Kiểm tra RPC port 56322 xem có tiến trình nào khác đang gửi lệnh `SetAction` không. |
 
@@ -38,13 +38,13 @@
 
 ### Giai Đoạn Đo Kiểm Phần Mềm & Khởi Động (Software Gating & Startup)
 - [ ] **[ ] KIỂM TRA MÃ:** Chạy `grep -nE "set_action|ensure_action|SetAction" arm_teleop_rx.py` trên Orin, kết quả: **0 dòng**.
-- [ ] **[ ] CHẾ ĐỘ THỬ (--dry):** Chạy `python3 arm_teleop_rx.py --dry --allow-ip <IP>`, xác nhận topic `/motion/control/arm_joint_command` có đúng **0 message**.
+- [ ] **[ ] CHẾ ĐỘ THỬ (--dry):** Chạy `python arm_teleop_rx.py --dry --allow-ip <IP>`, xác nhận topic `/motion/control/arm_joint_command` có đúng **0 message**.
 - [ ] **[ ] TRẠNG THÁI ACTION:** Kiểm tra action hiện tại của robot bằng RPC/giao diện vendor, xác nhận robot đã vào trạng thái `RL_LOCOMOTION_ARM_EXT_JOINT_SERVO`.
 - [ ] **[ ] THÔNG SỐ KHỞI CHẠY:**
   - Địa chỉ IP Laptop cho phép: `________________________`
-  - Giới hạn vận tốc đặt (`--vel-limit`): `0.3 rad/s` (mặc định)
-  - Giới hạn gia tốc đặt (`--accel-limit`): `2.0 rad/s^2` (mặc định)
-- [ ] **[ ] XÁC NHẬN NEO VỊ TRÍ:** Sau khi bật `--live`, terminal hiển thị log: `Anchored to measured pose` và cánh tay robot đứng yên tuyệt đối trong 5 giây đầu tiên.
+  - Mức tốc độ `--speed` (giống nhau ở laptop và receiver): `____` (mặc định 6 = 2.0 rad/s, 6.28 rad/s²)
+  - Đã chạy `sudo prlimit --pid $$ --rtprio=30:30 --nice=40:40` trong terminal này; dòng `[pacer]` ghi `SCHED_FIFO 30 (real-time)`
+- [ ] **[ ] XÁC NHẬN NEO VỊ TRÍ:** Sau khi chạy receiver không có `--dry` (mặc định LIVE), terminal hiển thị log: `Anchored to measured pose` và cánh tay robot đứng yên tuyệt đối trong 5 giây đầu tiên.
 
 ### Giai Đoạn Thử Nghiệm Từng Khớp & Dừng Hệ Thống (Jogging & Shutdown)
 - [ ] **[ ] NHẤP NHẢ KHỚP CỔ TAY:** Gửi lệnh dịch chuyển góc nhỏ $0.01\text{ rad}$ trên khớp `idx19` (cổ tay trái), cánh tay chuyển động êm ái $\le 0.5^\circ$.

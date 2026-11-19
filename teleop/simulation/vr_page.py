@@ -61,7 +61,7 @@ HTML_VR = """<!DOCTYPE html>
   <button id="btn-enter-vr" onclick="startXRSession('button')">ENTER VR</button>
   <div id="vr-status">Quest Controller Teleoperation • Tap button or pull trigger</div>
   <div id="vr-diag-overlay" style="margin-top:16px; padding:12px 16px; background:rgba(10, 16, 26, 0.92); border:1px solid #1e3a5f; border-radius:8px; font-family:monospace; font-size:12px; line-height:1.6; text-align:left; min-width:320px; max-width:480px; box-shadow:0 4px 16px rgba(0,0,0,0.6);">
-    <div style="font-weight:bold; color:#64b5f6; margin-bottom:4px; border-bottom:1px solid #263238; padding-bottom:3px;">🔍 WebXR Diagnostics</div>
+    <div style="font-weight:bold; color:#64b5f6; margin-bottom:4px; border-bottom:1px solid #263238; padding-bottom:3px;">WebXR Diagnostics</div>
     <div>Secure Context: <span id="diag-secure" style="color:#b0bec5;">checking...</span></div>
     <div>WebXR API: <span id="diag-xr" style="color:#b0bec5;">checking...</span></div>
     <div>immersive-vr: <span id="diag-vr" style="color:#b0bec5;">checking...</span></div>
@@ -72,7 +72,7 @@ HTML_VR = """<!DOCTYPE html>
 
 <div id="vr-controller-hud" style="position:fixed; bottom:15px; left:15px; background:rgba(10, 16, 26, 0.88); border:1px solid #1e3a5f; border-radius:8px; padding:10px; font-family:monospace; font-size:11px; color:#cfd8dc; z-index:900; pointer-events:none; min-width:280px; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
   <div style="display:flex; justify-content:space-between; margin-bottom:6px; border-bottom:1px solid #263238; padding-bottom:4px;">
-    <span>🎮 VR Teleop</span>
+    <span>VR Teleop</span>
     <span id="vr_hud_rate" style="color:#64b5f6;">0 Hz</span>
     <span id="vr_hud_age" style="color:#81c784;">0 ms</span>
   </div>

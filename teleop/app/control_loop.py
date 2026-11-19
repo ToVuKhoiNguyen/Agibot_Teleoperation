@@ -3,12 +3,14 @@ teleop/app/control_loop.py
 Fixed-rate 200 Hz main teleoperation simulation and control loop.
 """
 
+from teleop.robot.aimdk_map import hand_thumb, THUMB_REST_RAW, THUMB_POSE_RAW
 import os
 import time
 import numpy as np
 from teleop.utils.startup_banner import get_local_ip, print_startup_banner
 from teleop.app.telemetry_builder import build_status_packet
 from teleop.app.sync_manager import process_arm_sync_and_dispatch
+from teleop.app.ik_dispatcher import reattach_idle_targets, xr_coast_update, ik_settle_update
 
 
 def run_control_loop(app):
@@ -74,28 +76,43 @@ def run_control_loop(app):
                         app.handtrack_clutch_r = False
 
                 # Gizmo timeout: if active with no pose message for 150 ms, freeze target
-                if (getattr(app, "gizmo_active_l", False) or getattr(app, "gizmo_active_r", False)) and (not getattr(app, "xr_input_active", False)):
+                if (getattr(app, "gizmo_active_l", False) or getattr(app, "gizmo_active_r", False)) and not (getattr(app, "xr_grip_active_l", False) or getattr(app, "xr_grip_active_r", False)):
                     last_g_t = getattr(app, "last_gizmo_cmd_time", 0.0)
                     if last_g_t > 0 and (now_t - last_g_t) > 0.150:
                         from teleop.app.ik_dispatcher import freeze_arm_target
-                        freeze_arm_target(app, "both")
+                        if getattr(app, "gizmo_active_l", False) and getattr(app, "gizmo_active_r", False):
+                            freeze_arm_target(app, "both")
+                        elif getattr(app, "gizmo_active_l", False):
+                            freeze_arm_target(app, "left")
+                        elif getattr(app, "gizmo_active_r", False):
+                            freeze_arm_target(app, "right")
 
                 if hasattr(app, "robot_safety") and app.robot_safety is not None:
                     app.robot_safety.check_watchdog(now=now_t)
 
-                if app.homing_active:
+                if getattr(app, "manual_held", False) or app.homing_active or app.active_sequence or app.state_estop:
+                    app.xr_coast_l = app.xr_coast_r = False   # these own the arms: drop any release coast
+                    app.ik_settle_l = app.ik_settle_r = False
+                if getattr(app, "manual_held", False):
+                    pass  # Toggle Hold: arm targets frozen, nothing may move the arms until released
+                elif app.homing_active:
                     app._update_homing(dt)
                 elif app.active_sequence:
                     app._update_sequence(dt)
                 elif not app.state_estop:
-                    if app.gizmo_active_l and app.gizmo_active_r:
+                    # an arm is solved while something steers it, or while it coasts to a released controller target
+                    act_l = app.gizmo_active_l or getattr(app, "xr_coast_l", False) or getattr(app, "ik_settle_l", False)
+                    act_r = app.gizmo_active_r or getattr(app, "xr_coast_r", False) or getattr(app, "ik_settle_r", False)
+                    if act_l and act_r:
                         app._solve_arm_ik("both")
-                    elif app.gizmo_active_l:
+                    elif act_l:
                         app._solve_arm_ik("left")
-                    elif app.gizmo_active_r:
+                    elif act_r:
                         app._solve_arm_ik("right")
-                if app.walking_demo_active:
-                    app._update_walk_demo()
+                    elif now_t < getattr(app, "preset_track_until", 0.0):
+                        app._solve_arm_ik("both")
+                    xr_coast_update(app)
+                    ik_settle_update(app)
 
                 # Step simulation
                 if not app.state_estop:
@@ -105,12 +122,12 @@ def run_control_loop(app):
                     if getattr(app, "direct_hand_override_l", False):
                         cand_hand_l = app.hand_retarget_left.retarget_direct_joints(app.direct_hand_target_l, dt=dt)
                     else:
-                        cand_hand_l = app.hand_retarget_left.retarget_curls(app.target_curls_l, pinch_strength=app.target_pinch_l, dt=dt)
+                        cand_hand_l = hand_thumb(app.hand_retarget_left.retarget_curls(app.target_curls_l, pinch_strength=app.target_pinch_l, dt=dt), getattr(app, "thumb_rest_raw", THUMB_REST_RAW), getattr(app, "thumb_pose_raw", THUMB_POSE_RAW))
 
                     if getattr(app, "direct_hand_override_r", False):
                         cand_hand_r = app.hand_retarget_right.retarget_direct_joints(app.direct_hand_target_r, dt=dt)
                     else:
-                        cand_hand_r = app.hand_retarget_right.retarget_curls(app.target_curls_r, pinch_strength=app.target_pinch_r, dt=dt)
+                        cand_hand_r = hand_thumb(app.hand_retarget_right.retarget_curls(app.target_curls_r, pinch_strength=app.target_pinch_r, dt=dt), getattr(app, "thumb_rest_raw", THUMB_REST_RAW), getattr(app, "thumb_pose_raw", THUMB_POSE_RAW))
 
                     # Hand Command Gate: Forward kinematics check & line search backoff
                     if np.max(np.abs(cand_hand_l - app.current_safe_hand_l)) < 1e-4:
@@ -132,26 +149,22 @@ def run_control_loop(app):
                         app.clamp_counter_hand = getattr(app, "clamp_counter_hand", 0) + 1
 
                     process_arm_sync_and_dispatch(app, is_real, app.control_dt)
+                    reattach_idle_targets(app, now_t)
                     if (app.hand_closure_l >= 0.95 or app.hand_closure_r >= 0.95) and not getattr(app, "_logged_hand_close_trace", False):
                         app._logged_hand_close_trace = True
                         print(f"[HAND_CLOSE_TRACE] Commanded 6 joints L: {app.last_hand_cmd_left.round(3)}, R: {app.last_hand_cmd_right.round(3)}")
 
-                    if not is_real:
-                        if getattr(app, "real_follower_mode", False):
-                            if not hasattr(app, "_sim_lag_queue"):
-                                app._sim_lag_queue = []
-                            app._sim_lag_queue.append((app.last_arm_cmd_left.copy(), app.last_arm_cmd_right.copy()))
-                            exec_l, exec_r = app._sim_lag_queue.pop(0) if len(app._sim_lag_queue) > 2 else app._sim_lag_queue[0]
-                        else:
-                            exec_l, exec_r = app.last_arm_cmd_left, app.last_arm_cmd_right
-                        app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=exec_l, hold_right_qpos=exec_r)
-                    elif app.env.viewer is not None and app.env.viewer.is_running():
-                        app.env.viewer.sync()
+                if not is_real:
+                    sim_q = getattr(app, "sim_plant_q", None)
+                    if sim_q is None:
+                        sim_q = getattr(getattr(app, "mirror_limiter", None), "q_plan", None)
+                    exec_l = sim_q[:7] if sim_q is not None else app.last_arm_cmd_left
+                    exec_r = sim_q[7:] if sim_q is not None else app.last_arm_cmd_right
+                    app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=exec_l, hold_right_qpos=exec_r)
                 else:
-                    if not is_real:
-                        app.env.step(num_substeps=2, hold_arms=True, hold_left_qpos=app.last_arm_cmd_left, hold_right_qpos=app.last_arm_cmd_right)
-                    elif app.env.viewer is not None and app.env.viewer.is_running():
-                        app.env.viewer.sync()
+                    # real robot + --scene: virtual objects around the digital twin (the twin is already posed)
+                    if getattr(app.env, "task", None) is not None: app.env.task.step(app.env.data)
+                    if app.env.viewer is not None and app.env.viewer.is_running(): app.env.viewer.sync()
 
                 # Performance tracking telemetry (lag and steady error)
                 if step % 20 == 0 and (app.gizmo_active_l or app.gizmo_active_r):
@@ -183,6 +196,9 @@ def run_control_loop(app):
                             break
                     if not has_nan:
                         app.server.broadcast_poses(poses)
+                # practice scene (--scene pick_bin): object poses for the web page / Quest, 50 Hz
+                if step % 4 == 0 and getattr(app.env, "task", None) is not None and len(app.server.ws_clients) > 0:
+                    app.server.broadcast_event(app.env.task.web_poses(app.env.data))
 
                 # Telemetry updates (20 Hz at 200 Hz loop = every 10 steps)
                 if step % 10 == 0:
@@ -200,7 +216,7 @@ def run_control_loop(app):
                     app.server.set_status(status_packet)
                     if hasattr(app, "robot_safety") and getattr(app.robot_safety, "fault_latched", False):
                         app.status_warning = f"HARDWARE FAULT: {app.robot_safety.fault_reason}"
-                    else:
+                    elif app.status_warning.startswith("HARDWARE FAULT:"):
                         app.status_warning = ""
                     if hasattr(app, "target_tracer") and app.target_tracer:
                         app.target_tracer.tick(app)

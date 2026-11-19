@@ -109,6 +109,82 @@ function updateMimicJointsUI(sideHs) {
 window.isDraggingSliderL = false;
 window.isDraggingSliderR = false;
 
+// Data recording: REC button (same as a short tap of A on the right controller)
+function recToggle() {
+  const active = Boolean(window.latestTelemetry && window.latestTelemetry.rec && window.latestTelemetry.rec.active);
+  const t = document.getElementById('rec_task');
+  const ins = document.getElementById('rec_instruction');
+  sendCmd(active ? {cmd: 'rec_stop'} : {cmd: 'rec_start', task: t ? t.value : 'default', instruction: ins ? ins.value : ''});
+}
+window.recToggle = recToggle;
+function recDiscard() {
+  const sel = document.getElementById('rec_discard_reason');
+  sendCmd({cmd: 'rec_discard', reason: sel ? sel.value : undefined});
+}
+window.recDiscard = recDiscard;
+
+// Controller -> robot scale (Quest controllers): slider + presets, synced from telemetry (s.xr_scale)
+window.isDraggingXrScale = false;
+function setXrScale(v) { sendCmd({cmd: 'set_xr_scale', scale: v}); }
+window.setXrScale = setXrScale;
+const sliderXrScale = document.getElementById('slider_xr_scale');
+if (sliderXrScale) {
+  sliderXrScale.addEventListener('pointerdown', () => { window.isDraggingXrScale = true; });
+  sliderXrScale.addEventListener('pointerup', () => { window.isDraggingXrScale = false; });
+  sliderXrScale.addEventListener('input', (e) => {
+    const v = e.target.value / 100.0;
+    const lab = document.getElementById('slider_xr_scale_val');
+    if (lab) lab.innerText = '1 : ' + v.toFixed(2);
+    setXrScale(v);
+  });
+}
+
+// Neck posture control: pitch, yaw, roll
+window.isDraggingNeck = false;
+function sendNeckPose(pitchDeg, yawDeg, rollDeg) {
+  const p = (pitchDeg !== undefined) ? parseFloat(pitchDeg) : 0.0;
+  const y = (yawDeg !== undefined) ? parseFloat(yawDeg) : 0.0;
+  const r = (rollDeg !== undefined) ? parseFloat(rollDeg) : 0.0;
+  const sPitch = document.getElementById('slider_neck_pitch');
+  const sPitchV = document.getElementById('slider_neck_pitch_val');
+  const sYaw = document.getElementById('slider_neck_yaw');
+  const sYawV = document.getElementById('slider_neck_yaw_val');
+  const sRoll = document.getElementById('slider_neck_roll');
+  const sRollV = document.getElementById('slider_neck_roll_val');
+  if (sPitch) sPitch.value = Math.round(p);
+  if (sPitchV) sPitchV.innerText = (p > 0 ? '+' : '') + Math.round(p) + '°';
+  if (sYaw) sYaw.value = Math.round(y);
+  if (sYawV) sYawV.innerText = (y > 0 ? '+' : '') + Math.round(y) + '°';
+  if (sRoll) sRoll.value = Math.round(r);
+  if (sRollV) sRollV.innerText = (r > 0 ? '+' : '') + Math.round(r) + '°';
+  sendCmd({ cmd: 'set_neck', pitch_deg: p, yaw_deg: y, roll_deg: r });
+}
+window.sendNeckPose = sendNeckPose;
+
+function _dispatchNeckSliders() {
+  const sPitch = document.getElementById('slider_neck_pitch');
+  const sYaw = document.getElementById('slider_neck_yaw');
+  const sRoll = document.getElementById('slider_neck_roll');
+  const p = sPitch ? parseFloat(sPitch.value) : 0.0;
+  const y = sYaw ? parseFloat(sYaw.value) : 0.0;
+  const r = sRoll ? parseFloat(sRoll.value) : 0.0;
+  sendCmd({ cmd: 'set_neck', pitch_deg: p, yaw_deg: y, roll_deg: r });
+}
+
+['slider_neck_pitch', 'slider_neck_yaw', 'slider_neck_roll'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('pointerdown', () => { window.isDraggingNeck = true; });
+    el.addEventListener('pointerup', () => { window.isDraggingNeck = false; });
+    el.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      const valText = document.getElementById(id + '_val');
+      if (valText) valText.innerText = (val > 0 ? '+' : '') + Math.round(val) + '°';
+      _dispatchNeckSliders();
+    });
+  }
+});
+
 const sliderHandL = document.getElementById('slider_hand_l');
 if (sliderHandL) {
   sliderHandL.addEventListener('pointerdown', () => { window.isDraggingSliderL = true; });
@@ -126,6 +202,29 @@ if (sliderHandR) {
   });
 }
 
+function setupThumbOpenSlider(id, idVal) {
+  const el = document.getElementById(id);
+  const elVal = document.getElementById(idVal);
+  if (!el) return;
+  el.addEventListener('pointerdown', () => { window.isDraggingThumbOpen = true; });
+  el.addEventListener('pointerup', () => { window.isDraggingThumbOpen = false; });
+  el.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value, 10);
+    if (elVal) elVal.innerText = val;
+    const otherId = (id === 'slider_thumb_open') ? 'slider_thumb_open_r' : 'slider_thumb_open';
+    const otherValId = otherId + '_val';
+    const otherEl = document.getElementById(otherId);
+    const otherValEl = document.getElementById(otherValId);
+    if (otherEl && !window.isDraggingThumbOpen) {
+      otherEl.value = val;
+      if (otherValEl) otherValEl.innerText = val;
+    }
+    sendCmd({cmd: 'thumb_open', value: val});
+  });
+}
+setupThumbOpenSlider('slider_thumb_open', 'slider_thumb_open_val');
+setupThumbOpenSlider('slider_thumb_open_r', 'slider_thumb_open_r_val');
+
 // Hold-to-repeat buttons
 let repeatTimer = null;
 let currentCmd = null;
@@ -138,6 +237,11 @@ function executeRepeatable() {
     cmdObj.step_deg = parseFloat(document.getElementById('step_rpy_' + (arm==='left'?'l':'r')).value);
   } else {
     cmdObj.step_cm = parseFloat(document.getElementById('step_xyz_' + (arm==='left'?'l':'r')).value);
+  }
+  const targetObj = (arm === 'left') ? targetSphereL : targetSphereR;
+  if (targetObj) {
+    cmdObj.cur_pos = [targetObj.position.x, targetObj.position.y, targetObj.position.z];
+    cmdObj.cur_quat = [targetObj.quaternion.x, targetObj.quaternion.y, targetObj.quaternion.z, targetObj.quaternion.w];
   }
   sendCmd(cmdObj);
 }
@@ -199,7 +303,7 @@ function reportClientError(err, extra = {}) {
   const bText = document.getElementById('fault-banner-text');
   const bBox = document.getElementById('fault-banner');
   if (bText && bBox) {
-    bText.innerText = `⚠️ ${msg}`;
+    bText.innerText = `${msg}`;
     bBox.style.display = 'flex';
     bBox.style.background = '#d32f2f';
   }

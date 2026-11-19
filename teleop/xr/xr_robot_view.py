@@ -6,7 +6,6 @@ inside the WebXR session so they can see the robot simulation in VR.
 """
 
 import os
-import glob
 import numpy as np
 import trimesh
 

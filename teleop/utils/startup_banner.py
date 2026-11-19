@@ -23,14 +23,14 @@ def print_startup_banner(port: int, host_ip: str, status_dict: dict, quest_dict:
     quest_dict = quest_dict or {}
     adb_str = "Active" if quest_dict.get("adb_installed") else "Not found (Install with: sudo apt install adb)"
     dev_str = quest_dict.get("device") or (f"None ({quest_dict.get('device_state')})" if quest_dict.get("device_state") else "None")
-    rev_str = "ACTIVE (tcp:8012 -> tcp:8012)" if quest_dict.get("reverse_active") else "Inactive"
-    quest_url = quest_dict.get("quest_url", f"https://localhost:{port}/")
+    rev_str = f"ACTIVE (tcp:{port}, tcp:{port + 1})" if quest_dict.get("reverse_active") else "Inactive"
+    quest_url = quest_dict.get("quest_url", f"http://localhost:{port + 1}/")
 
     print("\n" + "=" * 80)
     print("READY - AGIBOT A2 ULTRA TELEOPERATION SYSTEM ACTIVE")
     print("=" * 80)
     print(f"1. PC BROWSER (3D PANEL) : https://localhost:{port}/")
-    print(f"2. QUEST WEBXR (DIRECT)  : {quest_url}")
+    print(f"2. QUEST WEBXR (USB/ADB) : {quest_url}   (no certificate needed)")
     print(f"   ADB Status            : {adb_str}")
     print(f"   Connected Headset     : {dev_str}")
     print(f"   ADB Reverse           : {rev_str}")

@@ -3,12 +3,12 @@ teleop/app/init_state.py
 Initializes application runtime session state, telemetry counters, and Quest VR configuration.
 """
 
+import os
 import time
 import signal
 import collections
 from pathlib import Path
-import numpy as np
-import yaml
+import numpy as np, yaml
 from teleop.kinematics.mirror_limiter import MirrorLimiter
 
 
@@ -57,17 +57,19 @@ def init_state(app, project_root: Path):
     app.last_state_feedback_age_s = 999.0
     app.real_q14_measured = None
 
-    app.target_curls_l = np.zeros(5)
-    app.target_pinch_l = 0.0
-    app.target_curls_r = np.zeros(5)
-    app.target_pinch_r = 0.0
+    app.target_curls_l, app.target_curls_r = np.zeros(5), np.zeros(5)
+    app.target_pinch_l = app.target_pinch_r = 0.0
+
+    # Neck posture target (pitch positive = tilt backwards, default 0.0 deg; UI or CLI sets to +5.0 deg)
+    app.neck_pitch_deg = float(getattr(app, "init_neck_pitch", 0.0))
+    app.neck_yaw_deg = float(getattr(app, "init_neck_yaw", 0.0))
+    app.target_neck = np.array([np.radians(app.neck_yaw_deg), np.radians(app.neck_pitch_deg)], dtype=np.float64)
+    if hasattr(app, "env") and hasattr(app.env, "set_head_qpos"):
+        app.env.set_head_qpos(app.target_neck[0], app.target_neck[1])
 
     app.active_sequence = None
     app.seq_start_time = 0.0
-    app.seq_origin_l = None
-    app.seq_origin_r = None
-    app.walking_demo_active = False
-    app.walk_start_time = 0.0
+    app.seq_origin_l = app.seq_origin_r = None
 
     app.state_estop = False
     app.manual_held = False
@@ -99,9 +101,6 @@ def init_state(app, project_root: Path):
         "grip_threshold": 0.25,
         "trigger_threshold": 0.25,
         "tracking_timeout_s": 0.35,
-        "estop_combo_hold_s": 0.5,
-        "home_hold_s": 1.5,
-        "home_duration": 1.5,
         "precision_scale_factor": 0.3,
         "precision_follower_factor": 0.5,
         "finger_closure_rate": 1.0,
@@ -125,8 +124,6 @@ def init_state(app, project_root: Path):
     app.xr_grip_thresh = float(app.quest_cfg.get("grip_threshold", 0.25))
     app.xr_trigger_thresh = float(app.quest_cfg.get("trigger_threshold", 0.25))
     app.xr_timeout = float(app.quest_cfg.get("tracking_timeout_s", 0.30))
-    app.xr_estop_hold_thresh = float(app.quest_cfg.get("estop_combo_hold_s", 0.5))
-    app.xr_home_hold_s = float(app.quest_cfg.get("home_hold_s", 1.5))
     app.xr_precision_scale_factor = float(app.quest_cfg.get("precision_scale_factor", 0.3))
     app.xr_precision_follower_factor = float(app.quest_cfg.get("precision_follower_factor", 0.5))
     app.xr_closure_rate = float(app.quest_cfg.get("finger_closure_rate", 1.0))
@@ -153,6 +150,8 @@ def init_state(app, project_root: Path):
     app.xr_rate_hz = 0.0
     app.xr_rate_timer = time.time()
     app.xr_grip_active_l = False
+    app.xr_coast_l = app.xr_coast_r = False   # release coast, see ik_dispatcher.xr_coast_start
+    app.ik_settle_l = app.ik_settle_r = False # posture settling after the input stops, see ik_dispatcher
     app.xr_grip_active_r = False
     app.xr_anchor_ctrl_pos_l = None
     app.xr_anchor_ctrl_pos_r = None
@@ -164,7 +163,6 @@ def init_state(app, project_root: Path):
     app.xr_anchor_marker_rot_r = None
     app.xr_prev_btn_b = False
     app.xr_prev_btn_y = False
-    app.xr_estop_combo_start_time = None
 
     # Precision mode per side
     app.precision_l = False
@@ -174,9 +172,9 @@ def init_state(app, project_root: Path):
     app.xr_clutch_state_l = "LOCKED"
     app.xr_clutch_state_r = "LOCKED"
 
-    # Grasp types and finger closure state
-    app.grasp_type_l = "cylinder"
-    app.grasp_type_r = "cylinder"
+    # Grasp types and finger closure state (default pinch: only thumb and index close)
+    app.grasp_type_l = "pinch"
+    app.grasp_type_r = "pinch"
     app.hand_closure_l = 0.0
     app.hand_closure_r = 0.0
     app.hand_log_ring = collections.deque(maxlen=300)
@@ -185,12 +183,11 @@ def init_state(app, project_root: Path):
     app.xr_thumb_click_prev_l = False
     app.xr_thumb_click_prev_r = False
 
+    from teleop.app.episode_recorder import init_recording_state
+    init_recording_state(app)
+
     # Home hold progress
-    app.x_hold_start = None
-    app.x_home_triggered = False
     app.xr_home_progress_l = 0.0
-    app.a_hold_start = None
-    app.a_home_triggered = False
     app.xr_home_progress_r = 0.0
 
     # Raw signals for UI telemetry
@@ -207,34 +204,32 @@ def init_state(app, project_root: Path):
     app.xr_event_log = []
 
     # Direct joint command overrides & sweep test state
-    app.direct_hand_override_l = False
-    app.direct_hand_override_r = False
+    app.direct_hand_override_l = app.direct_hand_override_r = False
     app.direct_hand_target_l = np.zeros(6, dtype=np.float64)
     app.direct_hand_target_r = np.zeros(6, dtype=np.float64)
     app.hand_sweep_active = False
-    app.hand_sweep_mode = "single_joints"
-    app.hand_sweep_side = "both"
-    app.hand_sweep_time = 0.0
-    app.hand_sweep_joint_idx = 0
+    app.hand_sweep_mode, app.hand_sweep_side = "single_joints", "both"
+    app.hand_sweep_time, app.hand_sweep_joint_idx = 0.0, 0
     app.hand_sweep_info = "Ready"
     app.hand_sweep_saved_joints_l = np.zeros(6, dtype=np.float64)
     app.hand_sweep_saved_joints_r = np.zeros(6, dtype=np.float64)
 
     # Smooth Homing State
-    app.home_duration = float(app.quest_cfg.get("home_duration", 1.5))
     app.homing_active = False
-    app.homing_side = "both"
-    app.homing_elapsed = 0.0
-    app.homing_duration_current = app.home_duration
-    app.robot_home_q_l = app.env.get_left_arm_qpos().copy()
-    app.robot_home_q_r = app.env.get_right_arm_qpos().copy()
-    app.homing_start_pos_l = app.robot_home_pos_l.copy()
-    app.homing_start_pos_r = app.robot_home_pos_r.copy()
-    app.homing_start_rot_l = app.robot_home_rot_l.copy()
-    app.homing_start_rot_r = app.robot_home_rot_r.copy()
-    app.homing_start_q_l = app.robot_home_q_l.copy()
-    app.homing_start_q_r = app.robot_home_q_r.copy()
+    app.soft_ori_l = app.soft_ori_r = False   # translation-only mouse input: orientation is a soft preference
+    app.homing_side, app.homing_elapsed = "both", 0.0
+    app.homing_duration_current = 0.0
     app.last_gizmo_cmd_time = 0.0
+
+    # Sim Plant Simulator (Hardware Transfer Function SENT -> ACT)
+    from teleop.simulation.real_plant import RealPlantSimulator
+    app.sim_plant_active = os.environ.get("SIM_PLANT", "0").strip().lower() in ("1", "true", "yes", "on")
+    app.sim_plant = RealPlantSimulator(config_path=str(project_root / "config" / "sim_plant.json"), enabled=app.sim_plant_active)
+    app.sim_plant.reset(init_q14)
+    app.sim_plant_q, app.sim_cmd_q = init_q14.copy(), init_q14.copy()
+    app.sim_plant_min_dist = 999.0
+    st_lbl = f"ACTIVE ({app.sim_plant.summary_str})" if app.sim_plant_active else "INACTIVE (set SIM_PLANT=1 to enable)"
+    print(f"[SimPlant] {st_lbl}")
 
     # Hand Safety Gate State
     app.current_safe_hand_l = np.zeros(6, dtype=np.float64)

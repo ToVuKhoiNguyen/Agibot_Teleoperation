@@ -26,6 +26,8 @@ async def handle_ws_impl(server, request):
     # Immediately send static robot manifest to initialize 3D scene
     try:
         await ws.send_str(json.dumps(server.visual_manifest))
+        task = getattr(getattr(getattr(server, "teleop", None), "env", None), "task", None)
+        if task is not None: await ws.send_str(json.dumps(task.web_def()))      # practice scene shapes (--scene)
         with server.status_lock:
             latest_p = getattr(server, "_latest_full_poses_dict", None)
             if latest_p:

@@ -108,6 +108,10 @@ function handleGizmoRecall(data) {
   const arm = data.arm || 'left';
   const targetObj = (arm === 'left') ? targetSphereL : targetSphereR;
   if (!targetObj || !data.pos) return;
+  if (isDraggingGizmo && activeGizmoArm === arm) return;  // never pull the gizmo out from under the mouse
+  if (data.rot && Array.isArray(data.rot) && data.rot.length === 4) {
+    targetObj.quaternion.set(data.rot[0], data.rot[1], data.rot[2], data.rot[3]);
+  }
 
   const targetPos = new THREE.Vector3(data.pos[0], data.pos[1], data.pos[2]);
   activeRecallAnimation = {
@@ -148,7 +152,21 @@ function cancelGizmoRecall(arm) {
   }
 }
 
+function handleGizmoSet(data) {
+  const arm = data.arm || 'left';
+  const targetObj = (arm === 'left') ? targetSphereL : targetSphereR;
+  if (!targetObj) return;
+  if (data.pos && Array.isArray(data.pos)) {
+    targetObj.position.set(data.pos[0], data.pos[1], data.pos[2]);
+  }
+  if (data.rot && Array.isArray(data.rot) && data.rot.length === 4) {
+    targetObj.quaternion.set(data.rot[0], data.rot[1], data.rot[2], data.rot[3]);
+  }
+  if (typeof sceneNeedsRender !== 'undefined') sceneNeedsRender = true;
+}
+
 window.handleGizmoRecall = handleGizmoRecall;
+window.handleGizmoSet = handleGizmoSet;
 window.updateGhostReachVisuals = updateGhostReachVisuals;
 window.updateGizmoRecallAnimation = updateGizmoRecallAnimation;
 window.isGizmoRecalling = isGizmoRecalling;

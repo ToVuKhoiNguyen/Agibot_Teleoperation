@@ -14,6 +14,7 @@ except ImportError:
 from .env_discovery import discover_joints, discover_actuators, precompute_visual_geoms, propagate_mimics
 from .env_poses import extract_ee_poses, extract_visual_body_poses
 from teleop.robot.aimdk_map import HOME
+from .task_scene import TaskScene
 
 
 class AgibotSimEnv:
@@ -63,6 +64,8 @@ class AgibotSimEnv:
             self.arm_dof_indices.append(self.qvel_idx_map[jname])
 
         self.viewer = None
+        self.task = TaskScene.detect(self.model)     # practice scene with task_obj_* bodies (scene_pick_bin.xml), else None
+        if self.task is not None: print(f"[TASK] practice scene: {len(self.task.objs)} objects, grasp assist on", flush=True)
 
         # Reset to home keyframe at startup
         self.reset()
@@ -94,6 +97,7 @@ class AgibotSimEnv:
 
         if hasattr(self, "non_manip_qpos_indices"):
             self.data.qpos[self.non_manip_qpos_indices] = self.non_manip_home_qpos
+        if getattr(self, "task", None) is not None: self.task.reset(self.data)
         self.cached_home_qpos = self.data.qpos.copy()
         for jname in self.left_arm_joints + self.right_arm_joints:
             act_idx = self.actuator_map.get(jname)
@@ -171,6 +175,31 @@ class AgibotSimEnv:
             if act_idx is not None:
                 self.data.ctrl[act_idx] = val
 
+    def set_head_qpos(self, yaw: float = 0.0, pitch: float = 0.0):
+        """Sets head yaw (idx27) and pitch (idx28) in radians and updates hold state."""
+        combined = getattr(self, "leg_joints", []) + getattr(self, "head_joints", [])
+        if "idx27_head_joint1" in self.qpos_idx_map:
+            low, high = self.joint_limits.get("idx27_head_joint1", (-0.785, 0.785))
+            val = float(np.clip(yaw, low, high))
+            if "idx27_head_joint1" in combined and hasattr(self, "non_manip_home_qpos"):
+                self.non_manip_home_qpos[combined.index("idx27_head_joint1")] = val
+            self.data.qpos[self.qpos_idx_map["idx27_head_joint1"]] = val
+            act_idx = self.actuator_map.get("idx27_head_joint1")
+            if act_idx is not None:
+                self.data.ctrl[act_idx] = val
+        if "idx28_head_joint2" in self.qpos_idx_map:
+            low, high = self.joint_limits.get("idx28_head_joint2", (-0.401, 0.401))
+            val = float(np.clip(pitch, low, high))
+            if "idx28_head_joint2" in combined and hasattr(self, "non_manip_home_qpos"):
+                self.non_manip_home_qpos[combined.index("idx28_head_joint2")] = val
+            self.data.qpos[self.qpos_idx_map["idx28_head_joint2"]] = val
+            act_idx = self.actuator_map.get("idx28_head_joint2")
+            if act_idx is not None:
+                self.data.ctrl[act_idx] = val
+        mujoco.mj_forward(self.model, self.data)
+        if self.viewer is not None and self.viewer.is_running():
+            self.viewer.sync()
+
     def get_left_arm_qpos(self) -> np.ndarray:
         return np.array([self.data.qpos[self.qpos_idx_map[j]] for j in self.left_arm_joints], dtype=np.float64)
 
@@ -217,7 +246,8 @@ class AgibotSimEnv:
             if hasattr(self, "non_manip_qpos_indices"):
                 self.data.qpos[self.non_manip_qpos_indices] = self.non_manip_home_qpos
                 self.data.qvel[self.non_manip_qvel_indices] = 0.0
-            mujoco.mj_forward(self.model, self.data)
+            if self.task is not None: self.task.step(self.data)     # objects: grasp assist + real-time physics
+            else: mujoco.mj_forward(self.model, self.data)
             if self.viewer is not None and self.viewer.is_running():
                 self.viewer.sync()
             return

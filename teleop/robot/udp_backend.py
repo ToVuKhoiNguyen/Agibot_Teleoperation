@@ -1,5 +1,5 @@
 """UDP Teleoperation Backend streaming 14 DoF targets and receiving real robot state."""
-import os, sys, time, json, math, socket, threading, fcntl
+import os, time, json, socket, threading, fcntl
 from pathlib import Path
 import numpy as np
 from teleop.robot.interface import RobotInterface
@@ -96,10 +96,18 @@ class UdpBackend(RobotInterface):
     def _rx_loop(self) -> None:
         while self._connected and self.rx_sock:
             try:
-                data, _ = self.rx_sock.recvfrom(2048)
+                data, _ = self.rx_sock.recvfrom(65535)   # with finger pressure arrays a packet is a few kB
                 arrival_t = time.time()
                 pkt = json.loads(data.decode("utf-8"))
                 self.rx_telemetry = pkt
+                app = getattr(self, "app", None)
+                if app is not None and getattr(app, "rec_active", False):
+                    from teleop.app.episode_recorder import log_robot
+                    log_robot(app, pkt, arrival_t)
+                else:
+                    from teleop.app.episode_recorder import live_preview_robot
+                    live_preview_robot(pkt, arrival_t)
+                self._check_pacer_health(pkt.get("pacer"))
                 orin_ver = pkt.get("proto_ver")
                 orin_hz = pkt.get("wire_hz")
                 if not self._warned_proto and (orin_ver is not None or orin_hz is not None):
@@ -121,6 +129,27 @@ class UdpBackend(RobotInterface):
                         self._real_hand12 = (np.clip(np.array(h, dtype=np.float64), 0.0, 2000.0) / 2000.0) * SIM_HAND_COMFORTABLE_LIMITS
             except (socket.timeout, Exception): pass
 
+    def _check_pacer_health(self, ph) -> None:
+        """Warn when the Orin command pacer is not real-time or keeps leaving gaps > 30 ms (both make the arm jerk:
+        16/11 without 'sudo prlimit' the stream had gaps up to 139 ms). Warning only, no automatic action."""
+        app = getattr(self, "app", None)
+        if not isinstance(ph, dict):
+            return
+        msg = ""
+        if not ph.get("rt", True):
+            msg = "ORIN PACER NOT REAL-TIME: stop arm_teleop_rx.py, run 'sudo prlimit --pid $$ --rtprio=30:30 --nice=40:40', start again"
+        else:
+            g = int(ph.get("gaps30", 0)); now = time.time()
+            hist = getattr(self, "_pacer_gap_hist", [])
+            hist = [(t, n) for t, n in hist if now - t < 30.0] + [(now, g)]
+            self._pacer_gap_hist = hist
+            if g - hist[0][1] >= 3:
+                msg = f"ORIN PACER GAPS: {g - hist[0][1]} command gaps > 30 ms in 30 s (max {ph.get('gmax_ms')} ms) - Orin overloaded?"
+        if msg != getattr(self, "_pacer_msg", ""):
+            if msg: print(f"[WARN] {msg}")
+            self._pacer_msg = msg
+        if app is not None: app.pacer_warning = msg
+
     def _tx_loop(self) -> None:
         dt = 1.0 / self.wire_hz
         next_t = time.perf_counter()
@@ -130,7 +159,13 @@ class UdpBackend(RobotInterface):
                 h_to_send = self._target_tx_h.copy() if self._target_tx_h is not None else None
             app = getattr(self, "app", None)
             sync_st = getattr(app, "sync_state", None) if app else None
-            if raw_target is not None and (sync_st is None or sync_st in ("ENGAGED", "SYNC")):
+            if raw_target is not None and sync_st == "SYNC":
+                # Not synced (startup or feedback lost): never stream the stale plan, only hold the measured pose.
+                with self._real_q14_lock:
+                    hold_q = self._real_q14.copy() if self._real_q14 is not None else None
+                if hold_q is not None:
+                    self._send_packet_now(hold_q, h_to_send, raw_target=hold_q, plan_q=hold_q)
+            elif raw_target is not None and (sync_st is None or sync_st == "ENGAGED"):
                 scale = getattr(getattr(app, "robot_safety", None), "proxy_scale", 1.0)
                 if hasattr(app, "mirror_limiter") and app.mirror_limiter is not None:
                     q_to_send = app.mirror_limiter.step(raw_target, dt=dt, speed_scale=scale)
@@ -168,15 +203,24 @@ class UdpBackend(RobotInterface):
             "q": [float(round(x, 5)) for x in self._last_arm_cmd],
             "engaged": engaged,
         }
+        if app is not None:   # data collection: which episode the robot must record (or camera only, for the live page)
+            from teleop.app.episode_recorder import rec_packet_field
+            rec = rec_packet_field(app)
+            if rec: pkt["rec"] = rec
+            neck_t = getattr(app, "target_neck", None)
+            if neck_t is not None:
+                pkt["neck"] = [float(round(x, 4)) for x in neck_t]
         if h12 is not None and len(h12) == 12:
             h_arr = np.asarray(h12, dtype=np.float64)
+            cap = int(getattr(self, "hand_raw_max", HAND_SAFE_RAW_MAX))   # set from --hand-raw-max
             if np.max(np.abs(h_arr)) <= 3.14:
-                raw_h = sim_hand_to_robot_raw(h_arr, raw_max=HAND_SAFE_RAW_MAX)
+                raw_h = sim_hand_to_robot_raw(h_arr, raw_max=cap)
             else:
-                raw_h = np.clip(np.round(h_arr), 0, HAND_SAFE_RAW_MAX).astype(int)
+                raw_h = np.clip(np.round(h_arr), 0, cap).astype(int)
             pkt["hand"] = [int(x) for x in raw_h]
         else:
             pkt["hand"] = [0] * 12
+        self._last_hand_raw = pkt["hand"]   # raw finger command as sent (for the data-collection log)
         try:
             self.tx_sock.sendto(json.dumps(pkt).encode("utf-8"), (self.host, self.tx_port))
         except Exception as e:
@@ -197,7 +241,8 @@ class UdpBackend(RobotInterface):
                     "ik_ms": float(getattr(app, "last_ik_ms", 0.0)) if app else 0.0,
                     "target_q": [float(round(x, 5)) for x in self._last_arm_cmd],
                     "measured_q": [float(round(x, 5)) for x in meas_q],
-                    "measured_arrival_t": meas_t
+                    "measured_arrival_t": meas_t,
+                    "measured_stamp_mc": self.rx_telemetry.get("stamp")   # MC clock (newer receivers); use this for timing
                 }) + "\n")
 
     def verify_handshake(self, timeout: float = 2.0) -> bool:

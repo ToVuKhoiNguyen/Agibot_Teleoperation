@@ -6,14 +6,14 @@ Tài liệu hướng dẫn kỹ sư vận hành kiểm thử điều khiển tay
 
 ## 1. Kiểm tra tính toàn vẹn mã nguồn & SHA256
 
-File nhận tín hiệu trên Orin (`arm_teleop_rx.py`) **KHÔNG THAY ĐỔI** (UNCHANGED).
-Kiểm tra checksum trước khi chạy trên cả Laptop và Orin:
+Kiểm tra checksum trước khi chạy trên cả Laptop và Orin (bản 17/11; mã băm mới nhất luôn ở `real_robot_command.md`, BƯỚC 0):
 ```bash
-sha256sum scripts/arm_teleop_rx.py
+sha256sum scripts/arm_teleop_rx.py scripts/orin_teleop_core.py
 # KẾT QUẢ BẮT BUỘC:
-# dbb71f2726a3a6a307bed919e102e91f442a8076e3b9ee13021b54c0fe3b49f1  scripts/arm_teleop_rx.py
+# 2c1b2ab0ef9736a9e87710da981cf86b0f314be14625240192032fb1fea7e212  scripts/arm_teleop_rx.py
+# 45b9a4c6ff8bd2f3599db526becb9a77af37bcaf83be1b18a27fdfaa19d3e3b9  scripts/orin_teleop_core.py
 ```
-*(Nếu trên Orin hash khớp chuỗi trên, KHÔNG CẦN copy lại file).*
+*(Nếu trên Orin hash khớp chuỗi trên, KHÔNG CẦN copy lại file; khác thì scp lại CẢ HAI file).*
 
 ---
 
@@ -39,21 +39,16 @@ ros2 topic info /motion/control/arm_joint_command -v
 ## 3. Khởi động hệ thống
 
 ### Bước 3.1: Khởi động Receiver trên Orin
-Chạy receiver với hồ sơ tốc độ chuẩn và 5 khóa an toàn:
+Sau khi đã chuyển action 402 bằng `SetAction.py` (10 rồi 12, xem `real_robot_command.md` BƯỚC 2), chạy receiver (mặc định LIVE; `--dry` = không phát lệnh):
 ```bash
-python3 arm_teleop_rx.py --live \
-  --i-understand-hardware-risk \
-  --allow-ip <IP_LAPTOP> \
-  --port 5005 \
-  --speed-profile normal
+sudo prlimit --pid $$ --rtprio=30:30 --nice=40:40   # pacer real-time, mỗi terminal mới gõ lại
+python arm_teleop_rx.py                              # mặc định --allow-ip 192.168.2.75 --port 5005 --speed 6
 ```
-*Quan sát log:* Phải hiển thị `[arm_teleop_rx] Ready 50 Hz. LIVE=True | profile=normal (vel=0.48 rad/s)`.
+*Quan sát log:* Phải hiển thị `[arm_teleop_rx] SHA256: 2c1b2ab0ef9736a9e87710da981cf86b0f314be14625240192032fb1fea7e212... | 100Hz | playout=30ms | lvl=6`, dòng `[pacer] arm command pacer running: 400 Hz, ... SCHED_FIFO 30 (real-time)` và `[arm_teleop_rx] Ready and listening on 192.168.2.75:5005...`.
 
 ### Bước 3.2: Khởi động Web Teleop trên Laptop
 ```bash
-python3 main.py --backend real-udp \
-  --speed-profile normal \
-  --i-understand-hardware-risk
+python main.py            # mặc định robot thật (real-udp), --speed 6; --speed phải trùng receiver
 ```
 Truy cập giao diện Web: `https://localhost:8012`.
 
@@ -65,10 +60,10 @@ Truy cập giao diện Web: `https://localhost:8012`.
 |---|---|---|---|---|
 | **S0** | **Tư thế khởi tạo (HOME Sync)** | Mở Web UI, kiểm tra cánh tay 3D | Sim mặc định đúng tư thế HOME. Huy hiệu hiển thị `SYNC` rồi chuyển sang `READY`. Cánh tay thật không nhúc nhích. | Robot giật khi vừa bật app; Sim lệch tư thế thật > 0.05 rad. |
 | **S1** | **Đồng bộ phản hồi 5006** | Quan sát dòng telemetry trên giao diện | `Age < 200 ms`, `max\|sim-real\| < 0.02 rad`, không có cảnh báo mất gói. | Feedback age > 500 ms hoặc mất gói liên tục. |
-| **S2** | **Kích hoạt Engage an toàn** | Bấm nút **[Engage Arms]** trên thanh công cụ | Trạng thái chuyển sang `ENGAGED`. Hai tay robot giữ chắc vị trí, không phát sinh xung giật. | Robot chuyển động đột ngột; xuất hiện FAULT. |
+| **S2** | **Tự động Engage an toàn** | Không cần bấm: khi feedback tươi (SYNC → READY), hệ thống tự Engage | Trạng thái chuyển sang `ENGAGED`. Hai tay robot giữ chắc vị trí, không phát sinh xung giật. | Robot chuyển động đột ngột; xuất hiện FAULT. |
 | **S3** | **Kéo chuột chậm (v <= 0.2 rad/s)** | Nhấp giữ gizmo cổ tay, kéo nhẹ nhàng | Cánh tay thật bám theo 1:1 mượt mà; độ lệch `lead < 0.035 rad`; không có rung lắc. | Khớp bị rơ, giật khục; độ lệch > 0.04 rad. |
-| **S4** | **Kéo chuột nhanh (Thử nghiệm giới hạn)** | Kéo chuột bước nhảy xa (0.5 - 1.0 rad) | Gizmo vọt trước; cánh tay sim và robot thật di chuyển đồng tốc ở 0.3 rad/s; không bị văng; 0 FAULT. | Cánh tay di chuyển quá tốc độ 0.5 rad/s; xuất hiện va đập cơ khí. |
-| **S5** | **Xử lý Clear Fault an toàn** | Giả lập lệch vị trí hoặc kích hoạt E-Stop rồi Clear | Bấm **[Clear Fault]**: Hệ thống chuyển về `READY`, robot đứng yên tại chỗ, KHÔNG dịch chuyển về đích cũ. Bấm **[Engage]** mới điều khiển tiếp. | Robot tự động trườn (creep) về đích cũ khi vừa bấm Clear. |
+| **S4** | **Kéo chuột nhanh (Thử nghiệm giới hạn)** | Kéo chuột bước nhảy xa (0.5 - 1.0 rad) | Gizmo vọt trước; cánh tay sim và robot thật di chuyển đồng tốc, tối đa theo mức `--speed` (mặc định 6 = 2.0 rad/s) và giới hạn riêng từng khớp trên Orin (cấu hình D: vai 1.2 rad/s); không bị văng; 0 FAULT. | Cánh tay di chuyển quá tốc độ 0.5 rad/s; xuất hiện va đập cơ khí. |
+| **S5** | **Xử lý Clear Fault an toàn** | Giả lập lệch vị trí hoặc kích hoạt E-Stop rồi Clear | Bấm **[Clear Fault]**: Hệ thống chuyển về `READY`, robot đứng yên tại chỗ, KHÔNG dịch chuyển về đích cũ, rồi tự Engage lại tại vị trí đo (không giật). | Robot tự động trườn (creep) về đích cũ khi vừa bấm Clear. |
 
 ---
 
@@ -76,7 +71,7 @@ Truy cập giao diện Web: `https://localhost:8012`.
 
 1. **Vị trí nút dừng khẩn cấp:**
    - Nút E-STOP vật lý trên robot / tay điều khiển từ xa: Luôn nằm trong tay người giám sát thứ hai.
-   - Nút phím tắt trên Web: Nhấn phím `Space` hoặc click nút đỏ **[EMERGENCY STOP]** ở góc phải màn hình.
+   - Nút phím tắt trên Web: Nhấn phím `Space` hoặc click nút đỏ **[EMERGENCY STOP]** trên thanh bên.
 2. **Khi xảy ra hiện tượng bất thường (Rung lắc, tiếng ồn lạ, lệch hướng):**
    - **BƯỚC 1:** Lập tức bấm nút E-Stop không dây hoặc nhấn `Space` trên giao diện.
    - **BƯỚC 2:** Giữ nguyên hiện trường, quan sát góc lệch hiển thị trên thanh banner đỏ.
@@ -85,4 +80,4 @@ Truy cập giao diện Web: `https://localhost:8012`.
    - Đảm bảo không gian di chuyển thông thoáng.
    - Bấm **[Clear E-Stop]** / **[Clear Fault]**.
    - Kiểm tra hệ thống tự động đồng bộ lại vị trí đo đạc thật (`READY`).
-   - Bấm **[Engage Arms]** để tiếp tục quy trình kiểm thử từ bậc S2.
+   - Hệ thống tự Engage lại; tiếp tục quy trình kiểm thử từ bậc S2.

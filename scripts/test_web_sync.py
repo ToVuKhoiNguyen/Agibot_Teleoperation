@@ -150,11 +150,22 @@ async def test_websocket_stream():
             ref_env.reset()
             model = ref_env.model
             data = ref_env.data
+            # the app's default hand pose: thumb in grasp pose
+            from teleop.robot.aimdk_map import hand_thumb
+            ref_h = hand_thumb(np.zeros(6))
+            ref_env.set_hand_commands(ref_h, ref_h)
+            mujoco.mj_forward(model, data)
             
             # Fetch status to get current MuJoCo EE
             req = urllib.request.Request(API_STATUS_URL)
             with urllib.request.urlopen(req, context=ssl_ctx, timeout=3.0) as resp:
                 status_data = json.loads(resp.read().decode("utf-8"))
+
+            if hasattr(ref_env, "set_head_qpos"):
+                ref_env.set_head_qpos(
+                    np.radians(float(status_data.get("neck_yaw_deg", 0.0))),
+                    np.radians(float(status_data.get("neck_pitch_deg", 0.0)))
+                )
 
             base_pose = poses_msg.get("base_link")
             print(f"  Streamed base_link pose: {base_pose}")
@@ -207,6 +218,8 @@ async def test_websocket_stream():
                 three_bbox_center = (world_verts_three.min(axis=0) + world_verts_three.max(axis=0)) / 2.0
 
                 err_mm = float(np.linalg.norm(three_bbox_center - mj_bbox_center)) * 1000.0
+                if err_mm > 1.0:
+                    print(f"  [DEBUG GEOM] gid {gid} ({mname}): err = {err_mm:.3f} mm")
                 if err_mm > max_geom_err_mm:
                     max_geom_err_mm = err_mm
                 total_geoms_tested += 1

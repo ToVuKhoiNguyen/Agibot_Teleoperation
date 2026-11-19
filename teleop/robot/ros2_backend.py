@@ -4,7 +4,6 @@ ROS 2 (Jazzy) backend for AGIBOT A2 Ultra real robot execution with strict safet
 """
 
 import os
-import sys
 import time
 import threading
 import numpy as np
@@ -27,7 +26,7 @@ class Ros2Backend(RobotInterface):
         no_hand: bool = False,
         real_max_vel: float = 0.3,
         i_accept_higher_speed: bool = False,
-        hand_raw_max: int = 800,
+        hand_raw_max: int = 2000,
         enable_thumb_swing: bool = False,
         hand_effort: float = HAND_EFFORT_DEFAULT,
         allow_hardware_risk: bool = False,

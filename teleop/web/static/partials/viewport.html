@@ -1,45 +1,28 @@
   <div id="viewport-container">
     <div class="viewport-overlay">
-      <div class="viewport-title">
-        <span>🤖 AGIBOT A2 Ultra - 3D Digital Twin</span>
+      <!-- ONE status frame: system name + link/input/estop (were in the sidebar header) + sync, IK feedback -->
+      <div class="status-bar" title="Keys: R/W/E gizmo mode, Q world/local, 1/2 show-hide left/right marker (or click it), F reset camera">
+        <span class="status-name">AGIBOT A2 Ultra Teleop</span>
+        <span class="status-sep"></span>
+        <span id="conn-tag" class="tag tag-warn" style="display:none;">Connecting...</span><!-- hidden: sync-badge already shows DISCONNECTED; JS still writes it -->
+        <span id="input-src-tag" class="tag tag-ok">INPUT: MOUSE</span>
+        <span id="estop-tag" class="tag tag-danger" style="display:none;">ESTOP: ACTIVE</span><!-- shown only while the e-stop is active -->
+        <span id="sim-tag" class="tag tag-ok" style="display:none;">SIM: OK</span>
+        <span class="status-sep"></span>
         <span id="sync-badge" class="tag tag-warn">SYNCING</span>
-        <button id="btn-engage-arms" style="pointer-events:auto; font-size:0.75rem; padding:2px 8px; border-radius:3px; background:#2e7d32; color:#fff; font-weight:bold; cursor:pointer; margin-left:8px; border:none;" onclick="toggleEngageArms()">Engage</button>
-        <span id="hud-profile-stat" style="font-size:0.75rem; color:#8fa0be; margin-left:8px; font-weight:bold;">Profile: NORMAL (0.3 rad/s)</span>
+        <!-- IK error / collision / reach warnings of the active marker -->
+        <span id="gizmo-feedback" class="hud-badge" style="display:none; color:#ffb74d; border:1px solid #32415d;"></span>
       </div>
-      <div class="viewport-sub">MuJoCo Source of Truth • 25 Hz Stream • Drag Markers or Click Hands</div>
     </div>
 
     <!-- PERSISTENT FAULT BANNER -->
     <div id="fault-banner" style="display:none; position:absolute; top:48px; left:50%; transform:translateX(-50%); z-index:200; background:#d32f2f; color:#fff; padding:6px 14px; border-radius:4px; font-weight:bold; font-size:12px; box-shadow:0 4px 16px rgba(0,0,0,0.6); align-items:center; gap:10px;">
-      <span id="fault-banner-text">⚠️ HARDWARE FAULT LATCHED</span>
+      <span id="fault-banner-text">HARDWARE FAULT LATCHED</span>
       <button style="background:#fff; color:#d32f2f; border:none; padding:3px 8px; border-radius:3px; cursor:pointer; font-weight:bold; font-size:11px;" onclick="confirmClearFault()">Clear Fault</button>
     </div>
     
-    <div class="viewport-controls-hud" id="viewport-hud">
-      <span style="font-size:0.75rem; color:#8fa0be; font-weight:bold;">Gizmo:</span>
-      <button id="gizmo-mode-both" class="active" onclick="setGizmoMode('both')" title="Shortcut: R">Both (R)</button>
-      <button id="gizmo-mode-trans" onclick="setGizmoMode('translate')" title="Shortcut: W">Translate (W)</button>
-      <button id="gizmo-mode-rot" onclick="setGizmoMode('rotate')" title="Shortcut: E">Rotate (E)</button>
-      <button id="gizmo-space-btn" onclick="toggleGizmoSpace()" title="Shortcut: Q">Space: World (Q)</button>
-      <button onclick="adjustGizmoSize(-0.05)" title="Decrease gizmo size">- Size</button>
-      <button onclick="adjustGizmoSize(0.05)" title="Increase gizmo size">+ Size</button>
-      <span style="color:#3c4b69;">|</span>
-      <button id="btn-toggle-gizmo-l" class="active" onclick="toggleActiveGizmo('left')">Left Marker</button>
-      <button id="btn-toggle-gizmo-r" class="active" onclick="toggleActiveGizmo('right')">Right Marker</button>
-      <button onclick="resetMarkerToWrist('left')" title="Snap left marker to actual wrist">Reset L</button>
-      <button onclick="resetMarkerToWrist('right')" title="Snap right marker to actual wrist">Reset R</button>
-      <label style="font-size:0.75rem; color:#8fa0be; display:flex; align-items:center; gap:4px; cursor:pointer;">
-        <input type="checkbox" id="chk-follow-wrist" onchange="toggleFollowWrist(this.checked)"> Follow actual
-      </label>
-      <label style="font-size:0.75rem; color:#8fa0be; display:flex; align-items:center; gap:4px; cursor:pointer;">
-        <input type="checkbox" id="chk-xr-rot" checked onchange="toggleXRRotation(this.checked)"> XR 6D Rot
-      </label>
-      <button onclick="resetCameraView()">Reset Cam</button>
-      <button id="btn-enter-vr" style="display:none;" onclick="enterVRDirectly()">Enter VR (Quest)</button>
-      <div id="gizmo-feedback" class="hud-badge" style="display:none; color:#ffb74d;"></div>
-    </div>
     
-    <!-- STATS OVERLAY (Always-on; hide with ?stats=0) -->
+    <!-- STATS OVERLAY (off by default; show with ?stats=1) -->
     <div id="stats-overlay" style="display:none; position:absolute; top:60px; left:14px; z-index:99; background:rgba(10,14,23,0.85); border:1px solid #1e293b; border-radius:4px; padding:3px 8px; font-family:monospace; font-size:10px; color:#38bdf8; pointer-events:none; white-space:nowrap; box-shadow:0 2px 8px rgba(0,0,0,0.5);">
       0 FPS | 0.0 ms | 0 calls | 0 tris | DPR 1.0 | 0 msgs/s | 0 ms
     </div>

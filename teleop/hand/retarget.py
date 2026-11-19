@@ -8,7 +8,7 @@ provides 30s auto-calibration, and defaults fallback on bad/absent calibration.
 import json
 from collections import deque
 from pathlib import Path
-from typing import Union, Dict, List
+from typing import Union
 import numpy as np
 
 from teleop.kinematics.signal_filters import OneEuroFilter

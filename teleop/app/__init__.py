@@ -9,8 +9,8 @@ from .homing_controller import (
     handle_signal,
     log_xr_event,
     update_precision,
-    slerp_quaternion,
     start_smooth_homing,
+    start_data_collection,
     reset_arm_to_home,
     update_homing,
 )
@@ -21,7 +21,7 @@ from .xr_clutch_mapper import update_xr_clutch
 from .xr_input_handler import handle_xr_controllers_input
 from .cmd_hands import handle_hand_cmd
 from .cmd_targets import handle_target_cmd
-from .motion_demos import update_sequence, update_walk_demo
+from .motion_demos import update_sequence
 from .telemetry_builder import build_status_packet
 from .control_loop import run_control_loop
 
@@ -31,8 +31,8 @@ __all__ = [
     "handle_signal",
     "log_xr_event",
     "update_precision",
-    "slerp_quaternion",
     "start_smooth_homing",
+    "start_data_collection",
     "reset_arm_to_home",
     "update_homing",
     "update_hand_sweep",
@@ -43,7 +43,6 @@ __all__ = [
     "handle_hand_cmd",
     "handle_target_cmd",
     "update_sequence",
-    "update_walk_demo",
     "build_status_packet",
     "run_control_loop",
 ]

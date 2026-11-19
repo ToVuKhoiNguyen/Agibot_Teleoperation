@@ -157,6 +157,7 @@ function onXRFrame(time, frame) {
       }
 
       const gp = src.gamepad;
+      (window._xrGamepads = window._xrGamepads || {})[side] = gp;   // for haptic feedback (recording start/stop)
       const btns = (gp && gp.buttons) || [];
       const axes = (gp && gp.axes) || [0, 0];
       const trig = btns.length > 0 ? (typeof btns[0].value === 'number' ? btns[0].value : (btns[0].pressed ? 1.0 : 0.0)) : 0.0;

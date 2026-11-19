@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# SIL stand-in for the Orin's `aima` CLI. Only `aima em load-env` is used by real_robot_command.md.
+if [[ "$1 $2" == "em load-env" ]]; then
+  echo "[SIL] aima em load-env: OK (no-op on the simulated Orin; ROS env stays isolated)"
+  exit 0
+fi
+echo "[SIL] aima $*: not simulated" >&2
+exit 1

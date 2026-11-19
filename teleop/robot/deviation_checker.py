@@ -3,7 +3,6 @@ teleop/robot/deviation_checker.py
 Model-based and legacy deviation gates for SafetyLayer.
 """
 import numpy as np
-from teleop.robot.aimdk_map import ARM_LOWER_14, ARM_UPPER_14
 
 
 class DeviationChecker:

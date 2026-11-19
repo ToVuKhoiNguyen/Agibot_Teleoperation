@@ -1,36 +1,43 @@
   <!-- RIGHT CONTROL SIDEBAR -->
   <div id="sidebar">
-    <div class="panel-header">
-      <span style="font-weight: bold; font-size: 0.95rem; color: #00d2ff;">Control Interface</span>
-      <div style="display:flex; gap:4px; align-items:center;">
-        <span id="input-src-tag" class="tag tag-ok">INPUT: MOUSE</span>
-        <span id="sim-tag" class="tag tag-ok">SIM: OK</span>
-        <span id="xr-tag" class="tag tag-warn">XR: IDLE</span>
-        <span id="estop-tag" class="tag tag-ok">ESTOP: OFF</span>
-        <span id="conn-tag" class="tag tag-warn">Connecting...</span>
-      </div>
-    </div>
 
     <!-- PRESETS & SAFETY -->
     <div class="card">
-      <h2>Preset Motions & Demos</h2>
-      <button class="btn-estop" id="btn_estop" onclick="sendCmd({cmd:'estop'})">EMERGENCY STOP</button>
-      <button class="btn-clear" id="btn_clear_estop" onclick="sendCmd({cmd:'clear_estop'})">Clear E-STOP / Resume</button>
-      <div style="display:flex; gap:6px; margin-top:6px; margin-bottom:8px;">
-        <button style="flex:1;" onclick="sendCmd({cmd:'hold_toggle'})">Toggle Hold</button>
-        <button style="flex:1;" onclick="sendCmd({cmd:'reset'})">Reset (instant)</button>
-        <button style="flex:1; background:#1b4d3e; border-color:#2e7d32;" onclick="sendCmd({cmd:'preset', pose:'home'})">Go Home (smooth)</button>
-      </div>
-      <div class="btn-grid">
-        <button onclick="sendCmd({cmd:'preset', pose:'home'})">Home</button>
-        <button onclick="sendCmd({cmd:'preset', pose:'forward'})">Arms Fwd</button>
-        <button onclick="sendCmd({cmd:'preset', pose:'up'})">Arms Up</button>
+      <h2>Presets</h2>
+      <div class="btn-grid" style="margin:0; grid-template-columns:1fr 1fr; gap:5px;">
+        <button onclick="sendCmd({cmd:'preset', pose:'home'})" title="Return both arms to canonical HOME posture">Home</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'data_collection'})" title="Return to HOME posture with arms raised 50 deg for data collection">Data Collection</button>
         <button onclick="sendCmd({cmd:'preset', pose:'tpose'})">T-Pose</button>
-        <button onclick="sendCmd({cmd:'preset', pose:'wave'})">Wave (3s)</button>
-        <button onclick="sendCmd({cmd:'preset', pose:'circle'})">Arms Circle</button>
-        <button onclick="sendCmd({cmd:'preset', pose:'grasp'})">Grasp Demo</button>
-        <button onclick="sendCmd({cmd:'walk_demo'})" style="background:#284332;border-color:#4caf50;">Walk Demo</button>
-        <button onclick="sendCmd({cmd:'preset', pose:'stop'})" style="background:#522828;">Stop Seq</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'forward'})">Arms Forward</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'up'})" style="grid-column: span 2;">Arms Up</button>
+      </div>
+    </div>
+
+    <!-- DATA RECORDING (episodes written on this machine: robot.jsonl + teleop.jsonl + meta.json, no video) -->
+    <div class="card">
+      <h2>Data Recording <span id="rec_dot" style="display:none; color:#ff1744;">&#9679; REC</span></h2>
+      <!-- 2 equal columns: task | instruction over Start REC | Discard last -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-bottom:5px;">
+        <input type="text" id="rec_task" value="default" maxlength="48" placeholder="task" title="Task (folder name)" style="min-width:0; background:#111; color:#eee; border:1px solid #444; border-radius:4px; padding:6px; font-size:0.78rem;">
+        <input type="text" id="rec_instruction" value="" maxlength="300" placeholder="instruction" title="Language instruction: what the robot should do" style="min-width:0; background:#111; color:#eee; border:1px solid #444; border-radius:4px; padding:6px; font-size:0.78rem;">
+      </div>
+      <div class="btn-grid" style="grid-template-columns:1fr 1fr; margin-bottom:0;">
+        <button id="btn_rec" onclick="recToggle()" style="background:#5a1010; border-color:#c62828;">&#9679; Start REC</button>
+        <button onclick="recDiscard()" title="Quest: B / Y = start/stop REC. Discard is only here, with the reason selected below">Discard last</button>
+      </div>
+      <select id="rec_discard_reason" onchange="sendCmd({cmd:'set_discard_reason', reason:this.value})" title="Why the episode is thrown away. Pick another reason and press Discard last again to change it" style="width:100%; margin-top:5px; background:#111; color:#eee; border:1px solid #444; border-radius:4px; padding:5px; font-size:0.78rem;">
+        <option value="other">Discard reason: other</option>
+      </select>
+      <div id="rec_status" style="font-size:0.72rem; color:#9aa; margin-top:4px; line-height:1.35;">Not recording.</div>
+      <a href="/dataset" target="_blank" title="Xem dataset LeRobot đã xuất (tab mới)" style="display:block; text-align:center; margin-top:8px; padding:9px 0; background:#16324f; color:#cfe8ff; border:1px solid #3d7ab8; border-radius:4px; font-size:0.9rem; font-weight:bold; text-decoration:none;">&#128193; Open Dataset</a>
+    </div>
+
+    <!-- QUEST CONTROLLER -> ROBOT SCALE -->
+    <div class="card">
+      <div class="slider-row" style="margin:0;" title="Controller moves 10 cm -> robot hand moves 10 cm x scale">
+        <span style="color:#ffbc00; font-weight:bold;">Scale</span>
+        <input type="range" id="slider_xr_scale" min="20" max="150" step="5" value="100">
+        <span id="slider_xr_scale_val">1 : 1.00</span>
       </div>
     </div>
 
@@ -73,6 +80,11 @@
         <input type="range" id="slider_hand_l" min="0" max="100" value="0">
         <span id="slider_hand_l_val">0%</span>
       </div>
+      <div class="slider-row" style="margin-top:4px;">
+        <span>Thumb Open:</span>
+        <input type="range" id="slider_thumb_open" min="0" max="2000" step="50" value="800">
+        <span id="slider_thumb_open_val">800</span>
+      </div>
     </div>
 
     <!-- RIGHT ARM & HAND -->
@@ -113,6 +125,31 @@
         <span>Hand Close:</span>
         <input type="range" id="slider_hand_r" min="0" max="100" value="0">
         <span id="slider_hand_r_val">0%</span>
+      </div>
+      <div class="slider-row" style="margin-top:4px;">
+        <span>Thumb Open:</span>
+        <input type="range" id="slider_thumb_open_r" min="0" max="2000" step="50" value="800">
+        <span id="slider_thumb_open_r_val">800</span>
+      </div>
+    </div>
+
+    <!-- NECK POSTURE -->
+    <div class="card">
+      <h2>Neck Posture</h2>
+      <div class="slider-row" style="margin:2px 0;">
+        <span>Pitch:</span>
+        <input type="range" id="slider_neck_pitch" min="-20" max="20" step="1" value="0">
+        <span id="slider_neck_pitch_val">0°</span>
+      </div>
+      <div class="slider-row" style="margin:2px 0;">
+        <span>Yaw:</span>
+        <input type="range" id="slider_neck_yaw" min="-45" max="45" step="1" value="0">
+        <span id="slider_neck_yaw_val">0°</span>
+      </div>
+      <div class="slider-row" style="margin:2px 0;">
+        <span>Roll:</span>
+        <input type="range" id="slider_neck_roll" min="-30" max="30" step="1" value="0">
+        <span id="slider_neck_roll_val">0°</span>
       </div>
     </div>
 

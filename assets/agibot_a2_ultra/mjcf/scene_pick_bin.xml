@@ -1,0 +1,65 @@
+<!--
+  Practice scene "pick into bin" (17/11): table (top 0.78 m) in front of the robot, 4 small objects front right, an
+  open bin front centre. Run:  python main.py --sim --scene pick_bin   (web 8012 / Quest / MuJoCo window, opened by default with --sim)
+  Only the objects are simulated (they fall, rest on the table, drop into the bin); the robot is kinematic and does not
+  collide. Grasp = assist (teleop/simulation/task_scene.py): an object sticks to a hand that closes around it and is
+  released when the hand opens. Bodies named task_obj_* are the graspable objects.
+  Robot frame: base_link at (0, 0, 0.93), facing +x; at HOME the hands are at x ~0.15, z ~0.75, y +-0.35.
+-->
+<mujoco model="agibot_a2_ultra_pick_bin">
+  <include file="scene.xml"/>
+
+  <asset>
+    <material name="task_wood" rgba="0.62 0.47 0.32 1"/>
+    <material name="task_leg" rgba="0.30 0.30 0.32 1"/>
+    <material name="task_bin" rgba="0.20 0.45 0.75 1"/>
+  </asset>
+
+  <default>
+    <default class="task_static">
+      <geom contype="1" conaffinity="1" friction="1.0 0.01 0.001" condim="3"/>
+    </default>
+    <default class="task_obj">
+      <geom contype="1" conaffinity="1" friction="1.2 0.01 0.001" condim="4" density="400" solref="0.005 1"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <!-- table: top surface at z = 0.78 (A2 arm reach is ~0.5 m from the shoulder at z 1.27: a lower table is out of
+         reach), spans x 0.20..0.60, y -0.45..0.45 -->
+    <body name="task_table" pos="0.40 0 0.76">
+      <geom class="task_static" type="box" size="0.20 0.45 0.02" material="task_wood"/>
+      <geom class="task_static" type="box" pos=" 0.17  0.41 -0.4185" size="0.02 0.02 0.3985" material="task_leg"/>
+      <geom class="task_static" type="box" pos=" 0.17 -0.41 -0.4185" size="0.02 0.02 0.3985" material="task_leg"/>
+      <geom class="task_static" type="box" pos="-0.17  0.41 -0.4185" size="0.02 0.02 0.3985" material="task_leg"/>
+      <geom class="task_static" type="box" pos="-0.17 -0.41 -0.4185" size="0.02 0.02 0.3985" material="task_leg"/>
+    </body>
+
+    <!-- bin: inner 0.16 x 0.18 m, walls 0.08 m high, front centre (both hands reach it from above) -->
+    <body name="task_bin" pos="0.29 0.06 0.78">
+      <geom class="task_static" type="box" pos="0 0 0.005" size="0.09 0.10 0.005" material="task_bin"/>
+      <geom class="task_static" type="box" pos=" 0.085 0 0.04" size="0.005 0.10 0.04" material="task_bin"/>
+      <geom class="task_static" type="box" pos="-0.085 0 0.04" size="0.005 0.10 0.04" material="task_bin"/>
+      <geom class="task_static" type="box" pos="0  0.095 0.04" size="0.09 0.005 0.04" material="task_bin"/>
+      <geom class="task_static" type="box" pos="0 -0.095 0.04" size="0.09 0.005 0.04" material="task_bin"/>
+    </body>
+
+    <!-- graspable objects, front right (inside the right hand's reach: x 0.22..0.38, y -0.35..-0.10) -->
+    <body name="task_obj_red_cube" pos="0.26 -0.19 0.802">
+      <freejoint name="task_obj_red_cube"/>
+      <geom class="task_obj" type="box" size="0.022 0.022 0.022" rgba="0.85 0.15 0.15 1"/>
+    </body>
+    <body name="task_obj_green_can" pos="0.34 -0.27 0.825">
+      <freejoint name="task_obj_green_can"/>
+      <geom class="task_obj" type="cylinder" size="0.025 0.045" rgba="0.20 0.70 0.30 1"/>
+    </body>
+    <body name="task_obj_yellow_block" pos="0.25 -0.32 0.80">
+      <freejoint name="task_obj_yellow_block"/>
+      <geom class="task_obj" type="box" size="0.035 0.02 0.02" rgba="0.95 0.80 0.15 1"/>
+    </body>
+    <body name="task_obj_purple_cube" pos="0.34 -0.14 0.805">
+      <freejoint name="task_obj_purple_cube"/>
+      <geom class="task_obj" type="box" size="0.025 0.025 0.025" rgba="0.55 0.30 0.75 1"/>
+    </body>
+  </worldbody>
+</mujoco>

@@ -31,7 +31,7 @@
 - **Available Control Modes**:
   - **Arms**:
     - *Joint Servo (Streaming)*: Position control only via `/motion/control/arm_joint_command` `[AIMDK: Sec "Channel Interface", p. 48]`. Torque/impedance control for arms is NOT supported in AimDK V1.0 `[AIMDK: p. 5, 48; MANUAL: p. 143]`.
-    - *SE(3) Planning (Trajectory / Waypoint)*: RPC `pb:/aimdk.protocol.McMotionService/PlanningMove` sends target 6-DoF Cartesian pose (Flagship model only) `[AIMDK: pp. 52, 54]`.
+    - *SE(3) Planning (Trajectory / Waypoint)*: RPC `pb:/aimdk.protocol.McMotionService/PlanningMove` sends target 6-DoF Cartesian pose (Flagship model only) `[AIMDK: pp. 52, 54]`. *Field note (17/11, our robot):* PlanningMove (mode 403) was tried for Home and reverted (slow, jerky); mode 205 is not offered by this robot's `SetAction.py` menu.
   - **Hands**:
     - Coupled position + torque threshold control via `/motion/control/hand_joint_command` or RPC `SetHandCommand` `[AIMDK: pp. 49, 52]`.
 - **Mode Switching Sequence**:
@@ -190,7 +190,7 @@ Located in the AimDK repository under `examples/mc/` `[AIMDK: Sec "Motion Contro
    - However, `[AIMDK: Protobuf Definition, p. 31]` marks velocity and effort as standard fields across all joints.
 3. **Teleoperation Headset Dependency**:
    - `[MANUAL: Sec 6.3.3, p. 129]` specifies hardware requirement strictly as PICO 4 Ultra Enterprise.
-   - `[AIMDK: p. 48]` shows standard ROS 2 topic `/motion/control/arm_joint_command`, meaning any WebXR device (including Meta Quest 3S via our teleop bridge) can command the robot directly over ROS 2 without PICO software.
+   - `[AIMDK: p. 48]` shows standard ROS 2 topic `/motion/control/arm_joint_command`, meaning any WebXR device (including Meta Quest 3S via our teleop bridge) can command the robot directly over ROS 2 without PICO software. *In our setup* the ROS 2 publisher is the receiver on the Orin (`scripts/arm_teleop_rx.py`, 400 Hz pacer); the laptop only sends UDP, it has no route to the X86 `192.168.100.100`, so it cannot publish arm commands over ROS 2 itself.
 
 ---
 

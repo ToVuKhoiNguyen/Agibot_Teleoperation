@@ -16,8 +16,8 @@ function applyLatestMovingPoses(dtSec) {
     return;
   }
 
-  // Buffer delay: 1 frame at 60 Hz = 16.7 ms
-  const renderTime = performance.now() - 16.7;
+  // Playout delay 35 ms (~2 stream frames): always two samples to interpolate between, absorbs send/arrival jitter
+  const renderTime = performance.now() - 35.0;
 
   if (poseBuffer.length === 1 || renderTime <= poseBuffer[0].t) {
     const poses = poseBuffer[0].poses;

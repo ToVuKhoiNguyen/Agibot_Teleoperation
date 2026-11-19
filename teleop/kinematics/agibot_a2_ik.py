@@ -5,7 +5,6 @@ Features null-space posture regularization, joint limit clamping, and high-frequ
 """
 
 import os
-import time
 import numpy as np
 import mujoco
 from teleop.robot.aimdk_map import HOME

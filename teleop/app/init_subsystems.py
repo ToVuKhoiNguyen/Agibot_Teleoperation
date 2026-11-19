@@ -31,7 +31,7 @@ from teleop.kinematics.filters import (
 from teleop.retargeting.agibot_arm_retargeting import AgibotArmRetargeting
 from teleop.retargeting.agibot_hand_retargeting import AgibotHandRetargeting
 from teleop.xr.adb_setup import QuestAdbManager
-from teleop.robot import SimBackend, DryRunBackend, Ros2DryBackend, ReplayBackend, RealBackend, SafetyLayer
+from teleop.robot import SimBackend, DryRunBackend, Ros2DryBackend, ReplayBackend, SafetyLayer
 
 
 def init_subsystems(
@@ -53,7 +53,7 @@ def init_subsystems(
     no_hand: bool = False,
     real_max_vel: float = 0.3,
     i_accept_higher_speed: bool = False,
-    hand_raw_max: int = 800,
+    hand_raw_max: int = 2000,
     enable_thumb_swing: bool = False,
     allow_handtracking_real: bool = False,
     input_mode: str = "controllers",
@@ -96,7 +96,7 @@ def init_subsystems(
         print("[WARN] DISPLAY / WAYLAND_DISPLAY not found in environment. MuJoCo native viewer cannot be displayed.")
         app.render_viewer = False
 
-    app.env = AgibotSimEnv(scene_xml, render_gui=app.render_viewer)
+    app.env = AgibotSimEnv(os.environ.get("SIM_SCENE_XML") or scene_xml, render_gui=app.render_viewer)
     app.env.reset()
 
     home_poses = app.env.get_ee_poses()

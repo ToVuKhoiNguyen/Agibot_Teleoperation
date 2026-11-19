@@ -12,8 +12,12 @@ from teleop.retargeting.agibot_hand_retargeting import AgibotHandRetargeting
 def handle_target_cmd(app, name: str, cmd: dict) -> bool:
     """Processes target pose and sequence commands. Returns True if handled."""
     if name in ("set_wrist_target", "wrist_target"):
+        if getattr(app, "manual_held", False):
+            app.status_warning = "Hold is ON: release Toggle Hold to move the arms"
+            return True
         if app.homing_active:
             app.homing_active = False
+        app.preset_track_until = 0.0
         arm = cmd.get("arm", cmd.get("side", "left"))
         pos = cmd.get("pos")
         rot_quat = cmd.get("rot_quat")
@@ -51,9 +55,16 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
                 if hasattr(app, "input_filter_right"):
                     app.input_filter_right.reset()
 
+        c_arm = "l" if arm == "left" else "r"
+        if pos is not None and len(pos) == 3:
+            setattr(app, f"soft_ori_{c_arm}", True)    # translating; cleared just below if this message also rotates
         if rot_quat is not None and len(rot_quat) == 4:
             scipy_quat = [rot_quat[1], rot_quat[2], rot_quat[3], rot_quat[0]]
             rot_mat = R.from_quat(scipy_quat).as_matrix()
+            prev_rot = getattr(app, f"cur_target_rot_{c_arm}")
+            cos_d = float(np.clip((np.trace(prev_rot.T @ rot_mat) - 1.0) * 0.5, -1.0, 1.0))
+            if np.arccos(cos_d) > np.radians(0.5):
+                setattr(app, f"soft_ori_{c_arm}", False)   # the gizmo was rotated: hold that orientation exactly
             if arm == "left":
                 app.cur_target_rot_l = rot_mat
                 app.gizmo_active_l = True
@@ -68,6 +79,8 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
 
     elif name in ("gizmo_end", "gizmo_release", "stop_drag"):
         arm = cmd.get("arm", "both")
+        if arm not in ("left", "right", "both", "all"):
+            return True  # malformed release (e.g. a numeric arm): ignore instead of freezing the wrong arm
         if hasattr(app, "robot_backend") and hasattr(app.robot_backend, "_trace_logger"):
             tl = app.robot_backend._trace_logger
             if tl:
@@ -79,7 +92,7 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
         for a in arms_to_check:
             cur_p = getattr(app, f"cur_target_pos_{'l' if a == 'left' else 'r'}")
             clamped_p, is_c, d_beyond = project_to_reachable_workspace(cur_p, side=a)
-            if is_c and d_beyond > 0.01:
+            if is_c and abs(d_beyond) > 0.01:
                 setattr(app, f"cur_target_pos_{'l' if a == 'left' else 'r'}", clamped_p)
                 if hasattr(app, "server") and hasattr(app.server, "broadcast_event"):
                     app.server.broadcast_event({
@@ -129,11 +142,15 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
         else:
             val = float(cmd.get("value", cmd.get("closure", 0.0)))
             gt = app.grasp_type_l if arm == "left" else app.grasp_type_r
+            if str(gt).lower() == "open":
+                gt = "cylinder"  # homing leaves grasp "open" (all-zero curls): the slider would do nothing
             curls, pinch = AgibotHandRetargeting.get_grasp_curls(gt, val)
             if arm == "left":
+                app.grasp_type_l = gt
                 app.hand_closure_l = val
                 app.direct_hand_override_l = False
             else:
+                app.grasp_type_r = gt
                 app.hand_closure_r = val
                 app.direct_hand_override_r = False
 
@@ -145,9 +162,16 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
 
     elif name in ("preset", "reset", "go_home", "home"):
         pose = cmd.get("pose", "home") if name == "preset" else ("reset" if name == "reset" else "home")
-        if name == "reset" or pose == "reset":
+        app.preset_track_until = 0.0
+        from teleop.app.joint_preset import stop_auto_motion, start_preset
+        stop_auto_motion(app)
+        app.manual_held = False
+        is_real = str(getattr(app, "backend", "sim")).lower() in ("real", "ros2", "real-udp", "udp")
+        if (name == "reset" or pose == "reset") and is_real:
+            # A real arm cannot teleport: an instant reset would jump the limiter plan to HOME.
+            app._start_smooth_homing("both")
+        elif name == "reset" or pose == "reset":
             app.active_sequence = None
-            app.walking_demo_active = False
             app.homing_active = False
             app.direct_hand_override_l = False
             app.direct_hand_override_r = False
@@ -167,6 +191,10 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
                 app.robot_safety._deviation_start_t = None
             if hasattr(app, "mirror_limiter") and app.mirror_limiter is not None:
                 app.mirror_limiter.reset(np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right]))
+            if hasattr(app, "sim_plant") and app.sim_plant is not None:
+                q_reset = np.concatenate([app.last_arm_cmd_left, app.last_arm_cmd_right])
+                app.sim_plant.reset(q_reset)
+                app.sim_plant_q = q_reset.copy()
             app.last_hand_cmd_left = np.zeros(6, dtype=np.float64)
             app.last_hand_cmd_right = np.zeros(6, dtype=np.float64)
             app.current_safe_hand_l = np.zeros(6, dtype=np.float64)
@@ -190,59 +218,46 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "home/smooth-home")
             app.last_ik_sol_left = app.last_arm_cmd_left.copy()
             app.last_ik_sol_right = app.last_arm_cmd_right.copy()
-            app.gizmo_active_l = False
-            app.gizmo_active_r = False
-            app.xr_grip_active_l = False
-            app.xr_grip_active_r = False
-            app.xr_clutch_state_l = "LOCKED"
-            app.xr_clutch_state_r = "LOCKED"
-            app.xr_anchor_ctrl_pos_l = None
-            app.xr_anchor_ctrl_pos_r = None
-            app.xr_anchor_ctrl_rot_l = None
-            app.xr_anchor_ctrl_rot_r = None
-            app.xr_anchor_marker_pos_l = None
-            app.xr_anchor_marker_pos_r = None
-            app.xr_anchor_marker_rot_l = None
-            app.xr_anchor_marker_rot_r = None
+            app.gizmo_active_l = app.gizmo_active_r = False
+            app.xr_grip_active_l = app.xr_grip_active_r = False
+            app.xr_clutch_state_l = app.xr_clutch_state_r = "LOCKED"
+            app.xr_anchor_ctrl_pos_l = app.xr_anchor_ctrl_pos_r = None
+            app.xr_anchor_ctrl_rot_l = app.xr_anchor_ctrl_rot_r = None
+            app.xr_anchor_marker_pos_l = app.xr_anchor_marker_pos_r = None
+            app.xr_anchor_marker_rot_l = app.xr_anchor_marker_rot_r = None
         elif pose == "home" or name in ("go_home", "home"):
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "home/smooth-home")
             app._start_smooth_homing("both")
         elif pose == "forward":
-            app.active_sequence = None
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
-            app.cur_target_pos_l = app.robot_home_pos_l + np.array([0.25, 0.0, 0.0])
-            app.cur_target_pos_r = app.robot_home_pos_r + np.array([0.25, 0.0, 0.0])
-            app._solve_arm_ik("both")
+            start_preset(app, "forward")
         elif pose == "up":
-            app.active_sequence = None
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
-            app.cur_target_pos_l = app.robot_home_pos_l + np.array([0.05, 0.0, 0.25])
-            app.cur_target_pos_r = app.robot_home_pos_r + np.array([0.05, 0.0, 0.25])
-            app._solve_arm_ik("both")
+            start_preset(app, "up")
         elif pose == "tpose":
-            app.active_sequence = None
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
-            app.cur_target_pos_l = app.robot_home_pos_l + np.array([0.0, 0.20, 0.0])
-            app.cur_target_pos_r = app.robot_home_pos_r + np.array([0.0, -0.20, 0.0])
-            app._solve_arm_ik("both")
+            start_preset(app, "tpose")
         elif pose == "wave":
             app.active_sequence = "wave"
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
             app.seq_start_time = time.time()
             app.seq_origin_r = app.cur_target_pos_r.copy()
-            app.gizmo_active_r = True
         elif pose == "circle":
             app.active_sequence = "circle"
             if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
             app.seq_start_time = time.time()
             app.seq_origin_l = app.cur_target_pos_l.copy()
             app.seq_origin_r = app.cur_target_pos_r.copy()
-        elif pose == "grasp":
-            app.active_sequence = "grasp"
-            if hasattr(app, "target_tracer"): app.target_tracer.record_target_source("both", "preset/demo/sequence")
-            app.seq_start_time = time.time()
         elif pose == "stop":
-            app.active_sequence = None
+            # Stop where the hand is now: target and gizmo jump onto the hand, nothing keeps pulling the arm.
+            ee = app.env.get_ee_poses()
+            for a, c in (("left", "l"), ("right", "r")):
+                setattr(app, f"cur_target_pos_{c}", ee[a]["pos"].copy())
+                setattr(app, f"cur_target_rot_{c}", ee[a]["rot"].copy())
+                for fname, val in ((f"gizmo_follower_{c}", ee[a]["pos"]), (f"gizmo_rot_follower_{c}", ee[a]["rot"])):
+                    f = getattr(app, fname, None)
+                    if f is not None: f.reset(val.copy())
+            app.preset_track_until = time.time() + 0.5
         return True
 
     return False

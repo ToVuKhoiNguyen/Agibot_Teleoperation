@@ -1,0 +1,287 @@
+{
+  "metadata": {
+    "scope": "mc_only_orin",
+    "source": "orin",
+    "dt_s": 0.01,
+    "git_sha": "bdb409e80c28f8916fc58c28ba60f257cbddacb4",
+    "fit_files": [
+      {
+        "path": "logs/trace_orin_20261111_174306.jsonl",
+        "samples": 899,
+        "median_dt_s": 0.010032815999920786,
+        "max_gap_s": 0.060886847999881866,
+        "speed": null
+      }
+    ],
+    "val_files": [],
+    "overall_val_rms_rad": null,
+    "validated": false
+  },
+  "mc_step_reject": {
+    "enabled": false,
+    "threshold_rad_20ms": 0.02,
+    "status": "UNKNOWN (not measured)"
+  },
+  "hand": {
+    "model_type": "IDEAL",
+    "confidence": "IDEAL",
+    "reason": "no hand logs given"
+  },
+  "assumptions": {
+    "cmd_timeout": "ASSUMED: MC holds last command when arm_joint_command stops",
+    "large_step": "ASSUMED: MC tracks any step (no rejection modelled)"
+  },
+  "joints": {
+    "0": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.06269,
+      "static_offset_rad": 0.00044,
+      "name": "joint_0",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 2.417,
+      "max_acc_rad_s2": 211.06,
+      "deadband_rad": 6.5e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00389,
+          "r2": 0.9996,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.02603
+        }
+      },
+      "confidence": "UNVALIDATED"
+    },
+    "1": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.0635,
+      "static_offset_rad": -0.00036,
+      "name": "joint_1",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 1.093,
+      "max_acc_rad_s2": 90.81,
+      "deadband_rad": 4.6e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00219,
+          "r2": 0.9992,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.01376
+        }
+      },
+      "confidence": "UNVALIDATED"
+    },
+    "2": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.06274,
+      "static_offset_rad": -0.00017,
+      "name": "joint_2",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 1.316,
+      "max_acc_rad_s2": 108.44,
+      "deadband_rad": 5.5e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00177,
+          "r2": 0.9995,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.01137
+        }
+      },
+      "confidence": "UNVALIDATED"
+    },
+    "3": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.06239,
+      "static_offset_rad": 0.00036,
+      "name": "joint_3",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 0.823,
+      "max_acc_rad_s2": 77.73,
+      "deadband_rad": 5.3e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00153,
+          "r2": 0.9997,
+          "spectral_match_0_15hz": 0.9999,
+          "peak_err_rad": 0.00998
+        }
+      },
+      "confidence": "UNVALIDATED"
+    },
+    "4": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.06175,
+      "static_offset_rad": -0.00053,
+      "name": "joint_4",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 1.817,
+      "max_acc_rad_s2": 160.9,
+      "deadband_rad": 6.7e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00262,
+          "r2": 0.9995,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.02146
+        }
+      },
+      "confidence": "UNVALIDATED"
+    },
+    "5": {
+      "model_type": "2nd_order",
+      "delay_ticks": 0,
+      "fn_hz": 2.33079,
+      "zeta": 0.72898,
+      "static_offset_rad": -0.00218,
+      "name": "joint_5",
+      "delay_s": 0.0,
+      "max_vel_rad_s": 1.748,
+      "max_acc_rad_s2": 174.32,
+      "deadband_rad": 2.4e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00373,
+          "r2": 0.9987,
+          "spectral_match_0_15hz": 1.0,
+          "peak_err_rad": 0.01913
+        }
+      },
+      "confidence": "UNVALIDATED"
+    },
+    "6": {
+      "model_type": "2nd_order",
+      "delay_ticks": 0,
+      "fn_hz": 1.84838,
+      "zeta": 0.2,
+      "static_offset_rad": 0.00086,
+      "name": "joint_6",
+      "delay_s": 0.0,
+      "max_vel_rad_s": 0.606,
+      "max_acc_rad_s2": 103.93,
+      "deadband_rad": 2.4e-05,
+      "noise_std_rad": 0.0,
+      "fit_quality": {
+        "fit": {
+          "rmse_rad": 0.00112,
+          "r2": 0.9366,
+          "spectral_match_0_15hz": 0.9991,
+          "peak_err_rad": 0.00444
+        }
+      },
+      "fit_warning": "parameters at bounds: [1]",
+      "confidence": "UNVALIDATED"
+    },
+    "7": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.06269,
+      "static_offset_rad": 0.0,
+      "name": "joint_7",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 2.417,
+      "max_acc_rad_s2": 211.06,
+      "deadband_rad": 6.5e-05,
+      "noise_std_rad": 0.0,
+      "confidence": "MIRRORED",
+      "mirrored_from": 0
+    },
+    "8": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.0635,
+      "static_offset_rad": 0.0,
+      "name": "joint_8",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 1.093,
+      "max_acc_rad_s2": 90.81,
+      "deadband_rad": 4.6e-05,
+      "noise_std_rad": 0.0,
+      "confidence": "MIRRORED",
+      "mirrored_from": 1
+    },
+    "9": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.06274,
+      "static_offset_rad": 0.0,
+      "name": "joint_9",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 1.316,
+      "max_acc_rad_s2": 108.44,
+      "deadband_rad": 5.5e-05,
+      "noise_std_rad": 0.0,
+      "confidence": "MIRRORED",
+      "mirrored_from": 2
+    },
+    "10": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.06239,
+      "static_offset_rad": 0.0,
+      "name": "joint_10",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 0.823,
+      "max_acc_rad_s2": 77.73,
+      "deadband_rad": 5.3e-05,
+      "noise_std_rad": 0.0,
+      "confidence": "MIRRORED",
+      "mirrored_from": 3
+    },
+    "11": {
+      "model_type": "1st_order",
+      "delay_ticks": 2,
+      "tau_s": 0.06175,
+      "static_offset_rad": 0.0,
+      "name": "joint_11",
+      "delay_s": 0.02,
+      "max_vel_rad_s": 1.817,
+      "max_acc_rad_s2": 160.9,
+      "deadband_rad": 6.7e-05,
+      "noise_std_rad": 0.0,
+      "confidence": "MIRRORED",
+      "mirrored_from": 4
+    },
+    "12": {
+      "model_type": "2nd_order",
+      "delay_ticks": 0,
+      "fn_hz": 2.33079,
+      "zeta": 0.72898,
+      "static_offset_rad": 0.0,
+      "name": "joint_12",
+      "delay_s": 0.0,
+      "max_vel_rad_s": 1.748,
+      "max_acc_rad_s2": 174.32,
+      "deadband_rad": 2.4e-05,
+      "noise_std_rad": 0.0,
+      "confidence": "MIRRORED",
+      "mirrored_from": 5
+    },
+    "13": {
+      "model_type": "2nd_order",
+      "delay_ticks": 0,
+      "fn_hz": 1.84838,
+      "zeta": 0.2,
+      "static_offset_rad": 0.0,
+      "name": "joint_13",
+      "delay_s": 0.0,
+      "max_vel_rad_s": 0.606,
+      "max_acc_rad_s2": 103.93,
+      "deadband_rad": 2.4e-05,
+      "noise_std_rad": 0.0,
+      "fit_warning": "parameters at bounds: [1]",
+      "confidence": "MIRRORED",
+      "mirrored_from": 6
+    }
+  }
+}

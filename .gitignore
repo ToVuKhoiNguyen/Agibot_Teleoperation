@@ -31,3 +31,14 @@ venv/
 venv
 docs/vendor/
 agibot_a2_aimdk-dev2.0/
+
+# SIL simulated Orin filesystem (generated)
+sil/orin_fs/
+reports/
+
+# Data-collection episodes
+data/
+recordings/
+venv_lerobot/
+datasets/
+lerobot_datasets/

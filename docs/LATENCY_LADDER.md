@@ -20,7 +20,7 @@ Bấm nút **E-Stop** vật lý hoặc nhấn `Ctrl-C` trên terminal ngay lập
 ## 3. Thứ Tự Đo Kiểm Chuẩn (Run Order)
 Chạy script trên laptop (thay `<ROBOT_IP>` bằng IP thực tế của Orin robot, ví dụ `192.168.2.50`):
 ```bash
-python scripts/real_latency_ladder.py --host <ROBOT_IP> --port 5005 --rx-port 5006
+python tools/real_latency_ladder.py --host <ROBOT_IP> --port 5005 --rx-port 5006
 ```
 
 Thực hiện tuần tự theo từng nấc thang (mỗi nấc chạy 20 giây):
@@ -39,7 +39,7 @@ Thực hiện tuần tự theo từng nấc thang (mỗi nấc chạy 20 giây):
    - Dữ liệu thu thập tự động trong các phiên teleop Quest thực tế lưu tại `logs/real_<timestamp>.jsonl`.
    - Phân tích ngoại tuyến nấc D bằng lệnh:
      ```bash
-     python scripts/analyze_ladder.py logs/real_<timestamp>.jsonl
+     python tools/analyze_ladder.py logs/real_<timestamp>.jsonl
      ```
 
 ## 4. Dữ Liệu Cần Copy & Dán Lại Cho Tôi
