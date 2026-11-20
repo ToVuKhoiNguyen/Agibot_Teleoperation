@@ -59,8 +59,6 @@ ARM_JOINT_NAMES_URDF = [
 ARM_JOINT_COUNT = 14
 ARM_HOME_14 = [0.0, 1.2, 0.0, -0.5, 1.5, 0.0, 0.0, 0.0, -1.2, 0.0, 0.5, 1.5, 0.0, 0.0]
 HOME = ARM_HOME_14
-ARM_DATA_COLLECTION_14 = [float(ARM_HOME_14[0] + np.deg2rad(50.0))] + ARM_HOME_14[1:7] + [float(ARM_HOME_14[7] + np.deg2rad(50.0))] + ARM_HOME_14[8:]
-DATA_COLLECTION = ARM_DATA_COLLECTION_14
 # Elbow J4 bound = AimDK software limit +-0.03 since 17/11 (was +-0.10): the robot itself stands with the elbows at
 # +-0.035 after SetAction, so +-0.10 made the first command after engage bend the elbow 0.065 rad on its own.
 ARM_LOWER_14 = np.array([-2.91, -0.46, -2.91, -2.00, -2.88, -0.30, -0.20, -2.91, -1.5359, -2.91, 0.03, -2.88, -0.30, -0.20], dtype=np.float64)

@@ -6,10 +6,12 @@
       <h2>Presets</h2>
       <div class="btn-grid" style="margin:0; grid-template-columns:1fr 1fr; gap:5px;">
         <button onclick="sendCmd({cmd:'preset', pose:'home'})" title="Return both arms to canonical HOME posture">Home</button>
-        <button onclick="sendCmd({cmd:'preset', pose:'data_collection'})" title="Return to HOME posture with arms raised 50 deg for data collection">Data Collection</button>
+        <button onclick="sendCmd({cmd:'preset', pose:'up'})">Arms Up</button>
         <button onclick="sendCmd({cmd:'preset', pose:'tpose'})">T-Pose</button>
         <button onclick="sendCmd({cmd:'preset', pose:'forward'})">Arms Forward</button>
-        <button onclick="sendCmd({cmd:'preset', pose:'up'})" style="grid-column: span 2;">Arms Up</button>
+      </div>
+      <div style="margin-top:5px;">
+        <button onclick="sendCmd({cmd:'reset_objects'})" style="width:100%; background:#1c2d42; border:1px solid #365880;" title="Reset cac vat the ve vi tri ban dau trong mo phong">Reset vat the</button>
       </div>
     </div>
 

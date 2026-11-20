@@ -12,6 +12,18 @@ Tài liệu hướng dẫn từng bước chi tiết từ lúc vừa bật máy 
 - **Cổng UDP nhận lệnh từ Laptop sang Orin:** `5005`
 - **Cổng UDP phản hồi feedback từ Orin về Laptop:** `5006`
 
+> **LƯU Ý QUAN TRỌNG KHI CHUYỂN TỪ GIẢ LẬP A2SIM SANG ROBOT THẬT:**
+> Nếu trước đó từng chạy môi trường giả lập A2SIM (`sil/a2sim/setup.sh`), laptop sẽ tạo card mạng ảo và chiếm dải IP `192.168.2.50`. Khi SSH bạn sẽ thấy thông báo `[A2SIM] Simulated Orin (MuJoCo robot) - NOT the real robot`.
+> **Để kết nối tới Robot thật**, cần tắt mạng giả lập trước:
+> ```bash
+> # 1. Kiểm tra trạng thái mạng giả lập:
+> bash sil/a2sim/status.sh
+> # 2. Tắt mạng giả lập A2SIM để giải phóng IP 192.168.2.50 về cổng Ethernet thật:
+> sudo bash sil/a2sim/teardown.sh
+> # 3. Đăng nhập SSH vào Robot thật:
+> ssh agi@192.168.2.50
+> ```
+
 ---
 
 ## TÓM TẮT CHẠY NHANH (cập nhật 17/11)
@@ -398,7 +410,9 @@ python arm_teleop_rx.py
    - Dừng ngay nếu thấy `FAULT`, `REJECT`, rung, giật, hoặc tay đứng khựng dù vẫn đang bóp nút; gửi `logs/real_*.jsonl` và `trace_*.jsonl` để phân tích.
 5. **Thao tác tay cầm (ánh xạ 1:1 kiểu "nhập vai robot"):**
    - **Trigger** = tịnh tiến (nâng/hạ tay = ±Z, đưa ra/kéo về = ±X, trái/phải = ±Y); **Grip** = xoay cổ tay cùng chiều; cả hai = vừa tịnh tiến vừa xoay.
-   - X nhấn = tay trái Home, A nhấn = cả hai tay Home (không cần giữ); cần analog = nắm/mở bàn tay (sau Home vẫn nắm được ngay); tay cầm không còn nút E-STOP.
+   - **X hoặc A nhấn nhả (tap < 3.0s)**: chuyển cả hai tay sang tư thế **Arms Up** (preset `up`).
+   - **X hoặc A giữ đè ≥ 3.0s**: đưa cả hai tay về tư thế **HOME** chuẩn.
+   - Cần analog (Thumbstick Y) = nắm/mở bàn tay (ngón cái, trỏ, giữa cùng đóng/mở; 2 ngón còn lại mở); tay cầm không còn nút E-STOP.
    - Vươn quá tầm: robot dừng ở biên, rút tay về thì khớp lại đúng chỗ cũ. Gizmo trên web chạy theo tay khi đang bóp nút.
    - Quan sát 2 tay robot **đứng yên hoàn toàn** tại vị trí ban đầu (Anchored pose).
    - Nhấn giữ nút **Trigger** (Cò ngón trỏ) hoặc **Grip** (Cò cạnh bàn tay) để bóp ly hợp (Clutch) và di chuyển: hai cánh tay robot thật sẽ bám theo chuyển động tay của bạn trong không gian!

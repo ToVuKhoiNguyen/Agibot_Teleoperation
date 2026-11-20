@@ -23,7 +23,6 @@ def start_limits(q14):
     q = np.clip(np.asarray(q14, dtype=np.float64), VENDOR_MIN, VENDOR_MAX)
     return np.minimum(LIMS_MIN, q), np.maximum(LIMS_MAX, q)
 HOME = [0.0, 1.2, 0.0, -0.5, 1.5, 0.0, 0.0, 0.0, -1.2, 0.0, 0.5, 1.5, 0.0, 0.0]
-DATA_COLLECTION = [float(HOME[0] + np.deg2rad(50.0))] + HOME[1:7] + [float(HOME[7] + np.deg2rad(50.0))] + HOME[8:]
 SPEED_LEVELS = {1: (0.40, 1.00), 2: (0.60, 1.50), 3: (0.80, 2.00), 4: (1.00, 2.50), 5: (1.50, 4.00), 6: (2.00, 6.28)}
 
 class PlayoutBuffer:
@@ -516,8 +515,14 @@ def pacer_main(argv):
             slack = next_t - time.monotonic()
             if slack > 0.0: time.sleep(slack)
             elif slack < -dt: next_t = time.monotonic(); time.sleep(0.0005)
-    except Exception:
-        import traceback; why = "crashed:\n" + traceback.format_exc()
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        why = "interrupted by user (SIGINT)"
+    except Exception as e:
+        # If shutdown/SIGINT invalidated the rclpy context during publish, treat as clean exit
+        if not rclpy.ok() or "publisher's context is invalid" in str(e):
+            why = "shutdown"
+        else:
+            import traceback; why = "crashed:\n" + traceback.format_exc()
     finally:
         print(f"[pacer] stopped: {why}", flush=True)
         try: node.destroy_node(); rclpy.shutdown()
@@ -865,6 +870,8 @@ def camera_main(argv):
                 told = True
                 dead = [c["topic"] for c in streams if state[c["name"]]["frames"] == 0 and not state[c["name"]]["warned"]]
                 if dead: status("no image received after 4 s on: " + ", ".join(dead))
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        pass
     finally:
         try: node.destroy_node(); rclpy.shutdown()
         except Exception: pass

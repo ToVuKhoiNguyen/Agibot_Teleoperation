@@ -37,7 +37,33 @@ Sau khi khởi động lại máy, chạy lại lệnh setup (mạng ảo mất 
 
 ---
 
-## 0. Thông Số (giống hệt robot thật)
+## 0. Hướng Dẫn Nhanh Chạy Mô Phỏng Gắp Vật Vào Thùng (--sim)
+
+Chạy mô phỏng MuJoCo độc lập trên Laptop (kèm giao diện Web 3D và kịch bản gắp lon Pringles, cuộn băng dính, bóng trắng vào thùng carton):
+
+```bash
+cd ~/a2_ws
+source venv/bin/activate
+python main.py --sim
+```
+
+- **Giao diện Web điều khiển**: Mở trình duyệt vào `https://localhost:8012` (hoặc mở Quest Browser vào địa chỉ này).
+- **Cửa sổ 3D MuJoCo**: Tự động mở hiển thị robot, bàn, thùng carton và 3 vật thể.
+  - **Chuyển đổi góc nhìn (Multi-view Cameras)**: Bấm phím `[` hoặc `]` trên bàn phím (hoặc chọn menu **Camera** trên thanh công cụ MuJoCo) để chuyển đổi tức thì giữa các góc nhìn:
+    - `cam_side`: Nhìn ngang tầm bàn (quan sát tay và mặt bàn).
+    - `cam_top`: Nhìn vuông góc từ trên trần xuống bàn và thùng carton.
+    - `cam_front`: Nhìn trực diện robot và bàn thao tác.
+    - `cam_operator`: Góc nhìn từ phía sau người vận hành.
+    - `head_front_cam`: Góc nhìn thứ nhất từ đầu robot nhìn xuống.
+- **Thao tác gắp**:
+  - Di chuyển tay robot tới vật thể bằng chuột (kéo Gizmo trên Web) hoặc bằng tay cầm Quest VR.
+  - Khi ngón tay nắm lại ($\ge 45\%$), vật thể tự động dính vào bàn tay để nhấc lên.
+  - Đưa vật qua miệng thùng carton và mở bàn tay ($\le 30\%$), vật thể sẽ rơi tự do vào thùng.
+  - Bấm nút **Reset** trên giao diện Web bất cứ lúc nào để đưa robot về tư thế Arms Up và xếp lại các vật về vị trí ban đầu.
+
+---
+
+## 0b. Thông Số A2SIM (Mô phỏng cả khối Orin giả định)
 - **Máy trạm Teleop (Laptop):** `192.168.2.75`
 - **Máy tính nhúng Robot (Orin):** `192.168.2.50` *(SSH user: `agi`, mật khẩu: `1`)*
 - **Địa chỉ giao diện Web:** `https://192.168.2.75:8012`
@@ -101,7 +127,7 @@ python main.py                                   # mặc định: speed 6, smoot
 | Biến môi trường `NUDGE_GLIDE=0`, `SOFT_ORI=0`, `XR_SOFT_ORI=0`, `IK_SETTLE_S=0`, `XR_COAST=0`, `HAND_HOLD_MOVING=0`, `DIRECT_OUT_FIR2=1`, `HOME_MAX_VEL=2.0` | Tắt lần lượt: nút dịch trượt mượt, cổ tay thẳng khi kéo chuột, cổ tay thẳng khi tịnh tiến bằng tay cầm, tư thế tự hoàn tất sau khi dừng, đi tiếp theo đường thẳng sau khi nhả trigger, giữ ngón tay khi tay chạy, phanh tăng dần (chỉ bật sẵn ở `--smooth 2/3`), Home đi chậm. Bảng đầy đủ: README mục 2.3 B |
 | `--limiter brake` | Luật giới hạn cũ: phanh êm nhưng trễ nhiều (0.4–0.8 s trên robot thật). Muốn ít trễ thì KHÔNG thêm cờ này |
 | `--xr-scale 0.6` | Tỉ lệ tay cầm → robot lúc khởi động (mặc định 1.0 = 1:1; 0.6: tay 10 cm → robot 6 cm). Đổi trực tiếp khi đang chạy bằng thanh **Controller → Robot Scale** trên bảng web |
-| `--sim --scene pick_bin` | Với `--sim` (MuJoCo thuần, không qua A2SIM; robot thật dùng `--scene pick_bin` không cần `--sim`, cảnh là ảo): cảnh tập gắp vật vào thùng (bàn cao 0,78 m, 4 vật phía trước bên phải, thùng ở giữa); gắp hỗ trợ: vật dính vào bàn tay nắm ≥ 45 % quanh nó, thả khi dưới 30 %. Thấy trên trang 8012, trong Quest (ENTER VR) và cửa sổ MuJoCo (tự mở với `--sim`); nút Reset đặt vật về chỗ cũ; terminal in `[TASK] ... picked` / `released` |
+| `--sim` (tự động nạp kịch bản gắp vật vào thùng) | Chạy mô phỏng thuần MuJoCo (không cần robot thật hay A2SIM namespace). **Từ bản cập nhật mới, chỉ cần gõ `--sim` là hệ thống tự động kích hoạt kịch bản gắp vật vào thùng carton**: gồm bàn trắng cao 0.78 m, thùng carton ở giữa, và 3 vật thể thực tế bên ngoài (lon Pringles đỏ, cuộn băng dính đen, quả bóng trắng) trong tầm với tay phải; gắp hỗ trợ: vật dính vào bàn tay nắm ≥ 45 % quanh nó, thả khi dưới 30 %. Thấy trực tiếp trên giao diện web 8012, kính Quest và cửa sổ MuJoCo |
 
 > Nếu trình duyệt báo lỗi tới `https://192.168.2.75:8012`: `export no_proxy="localhost,127.0.0.1,192.168.2.75,$no_proxy"` rồi chạy lại
 > (proxy công ty; trên robot thật cũng cần dòng này nếu proxy bật).

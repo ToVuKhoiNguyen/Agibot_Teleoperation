@@ -14,8 +14,8 @@ import time
 import mujoco
 import numpy as np
 
-CLOSE_ON, OPEN_AT = 0.45, 0.30          # four-finger closure (0 open .. 1 closed), hysteresis
-GRIP_RADIUS = 0.055                     # m, object centre to the grip point (between thumb and fingertips)
+CLOSE_ON, OPEN_AT = 0.38, 0.25          # four-finger closure (0 open .. 1 closed), hysteresis
+GRIP_RADIUS = 0.080                     # m, object centre to the grip point (between thumb and fingertips)
 FINGER_LIMIT = 1.30                     # rad, finger closure range used by the retargeting (SIM_HAND_COMFORTABLE_LIMITS)
 
 
@@ -108,8 +108,10 @@ class TaskScene:
         return {"type": "task_poses", "poses": poses, "in_bin": inside, "total": len(self.objs)}
 
     def in_bin(self, data, body):
-        bb = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "task_bin")
-        if bb < 0: return False
+        bb = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "task_obj_bin")
+        if bb < 0:
+            bb = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "task_bin")
+        if bb < 0 or body == bb: return False
         d = data.xpos[body] - data.xpos[bb]
         return abs(d[0]) < 0.10 and abs(d[1]) < 0.12 and -0.01 < d[2] < 0.12
 

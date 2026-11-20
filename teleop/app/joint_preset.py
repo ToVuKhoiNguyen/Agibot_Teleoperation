@@ -45,14 +45,8 @@ class JointPresetPlanner:
         # the twin may already mirror wherever the real arm stood when main.py started.
         from teleop.robot.aimdk_map import HOME
         self.q_home = np.array(HOME, dtype=np.float64)
-        # DATA COLLECTION: canonical HOME with shoulder pitch (J1) raised higher by ~50 deg (+0.8727 rad)
-        self.q_data_collection = self.q_home.copy()
-        self.q_data_collection[0] += np.deg2rad(50.0)
-        self.q_data_collection[7] += np.deg2rad(50.0)
         self._goals = {
             "home": self.q_home.copy(),
-            "data_collection": self.q_data_collection.copy(),
-            "data_col": self.q_data_collection.copy(),
         }
 
     # ---------------------------------------------------------------- kinematics
@@ -119,9 +113,11 @@ class JointPresetPlanner:
         via = self.q_home
         if not np.allclose(via, q_goal) and not np.allclose(via, q_start) \
                 and self.path_clearance(q_start, via) >= need and self.path_clearance(via, q_goal) >= need:
-            print("[PRESET] direct joint path touches the armor -> planned via HOME")
-            return [q_start, via, q_goal]
-        print("[PRESET] no armor-clear path found; moving directly (armor will hold the arm if needed)")
+            # Fallback path avoidance via HOME only if explicitly configured
+            if getattr(self.app, "allow_via_home_reroute", False):
+                print("[PRESET] direct joint path touches the armor -> planned via HOME")
+                return [q_start, via, q_goal]
+        print("[PRESET] direct joint path without auto-home fallback; moving directly")
         return [q_start, q_goal]
 
 

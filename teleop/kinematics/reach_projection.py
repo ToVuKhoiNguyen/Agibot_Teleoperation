@@ -27,6 +27,26 @@ DEFAULT_MAX_REACH_M = URDF_CHAIN_LENGTH_M - DEFAULT_SAFETY_MARGIN_M # 0.500 m
 DEFAULT_MIN_REACH_M = float(os.environ.get("MIN_REACH_M", "0.29"))
 _INNER_FALLBACK_DIR = np.array([0.8, 0.0, -0.6])   # target exactly on the shoulder: forward and down
 
+# Table collision avoidance plane (table top at z=0.78, hand clearance floor at z=0.785)
+# Active when table is present or A2_TABLE_CLAMP=1. In practice scene: X in [0.18, 0.68], Y in [-0.55, 0.55].
+TABLE_CLAMP_ENABLED = os.environ.get("A2_TABLE_CLAMP", "1") != "0"
+TABLE_Z_MIN = float(os.environ.get("A2_TABLE_Z_MIN", "0.785"))
+TABLE_X_MIN, TABLE_X_MAX = 0.18, 0.68
+TABLE_Y_MIN, TABLE_Y_MAX = -0.55, 0.55
+
+
+def clamp_table_surface(pos: np.ndarray) -> tuple[np.ndarray, bool]:
+    """Clamps a 3D target position to stay strictly above the table surface."""
+    if not TABLE_CLAMP_ENABLED:
+        return pos, False
+    p = np.asarray(pos, dtype=np.float64)
+    if TABLE_X_MIN <= p[0] <= TABLE_X_MAX and TABLE_Y_MIN <= p[1] <= TABLE_Y_MAX:
+        if p[2] < TABLE_Z_MIN:
+            clamped = p.copy()
+            clamped[2] = TABLE_Z_MIN
+            return clamped, True
+    return p.copy(), False
+
 
 def load_max_reach_from_config(config_path: str = "config/safety.yaml") -> float:
     """Loads max reach derived from URDF chain length minus safety margin."""
@@ -76,11 +96,15 @@ def project_to_reachable_workspace(
     if dist > max_reach and dist > 1e-6:
         proj_pos = shldr + v * (max_reach / dist)
         d_beyond = dist - max_reach
+        proj_pos, _ = clamp_table_surface(proj_pos)
         return proj_pos, True, float(d_beyond)
     elif dist < DEFAULT_MIN_REACH_M:
         u = v / dist if dist > 1e-6 else _INNER_FALLBACK_DIR
-        return shldr + u * DEFAULT_MIN_REACH_M, True, float(dist - DEFAULT_MIN_REACH_M)
+        proj_pos = shldr + u * DEFAULT_MIN_REACH_M
+        proj_pos, _ = clamp_table_surface(proj_pos)
+        return proj_pos, True, float(dist - DEFAULT_MIN_REACH_M)
     else:
-        # Strict identity within reachable set
-        return pos.copy(), False, 0.0
+        # Strict identity within reachable set, subject to table floor
+        proj_pos, is_table_clamped = clamp_table_surface(pos)
+        return proj_pos, is_table_clamped, 0.0
 

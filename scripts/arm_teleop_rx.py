@@ -20,7 +20,7 @@ except ImportError:
 
 class ArmTeleopRx(Node):
     def __init__(self, mode_live=True, allow_ip="192.168.2.75", port=5005, tx_state_port=5006,
-                 speed_level=3, deadband_rad=0.003, enable_thumb_swing=True, hand_raw_max=2000, thumb_rest=500, thumb_pose=(1700, 0),
+                 speed_level=4, deadband_rad=0.003, enable_thumb_swing=True, hand_raw_max=2000, thumb_rest=500, thumb_pose=(1700, 0),
                  neck_pitch=0.0, neck_yaw=0.0):
         super().__init__("arm_teleop_rx")
         self.is_live, self.allow_ip, self.tx_state_port = mode_live, allow_ip, tx_state_port
@@ -37,7 +37,7 @@ class ArmTeleopRx(Node):
         te = float(np.clip(float(os.environ.get("THUMB_EFFORT", "2280")), 0.0, 5700.0))
         self._hand_effort = [te if i in (0, 1, 6, 7) else 1140.0 for i in range(12)]
         if te != 1140.0: print(f"[arm_teleop_rx] thumb torque limit {te:.0f} raw (other fingers 1140)", flush=True)
-        self.speed_level = speed_level if speed_level in SPEED_LEVELS else 3
+        self.speed_level = speed_level if speed_level in SPEED_LEVELS else 4
         self.max_vel, self.max_acc = SPEED_LEVELS[self.speed_level]
         self.wire_hz = int(os.environ.get("WIRE_HZ", "100"))
         # 30 ms (fast default since 17/11); PLAYOUT_MS=50 absorbs late packet bursts better for +20 ms lag
@@ -279,7 +279,7 @@ class ArmTeleopRx(Node):
             return
 
         if not self.has_published_engaged:
-            self.curr_cmd_q, self.curr_cmd_v = list(meas) if meas else list(DATA_COLLECTION), np.zeros(14)
+            self.curr_cmd_q, self.curr_cmd_v = list(meas) if meas else list(HOME), np.zeros(14)
             self.has_published_engaged = True
             self.lim_lo, self.lim_hi = start_limits(self.curr_cmd_q)   # no start jump for a joint outside our bounds
             self.pkt_buffer.keep_last()  # playout must not blend pre-engage targets into the first moves
@@ -312,8 +312,14 @@ class ArmTeleopRx(Node):
 
         if self.is_live and self.hand_cmd_pub and self.hand_enabled:
             is_hand_fresh = is_fresh and not self.holding and not self.fault_latched
-            rest_h = np.zeros(12); rest_h[[0, 1, 6, 7]] = self.thumb_rest       # open hand, thumb slightly folded
-            if self.thumb_pose is not None: rest_h[[0, 6]], rest_h[[1, 7]] = self.thumb_pose[0], self.thumb_pose[1]
+            # When hand is not actively controlled (unengaged, stale link, hold, or shutdown),
+            # hold measured angle or target angle so fingers/thumbs never jump or fold on their own.
+            if self.meas_h is not None:
+                rest_h = np.array(self.meas_h, dtype=np.float64)
+            elif self.target_h is not None:
+                rest_h = np.array(self.target_h, dtype=np.float64)
+            else:
+                rest_h = np.zeros(12)
             cmd_h = np.array(self.target_h, dtype=np.float64) if is_hand_fresh else rest_h
             if is_hand_fresh:
                 if not self.target_engaged[0]: cmd_h[:6] = rest_h[:6]
@@ -380,8 +386,11 @@ class ArmTeleopRx(Node):
         while self.running:
             t_w, c_w = time.monotonic(), time.thread_time()
             self._tm[0] = (t_w - next_t) * 1000.0          # how late the OS woke this thread up
-            try: self._control_tick()
+            try:
+                self._control_tick()
             except Exception as e:
+                if not self.running:
+                    break
                 self.fault_latched, self.fault_reason = True, f"control tick error: {e}"
                 traceback.print_exc()
             self._tm[1], self._tm[4] = (time.monotonic() - t_w) * 1000.0, (time.thread_time() - c_w) * 1000.0
@@ -392,7 +401,10 @@ class ArmTeleopRx(Node):
                 next_t = time.monotonic(); time.sleep(0.001)  # and always yield (this thread may be real-time)
 
     def shutdown_hold(self):
-        self.holding, self.running = True, False
+        self.running = False
+        self.holding = True
+        if hasattr(self, "_tick_thread") and self._tick_thread.is_alive():
+            self._tick_thread.join(timeout=0.2)
         if self.recorder is not None: self.recorder.close()
         if self.cam is not None: self.cam.stop()
         if self.pacer: self.pacer.stop()
@@ -400,7 +412,7 @@ class ArmTeleopRx(Node):
 
 def main():
     p = argparse.ArgumentParser()
-    for flg, dflt, typ in [("--speed", 3, int), ("--port", 5005, int), ("--tx-state-port", 5006, int), ("--hand-raw-max", 2000, int), ("--thumb-rest", 500, int)]: p.add_argument(flg, type=typ, default=dflt)
+    for flg, dflt, typ in [("--speed", 4, int), ("--port", 5005, int), ("--tx-state-port", 5006, int), ("--hand-raw-max", 2000, int), ("--thumb-rest", 500, int)]: p.add_argument(flg, type=typ, default=dflt)
     p.add_argument("--allow-ip", type=str, default="192.168.2.167")
     p.add_argument("--dry", action="store_true"); p.add_argument("--no-thumb-swing", action="store_true")
     p.add_argument("--thumb-pose", default="1700,0", help="thumb grasp pose (swing,flex) at rest 'swing,flex' raw; 'off' = --thumb-rest as before")

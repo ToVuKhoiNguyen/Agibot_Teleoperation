@@ -136,6 +136,13 @@ def handle_system_cmd(app, name: str, cmd: dict) -> bool:
         app.cal_head_yaw = float(getattr(app, "last_head_yaw", 0.0))
         app._log_xr_event("Hand tracking recentered (head & anchors refreshed)")
         return True
+    elif name in ("reset_objects", "reset_scene"):
+        if hasattr(app, "env") and hasattr(app.env, "reset_objects"):
+            app.env.reset_objects()
+            if hasattr(app, "server") and hasattr(app.server, "broadcast_event") and getattr(app.env, "task", None) is not None:
+                app.server.broadcast_event(app.env.task.web_poses(app.env.data))
+            print("[INFO] Practice scene objects reset to initial positions.")
+        return True
     elif name == "clear_target_trace":
         if hasattr(app, "target_tracer"):
             app.target_tracer.clear()

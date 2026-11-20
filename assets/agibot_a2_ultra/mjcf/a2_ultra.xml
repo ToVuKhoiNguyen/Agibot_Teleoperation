@@ -509,6 +509,7 @@
         <joint name="idx28_head_joint2" range="-0.5 0.5" actuatorfrcrange="-50 50" damping="1.0" armature="0.01" />
         <geom pos="0 0 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" rgba="0.235294 0.235294 0.235294 1" density="0" mesh="head_link02" />
         <geom quat="1 0 0 0" type="mesh" rgba="0.235294 0.235294 0.235294 1" mesh="head_link02_hull" />
+        <camera name="head_front_cam" pos="0.10 0.06 0" quat="0.601968 -0.370992 -0.601968 -0.370992" fovy="60" />
       </body>
     </body>
   </body></worldbody>

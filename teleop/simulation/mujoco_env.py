@@ -63,9 +63,26 @@ class AgibotSimEnv:
             self.arm_qpos_indices.append(self.qpos_idx_map[jname])
             self.arm_dof_indices.append(self.qvel_idx_map[jname])
 
+        # Table collision solver structures
+        self._table_geoms = set([
+            g for g in range(self.model.ngeom)
+            if "task_table" in mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, self.model.geom_bodyid[g])
+        ])
+        self._arm_geoms = set([
+            g for g in range(self.model.ngeom)
+            if any(k in mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, self.model.geom_bodyid[g])
+                   for k in ["arm", "thumb", "index", "middle", "ring", "pinky"])
+        ])
+        self._jacp_buf = np.zeros((3, self.model.nv))
+
         self.viewer = None
         self.task = TaskScene.detect(self.model)     # practice scene with task_obj_* bodies (scene_pick_bin.xml), else None
         if self.task is not None: print(f"[TASK] practice scene: {len(self.task.objs)} objects, grasp assist on", flush=True)
+
+        # Offscreen camera renderer for simulated head camera
+        self.camera_name = "head_front_cam" if mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, "head_front_cam") >= 0 else None
+        self._renderer = None
+        self._cam_seq = 0
 
         # Reset to home keyframe at startup
         self.reset()
@@ -112,6 +129,14 @@ class AgibotSimEnv:
         mujoco.mj_forward(self.model, self.data)
         if self.viewer is not None and self.viewer.is_running():
             self.viewer.sync()
+
+    def reset_objects(self):
+        """Resets practice scene task objects back to their initial positions without resetting robot joints."""
+        if getattr(self, "task", None) is not None:
+            self.task.reset(self.data)
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None and self.viewer.is_running():
+                self.viewer.sync()
 
     def set_arm_commands(self, left_qpos: np.ndarray = None, right_qpos: np.ndarray = None):
         """Commands 7-DoF joint position targets to the position-controlled arm actuators."""
@@ -230,6 +255,40 @@ class AgibotSimEnv:
             self.visual_body_ids,
         )
 
+    def resolve_table_penetration(self, max_iters: int = 8, margin_m: float = 0.001):
+        """Resolves any penetration between table surface and arm/hand geoms by projecting joint positions."""
+        if not self._table_geoms or not self._arm_geoms:
+            return
+        for _ in range(max_iters):
+            mujoco.mj_forward(self.model, self.data)
+            worst_c = None
+            min_dist = 0.0
+            for i in range(self.data.ncon):
+                c = self.data.contact[i]
+                if (c.geom1 in self._table_geoms and c.geom2 in self._arm_geoms) or (c.geom2 in self._table_geoms and c.geom1 in self._arm_geoms):
+                    if c.dist < min_dist:
+                        min_dist = c.dist
+                        worst_c = c
+            if worst_c is None or min_dist >= -0.0005:
+                break
+            robot_geom = worst_c.geom2 if worst_c.geom1 in self._table_geoms else worst_c.geom1
+            robot_body = self.model.geom_bodyid[robot_geom]
+            mujoco.mj_jac(self.model, self.data, self._jacp_buf, None, worst_c.pos, robot_body)
+            # Dofs corresponding to the arm
+            bname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, robot_body)
+            is_right = ("right" in bname) or ("R_" in bname)
+            active_dofs = self.arm_dof_indices[7:] if is_right else self.arm_dof_indices[:7]
+            active_qpos = self.arm_qpos_indices[7:] if is_right else self.arm_qpos_indices[:7]
+
+            J_z = self._jacp_buf[2, active_dofs]
+            denom = float(np.dot(J_z, J_z)) + 1e-6
+            delta_z = -min_dist + margin_m
+            dq = J_z * (delta_z / denom)
+            for j_idx, q_adr in enumerate(active_qpos):
+                self.data.qpos[q_adr] += dq[j_idx]
+
+        mujoco.mj_forward(self.model, self.data)
+
     def step(self, num_substeps: int = 5, hold_arms: bool = False, hold_left_qpos: np.ndarray = None, hold_right_qpos: np.ndarray = None):
         """Steps dynamic simulation forward while holding non-manipulation joints at home.
         If hold_arms is True, rigidly freezes arm joint positions to prevent sagging under gravity."""
@@ -238,6 +297,7 @@ class AgibotSimEnv:
                 self.set_left_arm_qpos(hold_left_qpos)
             if hold_right_qpos is not None:
                 self.set_right_arm_qpos(hold_right_qpos)
+            self.resolve_table_penetration()
             for jname in self.left_arm_joints + self.right_arm_joints:
                 if jname in self.actuator_map:
                     self.data.ctrl[self.actuator_map[jname]] = self.data.qpos[self.qpos_idx_map[jname]]
@@ -268,6 +328,40 @@ class AgibotSimEnv:
 
         if self.viewer is not None and self.viewer.is_running():
             self.viewer.sync()
+
+    def render_head_camera(self, width: int = 640, height: int = 480):
+        """Renders RGB and depth images from head_front_cam if available.
+        Returns: (rgb_jpeg_bytes, depth_png_bytes, seq) or (None, None, 0)
+        """
+        if not self.camera_name:
+            return None, None, 0
+        try:
+            import cv2
+            if self._renderer is None:
+                self._renderer = mujoco.Renderer(self.model, height=height, width=width)
+            self._renderer.disable_depth_rendering()
+            self._renderer.update_scene(self.data, camera=self.camera_name)
+            rgb = self._renderer.render()
+
+            self._renderer.enable_depth_rendering()
+            self._renderer.update_scene(self.data, camera=self.camera_name)
+            depth_m = self._renderer.render()
+
+            # Encode RGB as JPEG
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            ok_rgb, rgb_bytes = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+
+            # Encode depth in mm as 16-bit PNG
+            depth_mm = np.clip(depth_m * 1000.0, 0, 65535).astype(np.uint16)
+            ok_depth, depth_bytes = cv2.imencode(".png", depth_mm)
+
+            self._cam_seq += 1
+            seq = self._cam_seq
+            return (rgb_bytes.tobytes() if ok_rgb else None,
+                    depth_bytes.tobytes() if ok_depth else None,
+                    seq)
+        except Exception as e:
+            return None, None, 0
 
     def close(self):
         if self.viewer is not None:

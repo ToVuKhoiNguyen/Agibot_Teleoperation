@@ -50,7 +50,7 @@ function connectWS() {
 }
 
 function sendCmd(obj) {
-  if (obj && (obj.cmd === 'preset' || obj.cmd === 'go_home' || obj.cmd === 'home' || obj.cmd === 'reset' || obj.cmd === 'data_collection')) {
+  if (obj && (obj.cmd === 'preset' || obj.cmd === 'go_home' || obj.cmd === 'home' || obj.cmd === 'reset')) {
     window._allowGizmoServerSync = true;
   }
   if (ws && ws.readyState === WebSocket.OPEN) {

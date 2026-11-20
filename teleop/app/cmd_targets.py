@@ -168,8 +168,9 @@ def handle_target_cmd(app, name: str, cmd: dict) -> bool:
         app.manual_held = False
         is_real = str(getattr(app, "backend", "sim")).lower() in ("real", "ros2", "real-udp", "udp")
         if (name == "reset" or pose == "reset") and is_real:
-            # A real arm cannot teleport: an instant reset would jump the limiter plan to HOME.
-            app._start_smooth_homing("both")
+            # On real robot, reset brings both arms to Arms Up posture (smooth trajectory).
+            from teleop.app.joint_preset import start_preset
+            start_preset(app, "up")
         elif name == "reset" or pose == "reset":
             app.active_sequence = None
             app.homing_active = False

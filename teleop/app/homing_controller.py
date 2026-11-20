@@ -55,27 +55,6 @@ def reset_arm_to_home(app, side: str):
     start_smooth_homing(app, side)
 
 
-def start_data_collection(app, side: str = "both"):
-    """Planned min-jerk joint trajectory to DATA COLLECTION (arms raised ~50 deg from HOME), hands opened,
-    thumb set perpendicular / grasp-ready."""
-    from teleop.robot.aimdk_map import THUMB_POSE_RAW
-    app.thumb_pose_raw = getattr(app, "thumb_pose_raw", None) or THUMB_POSE_RAW
-    from teleop.app.joint_preset import start_preset
-    if side in ("left", "both"):
-        app.target_curls_l = np.zeros(5, dtype=np.float64)
-        app.target_pinch_l = 0.0
-        app.hand_closure_l = 0.0
-        app.grasp_type_l = "pinch"
-        app.direct_hand_override_l = False
-    if side in ("right", "both"):
-        app.target_curls_r = np.zeros(5, dtype=np.float64)
-        app.target_pinch_r = 0.0
-        app.hand_closure_r = 0.0
-        app.grasp_type_r = "pinch"
-        app.direct_hand_override_r = False
-    start_preset(app, "data_collection", side=side)
-
-
 def update_homing(app, dt: float):
     """Steps the planned joint trajectory (Home / presets)."""
     if not app.homing_active:

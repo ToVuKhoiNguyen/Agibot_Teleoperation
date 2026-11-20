@@ -106,16 +106,42 @@ def handle_xr_controllers_input(app, cmd: dict):
     app.xr_prev_btn_b = btn_b
     app.xr_prev_btn_y = btn_y
 
-    # Home: X (left) pressed -> the left arm goes Home; A (right) pressed -> BOTH arms go Home (17/11, operator request;
-    # A used to send only the right arm). Immediately, no hold time needed. Rising edge only, so a held button fires once. The first packet only records the state, so a button already down at connect does nothing.
-    # (In the headset's view-adjust mode the browser zeroes all buttons, so A there only resets the view.)
-    for btn, attr, side, label in ((btn_x, "xr_prev_btn_x", "left", "L X"), (btn_a, "xr_prev_btn_a", "both", "R A (both arms)")):
-        prev = getattr(app, attr, None)
-        if prev is not None and btn and not prev:
-            app._reset_arm_to_home(side)
-            app._log_xr_event(f"{label} pressed -> HOME")
-        setattr(app, attr, btn)
-    app.xr_home_progress_l = app.xr_home_progress_r = 0.0
+    # Buttons X (left) and A (right):
+    # Short tap (press & release < 3.0s): switch both arms to Arms Up posture (preset 'up').
+    # Hold >= 3.0s: return BOTH arms to canonical HOME posture.
+    for btn, attr_start, attr_prev, attr_trig, prog_attr, label in (
+        (btn_x, "x_hold_start", "xr_prev_btn_x", "x_home_triggered", "xr_home_progress_l", "L X"),
+        (btn_a, "a_hold_start", "xr_prev_btn_a", "a_home_triggered", "xr_home_progress_r", "R A"),
+    ):
+        prev = getattr(app, attr_prev, False)
+        t_start = getattr(app, attr_start, None)
+        trig = getattr(app, attr_trig, False)
+
+        if btn:
+            if t_start is None:
+                t_start = now_t
+                setattr(app, attr_start, t_start)
+                setattr(app, attr_trig, False)
+                trig = False
+            dur = now_t - t_start
+            setattr(app, prog_attr, min(1.0, dur / 3.0))
+            if dur >= 3.0 and not trig:
+                from teleop.app.homing_controller import reset_arm_to_home
+                reset_arm_to_home(app, "both")
+                setattr(app, attr_trig, True)
+                app._log_xr_event(f"{label} hold 3.0s -> HOME (both arms)")
+        else:
+            if t_start is not None:
+                dur = now_t - t_start
+                if dur < 3.0 and not trig:
+                    from teleop.app.joint_preset import start_preset
+                    start_preset(app, "up", side="both")
+                    app._log_xr_event(f"{label} tap -> ARMS UP (both arms)")
+            setattr(app, attr_start, None)
+            setattr(app, attr_trig, False)
+            setattr(app, prog_attr, 0.0)
+
+        setattr(app, attr_prev, btn)
 
     # Thumbstick Y: finger closure velocity control (hold value if tracking lost)
     if left_track and left_pkt and "thumbstick" in left_pkt:

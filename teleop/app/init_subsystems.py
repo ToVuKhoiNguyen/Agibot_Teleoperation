@@ -66,6 +66,9 @@ def init_subsystems(
     app.input_mode = input_mode.lower()
     app.xr_view = xr_view
     app.backend = backend
+    backend_key = (app.backend or "sim").lower()
+    app.is_real = backend_key in ("real", "ros2", "real-udp", "udp")
+    app.is_sim = not app.is_real
     app.allow_handtracking_real = bool(allow_handtracking_real)
     app.speed_scale = speed_scale
     app.ik_solver_type = ik_solver_type.lower()
@@ -99,6 +102,19 @@ def init_subsystems(
     app.env = AgibotSimEnv(os.environ.get("SIM_SCENE_XML") or scene_xml, render_gui=app.render_viewer)
     app.env.reset()
 
+    # In simulation mode, start default posture at Arms Up preset ('up')
+    backend_key = (app.backend or "sim").lower()
+    if backend_key in ("sim", "mujoco"):
+        try:
+            from teleop.app.joint_preset import JointPresetPlanner
+            planner = JointPresetPlanner(app)
+            q_up14 = planner.goal("up")
+            app.env.set_arm_commands(q_up14[:7], q_up14[7:])
+            mujoco.mj_forward(app.env.model, app.env.data)
+            print("[INFO] Sim startup: initial posture set to Arms Up ('up').")
+        except Exception as e:
+            print(f"[WARN] Could not set sim initial posture to 'up': {e}")
+
     home_poses = app.env.get_ee_poses()
     app.robot_home_pos_l = home_poses["left"]["pos"].copy()
     app.robot_home_pos_r = home_poses["right"]["pos"].copy()
@@ -107,7 +123,6 @@ def init_subsystems(
 
     # 3b. Real/Sim Robot Backend and SafetyLayer
     app.allow_hardware_risk = bool(allow_hardware_risk)
-    backend_key = (app.backend or "sim").lower()
     if backend_key in ("sim", "mujoco"):
         app.robot_backend = SimBackend(app.env)
     elif backend_key == "dryrun":

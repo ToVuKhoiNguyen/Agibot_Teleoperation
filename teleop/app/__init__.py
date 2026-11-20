@@ -10,7 +10,6 @@ from .homing_controller import (
     log_xr_event,
     update_precision,
     start_smooth_homing,
-    start_data_collection,
     reset_arm_to_home,
     update_homing,
 )
@@ -32,7 +31,6 @@ __all__ = [
     "log_xr_event",
     "update_precision",
     "start_smooth_homing",
-    "start_data_collection",
     "reset_arm_to_home",
     "update_homing",
     "update_hand_sweep",

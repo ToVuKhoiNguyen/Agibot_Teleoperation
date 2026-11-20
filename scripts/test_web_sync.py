@@ -69,16 +69,16 @@ async def test_websocket_stream():
     import aiohttp
     
     ssl_ctx = get_ssl_context()
-    # Ensure robot is at reset home pose
-    try:
-        req = urllib.request.Request(API_CMD_URL, data=json.dumps({"name": "preset", "pose": "reset"}).encode("utf-8"), headers={"Content-Type": "application/json"})
-        urllib.request.urlopen(req, context=ssl_ctx, timeout=2.0)
-        time.sleep(0.5)
-    except Exception:
-        pass
-
     conn = aiohttp.TCPConnector(ssl=ssl_ctx)
     async with aiohttp.ClientSession(connector=conn) as session:
+        # Ensure robot is at reset home pose
+        try:
+            req = urllib.request.Request(API_CMD_URL, data=json.dumps({"name": "preset", "pose": "reset"}).encode("utf-8"), headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, context=ssl_ctx, timeout=2.0)
+            time.sleep(0.5)
+        except Exception:
+            pass
+
         async with session.ws_connect(WS_URL) as ws:
             print("  Connected to WebSocket at", WS_URL)
             
@@ -154,18 +154,24 @@ async def test_websocket_stream():
             from teleop.robot.aimdk_map import hand_thumb
             ref_h = hand_thumb(np.zeros(6))
             ref_env.set_hand_commands(ref_h, ref_h)
-            mujoco.mj_forward(model, data)
             
-            # Fetch status to get current MuJoCo EE
+            # Fetch status to get current MuJoCo EE and arm joint poses
             req = urllib.request.Request(API_STATUS_URL)
             with urllib.request.urlopen(req, context=ssl_ctx, timeout=3.0) as resp:
                 status_data = json.loads(resp.read().decode("utf-8"))
+
+            if status_data.get("qpos_l") is not None and status_data.get("qpos_r") is not None:
+                ref_env.set_arm_commands(
+                    np.array(status_data["qpos_l"], dtype=np.float64),
+                    np.array(status_data["qpos_r"], dtype=np.float64)
+                )
 
             if hasattr(ref_env, "set_head_qpos"):
                 ref_env.set_head_qpos(
                     np.radians(float(status_data.get("neck_yaw_deg", 0.0))),
                     np.radians(float(status_data.get("neck_pitch_deg", 0.0)))
                 )
+            mujoco.mj_forward(model, data)
 
             base_pose = poses_msg.get("base_link")
             print(f"  Streamed base_link pose: {base_pose}")

@@ -34,7 +34,7 @@ class AgibotHandRetargeting:
         "fist":     np.array([0.95, 0.32, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
         "close":    np.array([0.95, 0.32, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
         "power":    np.array([0.95, 0.32, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
-        "pinch":    np.array([1.25, 0.32, 0.72, 0.00, 0.00, 0.00], dtype=np.float64),
+        "pinch":    np.array([1.25, 0.32, 0.72, 0.72, 0.00, 0.00], dtype=np.float64),
         "tripod":   np.array([1.22, 0.32, 0.72, 0.72, 0.00, 0.00], dtype=np.float64),
         "point":    np.array([0.90, 0.32, 0.00, 1.18, 1.22, 1.22], dtype=np.float64),
         "thumbs_up":np.array([0.00, 0.00, 1.18, 1.22, 1.22, 1.22], dtype=np.float64),
@@ -76,10 +76,8 @@ class AgibotHandRetargeting:
         g = str(grasp_type).lower().strip()
         if g in ("cylinder", "close", "fist", "power"):
             return np.array([0.45, 0.60, 0.72, 0.72, 0.72], dtype=np.float64) * cl, 0.58 * cl
-        elif g == "pinch":
-            return np.array([0.41, 0.42, 0.0, 0.0, 0.0], dtype=np.float64) * cl, 0.95 * cl
-        elif g == "tripod":
-            return np.array([0.41, 0.42, 0.42, 0.0, 0.0], dtype=np.float64) * cl, 0.91 * cl
+        elif g in ("pinch", "tripod"):
+            return np.array([0.41, 0.42, 0.42, 0.0, 0.0], dtype=np.float64) * cl, 0.95 * cl
         elif g == "point":
             return np.array([0.41, 0.0, 0.70, 0.72, 0.72], dtype=np.float64) * cl, 0.51 * cl
         elif g in ("thumbs_up", "thumbsup"):

@@ -394,6 +394,28 @@ def live_preview_tick(app):
                                   "clos": [round(float(getattr(app, "hand_closure_l", 0.0)), 3), round(float(getattr(app, "hand_closure_r", 0.0)), 3)],
                                   "sf": [int(bool(getattr(getattr(app, "mirror_limiter", None), "armor_blocked", False))),
                                          int(bool(getattr(app, "collision_blocked", False))), int(bool(getattr(app, "hand_collision_blocked", False)))]}, now)
+
+        # In simulation mode ONLY, push simulated robot state and camera to preview
+        is_sim_backend = str(getattr(app, "backend", "sim")).lower() in ("sim", "mujoco")
+        if is_sim_backend and hasattr(app, "env"):
+            ql = app.env.get_left_arm_qpos()
+            qr = app.env.get_right_arm_qpos()
+            q14 = np.concatenate([ql, qr])
+            cmd14 = np.concatenate([getattr(app, "last_arm_cmd_left", ql), getattr(app, "last_arm_cmd_right", qr)])
+            hl = getattr(app, "last_hand_cmd_left", np.zeros(6))
+            hr = getattr(app, "last_hand_cmd_right", np.zeros(6))
+            h12 = np.concatenate([hl, hr])
+            LIVE.push_preview("robot", {"q": _vec(q14), "hand": _vec(h12), "cmd": _vec(cmd14), "fault": False}, now)
+
+            # Simulated camera rendering (rate-limited ~10 Hz)
+            if now - getattr(app, "_sim_cam_t", 0.0) >= 0.10:
+                app._sim_cam_t = now
+                if hasattr(app.env, "render_head_camera"):
+                    rgb_bytes, depth_bytes, seq = app.env.render_head_camera()
+                    if rgb_bytes is not None:
+                        LIVE.push_preview("img", {"cam": "head_cam_color", "i": seq, "kind": "color", "fmt": "jpg", "data": rgb_bytes}, now)
+                    if depth_bytes is not None:
+                        LIVE.push_preview("img", {"cam": "head_cam_depth", "i": seq, "kind": "depth", "fmt": "png", "data": depth_bytes}, now)
     except Exception:
         pass
 

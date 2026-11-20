@@ -1,65 +1,101 @@
 <!--
-  Practice scene "pick into bin" (17/11): table (top 0.78 m) in front of the robot, 4 small objects front right, an
-  open bin front centre. Run:  python main.py --sim --scene pick_bin   (web 8012 / Quest / MuJoCo window, opened by default with --sim)
-  Only the objects are simulated (they fall, rest on the table, drop into the bin); the robot is kinematic and does not
-  collide. Grasp = assist (teleop/simulation/task_scene.py): an object sticks to a hand that closes around it and is
-  released when the hand opens. Bodies named task_obj_* are the graspable objects.
-  Robot frame: base_link at (0, 0, 0.93), facing +x; at HOME the hands are at x ~0.15, z ~0.75, y +-0.35.
+  Practice scene "pick into bin": ban cao 0.78 m, thung carton o giua (0.35, 0.05),
+  3 vat the ben ngoai thung trong tam voi tay phai:
+    1. task_obj_pringles_can (lon Pringles do)
+    2. task_obj_tape_roll (cuon bang dinh den)
+    3. task_obj_white_ball (qua bong trang)
+  Chay: python main.py --sim
 -->
 <mujoco model="agibot_a2_ultra_pick_bin">
   <include file="scene.xml"/>
 
   <asset>
-    <material name="task_wood" rgba="0.62 0.47 0.32 1"/>
-    <material name="task_leg" rgba="0.30 0.30 0.32 1"/>
-    <material name="task_bin" rgba="0.20 0.45 0.75 1"/>
+    <material name="task_table_mat" rgba="0.92 0.92 0.94 1"/>
+    <material name="task_leg_mat" rgba="0.30 0.30 0.32 1"/>
+    <material name="task_carton_mat" rgba="0.75 0.55 0.38 1"/>
+    <material name="task_tape_mat" rgba="0.15 0.75 0.25 1"/>
   </asset>
 
   <default>
     <default class="task_static">
-      <geom contype="1" conaffinity="1" friction="1.0 0.01 0.001" condim="3"/>
+      <geom contype="1" conaffinity="1" friction="1.5 0.05 0.005" condim="4"/>
     </default>
     <default class="task_obj">
-      <geom contype="1" conaffinity="1" friction="1.2 0.01 0.001" condim="4" density="400" solref="0.005 1"/>
+      <geom contype="1" conaffinity="1" friction="3.0 0.1 0.01" condim="4" density="400" solref="0.005 1"/>
     </default>
   </default>
 
   <worldbody>
-    <!-- table: top surface at z = 0.78 (A2 arm reach is ~0.5 m from the shoulder at z 1.27: a lower table is out of
-         reach), spans x 0.20..0.60, y -0.45..0.45 -->
-    <body name="task_table" pos="0.40 0 0.76">
-      <geom class="task_static" type="box" size="0.20 0.45 0.02" material="task_wood"/>
-      <geom class="task_static" type="box" pos=" 0.17  0.41 -0.4185" size="0.02 0.02 0.3985" material="task_leg"/>
-      <geom class="task_static" type="box" pos=" 0.17 -0.41 -0.4185" size="0.02 0.02 0.3985" material="task_leg"/>
-      <geom class="task_static" type="box" pos="-0.17  0.41 -0.4185" size="0.02 0.02 0.3985" material="task_leg"/>
-      <geom class="task_static" type="box" pos="-0.17 -0.41 -0.4185" size="0.02 0.02 0.3985" material="task_leg"/>
+    <!-- Preset Cameras for MuJoCo viewer (switch with [ and ] or Camera dropdown) -->
+    <camera name="cam_side" pos="0.42 1.35 1.05" xyaxes="-1 0 0 0 -0.25 0.95"/>
+    <camera name="cam_top" pos="0.42 0.0 1.95" xyaxes="0 1 0 -1 0 0"/>
+    <camera name="cam_front" pos="1.45 0 1.15" xyaxes="0 1 0 0 0.30 0.95"/>
+    <camera name="cam_operator" pos="-0.50 0 1.55" xyaxes="0 -1 0 0.5 0 0.866"/>
+
+    <!-- table: ban trang cao z = 0.78, rong x 0.20..0.65, y -0.50..0.50 -->
+    <body name="task_table" pos="0.42 0 0.76">
+      <geom class="task_static" type="box" size="0.23 0.50 0.02" material="task_table_mat"/>
+      <geom class="task_static" type="box" pos=" 0.20  0.46 -0.4185" size="0.02 0.02 0.3985" material="task_leg_mat"/>
+      <geom class="task_static" type="box" pos=" 0.20 -0.46 -0.4185" size="0.02 0.02 0.3985" material="task_leg_mat"/>
+      <geom class="task_static" type="box" pos="-0.20  0.46 -0.4185" size="0.02 0.02 0.3985" material="task_leg_mat"/>
+      <geom class="task_static" type="box" pos="-0.20 -0.46 -0.4185" size="0.02 0.02 0.3985" material="task_leg_mat"/>
     </body>
 
-    <!-- bin: inner 0.16 x 0.18 m, walls 0.08 m high, front centre (both hands reach it from above) -->
-    <body name="task_bin" pos="0.29 0.06 0.78">
-      <geom class="task_static" type="box" pos="0 0 0.005" size="0.09 0.10 0.005" material="task_bin"/>
-      <geom class="task_static" type="box" pos=" 0.085 0 0.04" size="0.005 0.10 0.04" material="task_bin"/>
-      <geom class="task_static" type="box" pos="-0.085 0 0.04" size="0.005 0.10 0.04" material="task_bin"/>
-      <geom class="task_static" type="box" pos="0  0.095 0.04" size="0.09 0.005 0.04" material="task_bin"/>
-      <geom class="task_static" type="box" pos="0 -0.095 0.04" size="0.09 0.005 0.04" material="task_bin"/>
+    <!-- bin: thung carton o giua (0.35, 0.05), long thung 0.24 x 0.18 m, thanh cao 0.10 m (co the gap va di chuyen) -->
+    <body name="task_obj_bin" pos="0.35 0.05 0.78">
+      <freejoint name="task_obj_bin"/>
+      <geom class="task_obj" type="box" pos="0 0 0.005" size="0.12 0.09 0.005" material="task_carton_mat"/>
+      <geom class="task_obj" type="box" pos=" 0.115 0 0.05" size="0.005 0.09 0.05" material="task_carton_mat"/>
+      <geom class="task_obj" type="box" pos="-0.115 0 0.05" size="0.005 0.09 0.05" material="task_carton_mat"/>
+      <geom class="task_obj" type="box" pos="0  0.085 0.05" size="0.12 0.005 0.05" material="task_carton_mat"/>
+      <geom class="task_obj" type="box" pos="0 -0.085 0.05" size="0.12 0.005 0.05" material="task_carton_mat"/>
     </body>
 
-    <!-- graspable objects, front right (inside the right hand's reach: x 0.22..0.38, y -0.35..-0.10) -->
-    <body name="task_obj_red_cube" pos="0.26 -0.19 0.802">
-      <freejoint name="task_obj_red_cube"/>
-      <geom class="task_obj" type="box" size="0.022 0.022 0.022" rgba="0.85 0.15 0.15 1"/>
+    <!-- 1. Lon Pringles do (hinh tru dai, dat dung ben phai thung) -->
+    <body name="task_obj_pringles_can" pos="0.36 -0.18 0.844">
+      <freejoint name="task_obj_pringles_can"/>
+      <geom class="task_obj" type="cylinder" size="0.0285 0.0638" rgba="0.88 0.12 0.12 1"/>
     </body>
-    <body name="task_obj_green_can" pos="0.34 -0.27 0.825">
-      <freejoint name="task_obj_green_can"/>
-      <geom class="task_obj" type="cylinder" size="0.025 0.045" rgba="0.20 0.70 0.30 1"/>
+
+    <!-- 2. Cuon bang dinh xanh la (hinh tru rong ruot mau xanh la, ben canh lon Pringles) -->
+    <body name="task_obj_tape_roll" pos="0.27 -0.20 0.788">
+      <freejoint name="task_obj_tape_roll"/>
+      <geom class="task_obj" type="box" pos="0.0266 0.0000 0" euler="0 0 0.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0257 0.0069 0" euler="0 0 15.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0231 0.0133 0" euler="0 0 30.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0188 0.0188 0" euler="0 0 45.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0133 0.0231 0" euler="0 0 60.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0069 0.0257 0" euler="0 0 75.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0000 0.0266 0" euler="0 0 90.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0069 0.0257 0" euler="0 0 105.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0133 0.0231 0" euler="0 0 120.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0188 0.0188 0" euler="0 0 135.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0231 0.0133 0" euler="0 0 150.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0257 0.0069 0" euler="0 0 165.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0266 0.0000 0" euler="0 0 180.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0257 -0.0069 0" euler="0 0 195.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0231 -0.0133 0" euler="0 0 210.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0188 -0.0188 0" euler="0 0 225.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0133 -0.0231 0" euler="0 0 240.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0069 -0.0257 0" euler="0 0 255.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="-0.0000 -0.0266 0" euler="0 0 270.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0069 -0.0257 0" euler="0 0 285.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0133 -0.0231 0" euler="0 0 300.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0188 -0.0188 0" euler="0 0 315.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0231 -0.0133 0" euler="0 0 330.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
+      <geom class="task_obj" type="box" pos="0.0257 -0.0069 0" euler="0 0 345.0" size="0.0071 0.0037 0.0075" material="task_tape_mat"/>
     </body>
-    <body name="task_obj_yellow_block" pos="0.25 -0.32 0.80">
-      <freejoint name="task_obj_yellow_block"/>
-      <geom class="task_obj" type="box" size="0.035 0.02 0.02" rgba="0.95 0.80 0.15 1"/>
+
+    <!-- 3. Qua bong / trung trang (hinh cau mau trang) -->
+    <body name="task_obj_white_ball" pos="0.30 -0.28 0.799">
+      <freejoint name="task_obj_white_ball"/>
+      <geom class="task_obj" type="sphere" size="0.019" rgba="0.95 0.95 0.95 1"/>
     </body>
-    <body name="task_obj_purple_cube" pos="0.34 -0.14 0.805">
-      <freejoint name="task_obj_purple_cube"/>
-      <geom class="task_obj" type="box" size="0.025 0.025 0.025" rgba="0.55 0.30 0.75 1"/>
+
+    <!-- 4. Khoi lap phuong (cung kich thuoc voi khoi cau trang: nua kich thuoc 0.019 m) -->
+    <body name="task_obj_cube" pos="0.38 -0.28 0.799">
+      <freejoint name="task_obj_cube"/>
+      <geom class="task_obj" type="box" size="0.019 0.019 0.019" rgba="0.20 0.50 0.85 1"/>
     </body>
   </worldbody>
 </mujoco>

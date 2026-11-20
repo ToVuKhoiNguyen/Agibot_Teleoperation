@@ -223,6 +223,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", default="recordings", help="root of the recorded episodes (default: recordings)")
     ap.add_argument("--task", default=None, help="only this task folder (default: all tasks)")
+    ap.add_argument("--date", default=None, help="only this date folder YYYY-MM-DD (default: all dates)")
     ap.add_argument("--out", required=True, help="output dataset folder (must not exist)")
     ap.add_argument("--repo-id", required=True, help="LeRobot repo id, e.g. local/a2_pick (nothing is uploaded)")
     ap.add_argument("--fps", type=int, default=30)
@@ -254,7 +255,7 @@ def main():
         missing = [d for d in ep_dirs if not (d / "meta.json").exists()]
         if missing: sys.exit(f"source episodes no longer on disk: {', '.join(map(str, missing[:5]))}")
     else:
-        ep_dirs = sorted(p.parent for p in root.glob(f"{a.task or '*'}/*/ep_*/meta.json"))
+        ep_dirs = sorted(p.parent for p in root.glob(f"{a.task or '*'}/{a.date or '*'}/ep_*/meta.json"))
     if not ep_dirs: sys.exit(f"no episodes under {root}/{a.task or '*'}/<date>/ep_*")
     out = Path(a.out)
     prev_sources = []

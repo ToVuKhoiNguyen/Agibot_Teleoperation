@@ -22,7 +22,6 @@ from teleop.app import (
     log_xr_event,
     update_precision,
     start_smooth_homing,
-    start_data_collection,
     reset_arm_to_home,
     update_homing,
     update_hand_sweep,
@@ -115,9 +114,6 @@ class UnifiedTeleopApp:
 
     def _start_smooth_homing(self, side: str = "both", duration: float = None):
         start_smooth_homing(self, side, duration)
-
-    def _start_data_collection(self, side: str = "both"):
-        start_data_collection(self, side)
 
     def _reset_arm_to_home(self, side: str):
         reset_arm_to_home(self, side)
@@ -251,7 +247,9 @@ def main():
     # deceleration; a stop ends about 25 ms later). DIRECT_OUT_FIR2=1 switches it off.
     os.environ.setdefault("DIRECT_OUT_FIR2", {0: "1", 1: "1", 3: "4"}.get(args.smooth, "10"))   # level 3: 4, level 1 (default): off, both since 17/11
 
-    if args.scene != "default":   # also with the real robot: virtual table / bin / objects around the digital twin
+    if args.scene == "pick_bin" or (args.sim and args.scene == "default"):
+        os.environ["SIM_SCENE_XML"] = str(PROJECT_ROOT / "assets" / "agibot_a2_ultra" / "mjcf" / "scene_pick_bin.xml")
+    elif args.scene != "default":   # custom scene
         os.environ["SIM_SCENE_XML"] = str(PROJECT_ROOT / "assets" / "agibot_a2_ultra" / "mjcf" / f"scene_{args.scene}.xml")
     backend = "sim" if args.sim else (args.backend if args.backend else "real-udp")
     is_real = backend in ("real", "ros2", "real-udp", "udp")
